@@ -18,7 +18,7 @@ import {
   Trophy,
   Target,
   Zap,
-  Gift,--
+  Gift,
   TrendingUp,
   Medal,
   Gamepad2,
