@@ -62,21 +62,21 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
   useEffect(() => {
     if (pathname === "/promotors/dashboard") {
       setActiveTab("home");
-      setIsFooterVisible(true);
+      setIsFooterVisible(true); // Ensure footer is visible on other pages
       setIsInChat(false);
     } else if (pathname === "/promotors/einsatz") {
       setActiveTab("einsatz");
-      setIsFooterVisible(true);
+      setIsFooterVisible(true); // Ensure footer is visible on other pages
       setIsInChat(false);
     } else if (pathname === "/promotors/chat") {
       setActiveTab("chats");
     } else if (pathname === "/kpis" || pathname === "/promotors/statistiken") {
       setActiveTab("kpis");
-      setIsFooterVisible(true);
+      setIsFooterVisible(true); // Ensure footer is visible on other pages
       setIsInChat(false);
     } else if (pathname === "/promotors/profil") {
       setActiveTab("profil");
-      setIsFooterVisible(true);
+      setIsFooterVisible(true); // Ensure footer is visible on other pages
       setIsInChat(false);
     } else {
       // Fallback, or determine based on a default route
@@ -226,15 +226,7 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
       setIsInTrainingSession(showVideoPlayer || showPDFReader || showQuiz)
 
       const isInChatMode = localStorage.getItem('isInChatMode') === 'true'
-      
-      // Only set isInChat to true if we're actually ON the chat page
-      const shouldBeInChat = isInChatMode && pathname === '/promotors/chat'
-      setIsInChat(shouldBeInChat)
-      
-      // Clear stale chat mode if we're not on chat page
-      if (isInChatMode && pathname !== '/promotors/chat') {
-        localStorage.setItem('isInChatMode', 'false')
-      }
+      setIsInChat(isInChatMode)
 
       // Read unread count bridge from promotor chat integration
       const unreadRaw = localStorage.getItem('promotorUnreadCount');
@@ -251,7 +243,7 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
     return () => {
       window.removeEventListener('storage', checkSession)
     }
-  }, [pathname])
+  }, [])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
