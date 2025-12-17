@@ -39,7 +39,14 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       // Create Socket.IO connection
-      const rawUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
+      // Check for environment variable, fallback to production URL
+      const rawUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 
+                     (typeof window !== 'undefined' && window.location.hostname === 'localhost' 
+                       ? 'http://localhost:3000' 
+                       : 'https://salescrew-app-production.up.railway.app');
+      
+      console.log('[Socket.IO] Using URL:', rawUrl);
+      
       if (!rawUrl) {
         console.error('[Socket.IO] NEXT_PUBLIC_SOCKET_URL is not defined! Socket will not initialize.');
         setIsConnected(false);
@@ -97,7 +104,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
         
         if (session?.access_token && event === 'TOKEN_REFRESHED') {
-          const rawUrl = process.env.NEXT_PUBLIC_SOCKET_URL;
+          const rawUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 
+                         (typeof window !== 'undefined' && window.location.hostname === 'localhost' 
+                           ? 'http://localhost:3000' 
+                           : 'https://salescrew-app-production.up.railway.app');
           if (!rawUrl) return;
           const socketUrl = rawUrl.replace(/\/$/, '');
           const newSocket = io(socketUrl, {
