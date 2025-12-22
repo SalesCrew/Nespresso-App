@@ -82,6 +82,13 @@ export default function EinsatzPage() {
   const assignmentEndDateRef = useRef<Date | null>(null); // To store the specific end date of the current/last assignment
 
   const [isSwiped, setIsSwiped] = useState(false); // New state for swipe toggle
+  
+  // Swipe gesture state
+  const [swipePosition, setSwipePosition] = useState(0);
+  const [isSwipeAnimating, setIsSwipeAnimating] = useState(false);
+  const [swipeStartX, setSwipeStartX] = useState(0);
+  const swipeContainerRef = useRef<HTMLDivElement>(null);
+  const swipeButtonRef = useRef<HTMLDivElement>(null);
 
   const [lastCompletedAssignmentDate, setLastCompletedAssignmentDate] = useState<Date | null>(null);
 
@@ -1263,6 +1270,14 @@ const loadProcessState = async () => {
     };
   }, [einsatzStatus, nextAssignment?.start_ts, nextAssignment?.end_ts]); // Added dependencies
 
+  // Reset swipe position when einsatzStatus changes or component unmounts
+  useEffect(() => {
+    if (einsatzStatus !== "idle" || isSwiped) {
+      setSwipePosition(0);
+      setIsSwipeAnimating(false);
+    }
+  }, [einsatzStatus, isSwiped]);
+
   const formatTime = (totalSeconds: number) => {
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -1359,6 +1374,106 @@ const loadProcessState = async () => {
         handleStartEinsatz();
       }
     }
+  };
+
+  // Touch and mouse handlers for swipe gesture
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    setSwipeStartX(touch.clientX);
+    setIsSwipeAnimating(false);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (isSwiped) return;
+    
+    const touch = e.touches[0];
+    const currentX = touch.clientX;
+    const deltaX = currentX - swipeStartX;
+    
+    // Get container width to calculate max swipe distance
+    const containerWidth = swipeContainerRef.current?.offsetWidth || 0;
+    const buttonWidth = 48; // 12 * 4px (w-12)
+    const maxSwipe = containerWidth - buttonWidth - 8; // -8 for padding
+    
+    // Only allow positive swipe (left to right)
+    const newPosition = Math.max(0, Math.min(deltaX, maxSwipe));
+    setSwipePosition(newPosition);
+  };
+
+  const handleTouchEnd = () => {
+    if (isSwiped) return;
+    
+    const containerWidth = swipeContainerRef.current?.offsetWidth || 0;
+    const buttonWidth = 48;
+    const maxSwipe = containerWidth - buttonWidth - 8;
+    const threshold = maxSwipe * 0.8; // 80% of the way triggers the action
+    
+    if (swipePosition >= threshold) {
+      // Swipe completed - trigger start
+      setSwipePosition(maxSwipe);
+      setIsSwipeAnimating(true);
+      setIsSwiped(true);
+      setTimeout(() => {
+        handleSwipeStart();
+      }, 300); // Match animation duration
+    } else {
+      // Swipe not completed - reset
+      setIsSwipeAnimating(true);
+      setSwipePosition(0);
+      setTimeout(() => {
+        setIsSwipeAnimating(false);
+      }, 300);
+    }
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setSwipeStartX(e.clientX);
+    setIsSwipeAnimating(false);
+    
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (isSwiped) return;
+      
+      const currentX = moveEvent.clientX;
+      const deltaX = currentX - swipeStartX;
+      
+      const containerWidth = swipeContainerRef.current?.offsetWidth || 0;
+      const buttonWidth = 48;
+      const maxSwipe = containerWidth - buttonWidth - 8;
+      
+      const newPosition = Math.max(0, Math.min(deltaX, maxSwipe));
+      setSwipePosition(newPosition);
+    };
+    
+    const handleMouseUp = () => {
+      if (isSwiped) return;
+      
+      const containerWidth = swipeContainerRef.current?.offsetWidth || 0;
+      const buttonWidth = 48;
+      const maxSwipe = containerWidth - buttonWidth - 8;
+      const threshold = maxSwipe * 0.8;
+      
+      if (swipePosition >= threshold) {
+        setSwipePosition(maxSwipe);
+        setIsSwipeAnimating(true);
+        setIsSwiped(true);
+        setTimeout(() => {
+          handleSwipeStart();
+        }, 300);
+      } else {
+        setIsSwipeAnimating(true);
+        setSwipePosition(0);
+        setTimeout(() => {
+          setIsSwipeAnimating(false);
+        }, 300);
+      }
+      
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
   };
 
   const handleEarlyStartSubmit = () => {
@@ -2181,17 +2296,24 @@ const loadProcessState = async () => {
                           {isAssignmentForToday && einsatzStatus === "idle" && !isSwiped && !activeSpecialStatus?.is_active && !displayedAssignment?.special_status && (
               <div className="mt-4">
                 <div 
-                  className="relative w-full h-14 bg-gray-100 dark:bg-gray-800 rounded-full p-1 cursor-pointer select-none flex items-center justify-center shadow-inner"
-                  onClick={handleSwipeStart}
+                  ref={swipeContainerRef}
+                  className="relative w-full h-14 bg-gray-100 dark:bg-gray-800 rounded-full p-1 select-none flex items-center justify-center shadow-inner overflow-hidden"
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                  onMouseDown={handleMouseDown}
                 >
                   <div 
-                    className={`absolute left-1 top-1 flex items-center justify-center w-12 h-12 bg-blue-500 rounded-full shadow-md transition-transform duration-300 ease-in-out transform ${
-                      isSwiped ? 'translate-x-[calc(100%-3.5rem)]' : 'translate-x-0'
-                    }`}
+                    ref={swipeButtonRef}
+                    className="absolute left-1 top-1 flex items-center justify-center w-12 h-12 bg-blue-500 rounded-full shadow-md z-10 touch-none"
+                    style={{
+                      transform: `translateX(${swipePosition}px)`,
+                      transition: isSwipeAnimating ? 'transform 0.3s ease-out' : 'none'
+                    }}
                   >
                     <ChevronRight className="h-6 w-6 text-white" />
                   </div>
-                  <span className={`text-sm font-medium transition-opacity duration-300 ${isSwiped ? 'opacity-0' : 'opacity-100 text-gray-700 dark:text-gray-300'}`}>
+                  <span className={`text-sm font-medium transition-opacity duration-300 ${swipePosition > 20 ? 'opacity-0' : 'opacity-100 text-gray-700 dark:text-gray-300'}`}>
                     Swipe zum Starten
                   </span>
                   {isSwiped && (
