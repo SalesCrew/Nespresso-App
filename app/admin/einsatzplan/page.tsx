@@ -878,6 +878,34 @@ export default function EinsatzplanPage() {
     }
   };
 
+  // Function for bulk assignment - assigns promotor directly without relying on editingEinsatz state
+  const bulkAssignPromotor = async (assignmentId: string, promotorName: string, promotorId: string) => {
+    try {
+      // Add/update lead promotor
+      await fetch(`/api/assignments/${assignmentId}/participants/choose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: promotorId, role: 'lead' })
+      });
+      
+      // Update invitation status to accepted
+      await fetch(`/api/assignments/${assignmentId}/invites/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: promotorId })
+      });
+      
+      // Update local state
+      setEinsatzplanData(prev => prev.map(item => 
+        item.id === assignmentId 
+          ? { ...item, promotor: promotorName, promotorId: promotorId, status: 'Verplant' } 
+          : item
+      ));
+    } catch (error) {
+      console.error('Error in bulk assignment:', error);
+    }
+  };
+
   // Function to get AI recommendations
   const fetchAiRecommendations = async (assignmentId: string) => {
     console.log('🎯 [CLIENT] AI recommendation request started', { assignmentId });
@@ -3447,13 +3475,7 @@ Import EP
                               } else if (bulkAssignmentMode && selectedBulkPromotor) {
                                 // Bulk Assignment Mode: assign selected promotor directly
                                 e.stopPropagation();
-                                setEditingEinsatz({
-                                  ...einsatz,
-                                  promotor: selectedBulkPromotor.name,
-                                  promotorId: selectedBulkPromotor.id,
-                                  status: 'Verplant'
-                                });
-                                assignPromotionToPromotor(selectedBulkPromotor.name, selectedBulkPromotor.id);
+                                bulkAssignPromotor(einsatz.id, selectedBulkPromotor.name, selectedBulkPromotor.id);
                               } else if (aiMode) {
                                 // AI mode: fetch recommendations instead of opening detail modal
                                 console.log('🧠 [CLIENT] AI mode click detected', { einsatzId: einsatz.id, aiMode });
