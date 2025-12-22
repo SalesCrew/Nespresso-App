@@ -3858,6 +3858,7 @@ Import EP
                               <div
                                 key={promotor.user_id}
                                 onClick={() => {
+                                  // Toggle: if same promotor clicked, deselect; otherwise select new one
                                   if (selectedBulkPromotor?.id === promotor.user_id) {
                                     setSelectedBulkPromotor(null);
                                   } else {
@@ -3865,7 +3866,7 @@ Import EP
                                   }
                                 }}
                                 className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                                  selectedBulkPromotor?.id === promotor.user_id
+                                  selectedBulkPromotor !== null && selectedBulkPromotor.id === promotor.user_id
                                     ? 'bg-green-50/50 border-green-200 shadow-sm'
                                     : 'bg-white border-gray-100 hover:bg-gray-50 hover:border-gray-200'
                                 }`}
@@ -3889,7 +3890,7 @@ Import EP
                                       </div>
                                     )}
                                   </div>
-                                  {selectedBulkPromotor?.id === promotor.user_id && (
+                                  {selectedBulkPromotor !== null && selectedBulkPromotor.id === promotor.user_id && (
                                     <Check className="h-4 w-4 text-green-600 flex-shrink-0" />
                                   )}
                                 </div>
