@@ -5901,34 +5901,34 @@ Import EP
                   {showExcelFormatInfo && (
                     <div className="space-y-1.5 mt-2.5">
                       <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 w-16 flex-shrink-0">Spalte A:</span>
-                        <span className="text-gray-600">Marktname/Adresse</span>
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte A:</span>
+                        <span className="text-gray-600 ml-2">Marktname/Adresse</span>
                       </div>
                       <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 w-16 flex-shrink-0">Spalte B:</span>
-                        <span className="text-gray-600">PLZ</span>
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte B:</span>
+                        <span className="text-gray-600 ml-2">PLZ</span>
                       </div>
                       <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 w-16 flex-shrink-0">Spalte C-D:</span>
-                        <span className="text-gray-600">Wird ignoriert</span>
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte C-D:</span>
+                        <span className="text-gray-600 ml-2">Wird ignoriert</span>
                       </div>
                       <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 w-16 flex-shrink-0">Ab Spalte E:</span>
-                        <span className="text-gray-600">Datumsspalten (Zeile 1: Datum, z.B. "04.Aug")</span>
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Ab Spalte E:</span>
+                        <span className="text-gray-600 ml-2">Datumsspalten (Zeile 1: Datum, z.B. "04.Aug")</span>
                       </div>
                       <div className="border-t border-blue-200/50 mt-2.5 pt-2.5">
                         <p className="text-xs font-medium text-blue-700 mb-1.5">Werte in Datumsspalten:</p>
                         <div className="space-y-1">
                           <div className="flex items-center text-xs">
-                            <span className="font-semibold text-blue-600 w-8">1</span>
+                            <span className="font-semibold text-blue-600 flex-shrink-0 whitespace-nowrap w-8">1</span>
                             <span className="text-gray-600">= 1 Einsatz (09:30-18:30)</span>
                           </div>
                           <div className="flex items-center text-xs">
-                            <span className="font-semibold text-blue-600 w-8">2</span>
+                            <span className="font-semibold text-blue-600 flex-shrink-0 whitespace-nowrap w-8">2</span>
                             <span className="text-gray-600">= 2 Einsätze (09:30-18:30)</span>
                           </div>
                           <div className="flex items-center text-xs">
-                            <span className="font-semibold text-blue-600 w-8">0.75</span>
+                            <span className="font-semibold text-blue-600 flex-shrink-0 whitespace-nowrap w-8">0.75</span>
                             <span className="text-gray-600">= 1 Einsatz (09:30-15:30)</span>
                           </div>
                         </div>
