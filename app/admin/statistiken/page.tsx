@@ -74,6 +74,8 @@ export default function StatistikenPage() {
   const [kpiHistoryLoading, setKpiHistoryLoading] = useState(false);
   // Prämien UI state
   const [showPraemienModal, setShowPraemienModal] = useState(false);
+  const [showPraemienImportModal, setShowPraemienImportModal] = useState(false);
+  const [showPraemienExcelFormatInfo, setShowPraemienExcelFormatInfo] = useState(false);
   const [praemienWave, setPraemienWave] = useState<string | null>(null);
   const [praemienHighlight, setPraemienHighlight] = useState(false);
   const [praemienSummary, setPraemienSummary] = useState<{items: any[]; totals: { brutto: number; netto: number}} | null>(null);
@@ -84,6 +86,7 @@ export default function StatistikenPage() {
   const [praemienMatcherQuery, setPraemienMatcherQuery] = useState('');
   const [praemienMatcherPos, setPraemienMatcherPos] = useState<{top: number; left: number} | null>(null);
   const praemienModalRef = useRef<HTMLDivElement>(null);
+  const praemienFileInputRef = useRef<HTMLInputElement>(null);
 
   const computePraemieTotals = (u: { gutscheine?: number; tma?: number; vertuo?: number; vertuo_pop?: number; aeroccino?: number; vorteilsbox?: number }) => {
     const g = Number(u.gutscheine || 0);
@@ -411,6 +414,77 @@ export default function StatistikenPage() {
       } else {
         alert('Bitte wählen Sie eine Excel-Datei (.xlsx oder .xls)');
       }
+    }
+  };
+
+  const handlePraemienFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && praemienWave) {
+      await processPraemienExcel(file);
+      setShowPraemienImportModal(false);
+    }
+  };
+
+  const handlePraemienDragOver = (event: React.DragEvent) => {
+    event.preventDefault();
+  };
+
+  const handlePraemienDrop = async (event: React.DragEvent) => {
+    event.preventDefault();
+    const files = event.dataTransfer.files;
+    if (files.length > 0) {
+      const file = files[0];
+      if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
+          file.type === 'application/vnd.ms-excel' ||
+          file.name.endsWith('.xlsx') || 
+          file.name.endsWith('.xls')) {
+        if (praemienWave) {
+          await processPraemienExcel(file);
+          setShowPraemienImportModal(false);
+        }
+      } else {
+        alert('Bitte wählen Sie eine Excel-Datei (.xlsx oder .xls)');
+      }
+    }
+  };
+
+  const processPraemienExcel = async (file: File) => {
+    try {
+      const wb = await file.arrayBuffer().then(buf => XLSX.read(buf));
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[];
+      const header = rows[0] || [];
+      const dataRows = rows.slice(1);
+      const get = (r: any[], idx: number) => Number.isFinite(Number(r[idx])) ? Number(r[idx]) : parseInt(String(r[idx] || 0), 10) || 0;
+      const mapped = dataRows
+        .filter(r => r && (r[0] || r[1]))
+        .map(r => ({
+          name: (r[0] || '').toString().trim(),
+          email: (r[1] || '').toString().trim(),
+          tma: get(r, 6),
+          gutscheine: get(r, 7),
+          vertuo: get(r, 14),
+          aeroccino: get(r, 15),
+          vertuo_pop: get(r, 17),
+          vorteilsbox: get(r, 23),
+        })) as any[];
+      
+      const res = await fetch('/api/admin/kpi-praemien/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ waveMonth: praemienWave, rows: mapped }),
+      });
+      
+      if (res.ok) {
+        const result = await res.json().catch(() => ({}));
+        const ref = await fetch(`/api/admin/kpi-praemien?waveMonth=${praemienWave}`, { cache: 'no-store' });
+        if (ref.ok) setPraemienSummary(await ref.json());
+        setPraemienUnmatched(Array.isArray(result?.unmatched) ? result.unmatched : []);
+        setPraemienManualMap({});
+      }
+    } catch (err) {
+      console.error('Import failed', err);
+      alert('Fehler beim Importieren der Datei');
     }
   };
 
@@ -1786,58 +1860,14 @@ Liebe Grüße, dein Nespresso Team`;
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-500">{praemienWave ? `Wave: ${praemienWave}` : '—'}</span>
-                        <label className="inline-flex items-center px-2 py-1 rounded-md text-xs border border-gray-200 bg-gray-50 cursor-pointer">
-                          <input
-                            type="file"
-                            accept=".xlsx,.xls"
-                            className="hidden"
-                            onChange={async (e) => {
-                              const inputEl = e.currentTarget as HTMLInputElement;
-                              const file = inputEl.files?.[0];
-                              if (!file || !praemienWave) return;
-                          const wb = await file.arrayBuffer().then(buf => XLSX.read(buf));
-                          const sheet = wb.Sheets[wb.SheetNames[0]];
-                          const rows: any[] = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[];
-                              const header = rows[0] || [];
-                              const dataRows = rows.slice(1);
-                              const get = (r: any[], idx: number) => Number.isFinite(Number(r[idx])) ? Number(r[idx]) : parseInt(String(r[idx] || 0), 10) || 0;
-                              // Explicit column mapping per spec:
-                              // A: Name (0), B: Email (1), G: TMA (6), H: Gutscheine (7), O: Vertuo (14), P: Aeroccino (15), R: Vertuo Pop+ (17), X: Vorteilsbox (23 optional)
-                              const mapped = dataRows
-                                .filter(r => r && (r[0] || r[1]))
-                                .map(r => ({
-                                  name: (r[0] || '').toString().trim(),
-                                  email: (r[1] || '').toString().trim(),
-                                  tma: get(r, 6),
-                                  gutscheine: get(r, 7),
-                                  vertuo: get(r, 14),
-                                  aeroccino: get(r, 15),
-                                  vertuo_pop: get(r, 17),
-                                  vorteilsbox: get(r, 23),
-                                })) as any[];
-                              try {
-                                const res = await fetch('/api/admin/kpi-praemien/import', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ waveMonth: praemienWave, rows: mapped }),
-                                });
-                                if (res.ok) {
-                                  const result = await res.json().catch(() => ({}));
-                                  const ref = await fetch(`/api/admin/kpi-praemien?waveMonth=${praemienWave}`, { cache: 'no-store' });
-                                  if (ref.ok) setPraemienSummary(await ref.json());
-                                  setPraemienUnmatched(Array.isArray(result?.unmatched) ? result.unmatched : []);
-                                  setPraemienManualMap({});
-                                }
-                              } catch (err) {
-                                console.error('Import failed', err);
-                              } finally {
-                                if (inputEl) inputEl.value = '';
-                              }
-                            }}
-                          />
+                        <button
+                          onClick={() => setShowPraemienImportModal(true)}
+                          disabled={!praemienWave}
+                          className="inline-flex items-center px-2 py-1 rounded-md text-xs border border-gray-200 bg-gray-50 hover:bg-gray-100 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
                           <Upload className="h-3.5 w-3.5 mr-1 text-purple-600" />
                           <span>Excel importieren</span>
-                        </label>
+                        </button>
                       </div>
                     </div>
                     {/* Summary */}
@@ -3134,6 +3164,125 @@ Liebe Grüße, dein Nespresso Team`;
                 <div className="flex justify-end space-x-3 mt-6">
                   <button
                     onClick={() => setShowImportModal(false)}
+                    className="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Abbrechen
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Prämien Import Modal */}
+        {showPraemienImportModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-lg w-96 max-w-[90vw]">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between p-6 border-b border-gray-100">
+                <h3 className="text-lg font-semibold text-gray-900">Import Prämien Excel</h3>
+                <button
+                  onClick={() => setShowPraemienImportModal(false)}
+                  className="p-1 rounded hover:bg-gray-100 transition-colors"
+                >
+                  <X className="h-5 w-5 text-gray-400" />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-6">
+                {/* Excel Format Info */}
+                <div className="mb-6 p-4 bg-blue-50/50 border border-blue-100 rounded-lg">
+                  <button
+                    onClick={() => setShowPraemienExcelFormatInfo(!showPraemienExcelFormatInfo)}
+                    className="w-full flex items-center justify-between text-xs font-semibold text-blue-900 hover:text-blue-700 transition-colors"
+                  >
+                    <span>Excel Format</span>
+                    {showPraemienExcelFormatInfo ? (
+                      <ChevronUp className="h-4 w-4 text-blue-100" style={{ color: 'rgb(191 219 254)' }} />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-blue-100" style={{ color: 'rgb(191 219 254)' }} />
+                    )}
+                  </button>
+                  
+                  {showPraemienExcelFormatInfo && (
+                    <div className="space-y-1.5 mt-2.5">
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte A:</span>
+                        <span className="text-gray-600 ml-2">Name</span>
+                      </div>
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte B:</span>
+                        <span className="text-gray-600 ml-2">Email</span>
+                      </div>
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte G:</span>
+                        <span className="text-gray-600 ml-2">TMA</span>
+                      </div>
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte H:</span>
+                        <span className="text-gray-600 ml-2">Gutscheine</span>
+                      </div>
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte O:</span>
+                        <span className="text-gray-600 ml-2">Vertuo</span>
+                      </div>
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte P:</span>
+                        <span className="text-gray-600 ml-2">Aeroccino</span>
+                      </div>
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte R:</span>
+                        <span className="text-gray-600 ml-2">Vertuo Pop+</span>
+                      </div>
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte X:</span>
+                        <span className="text-gray-600 ml-2">Vorteilsbox (optional)</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Drag and Drop Area */}
+                <div 
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors"
+                  onDragOver={handlePraemienDragOver}
+                  onDrop={handlePraemienDrop}
+                >
+                  <input
+                    ref={praemienFileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={handlePraemienFileSelect}
+                    className="hidden"
+                  />
+                  <div className="space-y-3">
+                    <div className="mx-auto w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                      <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">
+                        Excel-Datei hier ablegen oder
+                      </p>
+                      <button 
+                        onClick={() => praemienFileInputRef.current?.click()}
+                        className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        Datei auswählen
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      Unterstützte Formate: .xlsx, .xls
+                    </p>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-3 mt-6">
+                  <button
+                    onClick={() => setShowPraemienImportModal(false)}
                     className="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                   >
                     Abbrechen
