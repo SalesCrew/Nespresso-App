@@ -1943,7 +1943,10 @@ export default function ProfilPage() {
                     <button
                       type="button"
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors"
-                      onClick={(e) => e.preventDefault()}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        window.open('https://dpw.huebner.at/web/a-0000.htm', '_blank');
+                      }}
                       title="Zur Webseite"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
@@ -2162,11 +2165,14 @@ export default function ProfilPage() {
                     <button
                       type="button"
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors"
-                      onClick={(e) => e.preventDefault()}
-                      title="Zur Webseite"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        window.open('https://apps.apple.com/at/app/nestl%C3%A9-boost-learning/id1556405763?l=en-GB', '_blank');
+                      }}
+                      title="Download"
                     >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      Zur Webseite
+                      <Download className="h-3.5 w-3.5" />
+                      Download
                     </button>
                   </div>
                 </div>
