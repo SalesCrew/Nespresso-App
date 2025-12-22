@@ -3815,36 +3815,51 @@ Import EP
                         </button>
                         <div className="absolute right-0 top-full mt-2 hidden group-hover:block z-20 pointer-events-none group-hover:pointer-events-auto">
                           <div className="w-72 rounded-xl border border-gray-100 bg-white shadow-xl p-3 text-xs leading-relaxed text-gray-700">
-                            <p className="font-semibold text-gray-900 mb-2">Wie funktioniert Perfect Match?</p>
-                            <p className="mb-2 text-gray-700">1. Klicke zuerst auf das <span className="font-medium text-blue-600">Gehirn</span>, um den AI‑Modus zu aktivieren.</p>
-                            <p className="mb-2 text-gray-700">2. Klicke dann auf einen <span className="font-medium text-blue-600">Einsatz</span>. Eddie analysiert kurz und schlägt geeignete Promotoren vor.</p>
-                            <p className="mb-2 text-gray-700">3. Du kannst Personen direkt zuweisen, indem du auf den Namen <span className="font-medium text-blue-600">mehrfach klickst</span>.</p>
-                            <p className="mb-0 text-gray-700">4. Über das <span className="font-medium text-blue-600">Medaille‑Icon</span> erhältst du detaillierte Begründungen und zusätzliche Infos.</p>
+                            {bulkAssignmentMode ? (
+                              <>
+                                <p className="font-semibold text-gray-900 mb-2">Wie funktioniert Massenverplanung?</p>
+                                <p className="mb-2 text-gray-700">1. <span className="font-medium text-blue-600">Suche</span> einen Promotor über die Suchleiste oder scrolle durch die Liste.</p>
+                                <p className="mb-2 text-gray-700">2. <span className="font-medium text-blue-600">Klicke</span> auf einen Promotor, um ihn auszuwählen (grün markiert).</p>
+                                <p className="mb-2 text-gray-700">3. Klicke jetzt auf beliebige <span className="font-medium text-blue-600">Einsätze</span> – der Promotor wird sofort zugewiesen.</p>
+                                <p className="mb-0 text-gray-700">4. Klicke erneut auf den Promotor, um ihn <span className="font-medium text-blue-600">abzuwählen</span>.</p>
+                              </>
+                            ) : (
+                              <>
+                                <p className="font-semibold text-gray-900 mb-2">Wie funktioniert Perfect Match?</p>
+                                <p className="mb-2 text-gray-700">1. Klicke zuerst auf das <span className="font-medium text-blue-600">Gehirn</span>, um den AI‑Modus zu aktivieren.</p>
+                                <p className="mb-2 text-gray-700">2. Klicke dann auf einen <span className="font-medium text-blue-600">Einsatz</span>. Eddie analysiert kurz und schlägt geeignete Promotoren vor.</p>
+                                <p className="mb-2 text-gray-700">3. Du kannst Personen direkt zuweisen, indem du auf den Namen <span className="font-medium text-blue-600">mehrfach klickst</span>.</p>
+                                <p className="mb-0 text-gray-700">4. Über das <span className="font-medium text-blue-600">Medaille‑Icon</span> erhältst du detaillierte Begründungen und zusätzliche Infos.</p>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
-                      <button
-                      onClick={() => {
-                        const newAiMode = !aiMode;
-                        console.log('🧠 [CLIENT] Brain button clicked', { currentAiMode: aiMode, newAiMode });
-                        setAiMode(newAiMode);
-                        if (!aiMode) {
-                          setAiRecommendations([]);
-                          setAiError(null);
-                          console.log('🧠 [CLIENT] AI mode activated, cleared previous data');
-                        } else {
-                          console.log('🧠 [CLIENT] AI mode deactivated');
-                        }
-                      }}
-                      className={`p-2 rounded-lg border transition-colors ${
-                        aiMode 
-                          ? 'border-green-300 bg-green-100 text-green-700' 
-                          : 'border-gray-300 hover:border-gray-400 text-gray-600'
-                      }`}
-                      title={aiMode ? "AI Modus beenden" : "AI Modus aktivieren"}
-                    >
-                      <Brain className="h-4 w-4" />
-                    </button>
+                      {/* Brain button - only show in Perfect Match mode */}
+                      {!bulkAssignmentMode && (
+                        <button
+                        onClick={() => {
+                          const newAiMode = !aiMode;
+                          console.log('🧠 [CLIENT] Brain button clicked', { currentAiMode: aiMode, newAiMode });
+                          setAiMode(newAiMode);
+                          if (!aiMode) {
+                            setAiRecommendations([]);
+                            setAiError(null);
+                            console.log('🧠 [CLIENT] AI mode activated, cleared previous data');
+                          } else {
+                            console.log('🧠 [CLIENT] AI mode deactivated');
+                          }
+                        }}
+                        className={`p-2 rounded-lg border transition-colors ${
+                          aiMode 
+                            ? 'border-green-300 bg-green-100 text-green-700' 
+                            : 'border-gray-300 hover:border-gray-400 text-gray-600'
+                        }`}
+                        title={aiMode ? "AI Modus beenden" : "AI Modus aktivieren"}
+                      >
+                        <Brain className="h-4 w-4" />
+                      </button>
+                      )}
                     </div>
                   </div>
 
