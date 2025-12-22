@@ -3852,25 +3852,21 @@ Import EP
                           {promotorsList
                             .filter(p => 
                               p.name.toLowerCase().includes(bulkPromotorSearch.toLowerCase()) ||
-                              (p.phone && p.phone.includes(bulkPromotorSearch))
+                              (p.region && p.region.toLowerCase().includes(bulkPromotorSearch.toLowerCase()))
                             )
                             .map((promotor) => (
                               <div
-                                key={promotor.user_id}
+                                key={promotor.id}
                                 onClick={() => {
-                                  console.log('Promotor clicked:', promotor.user_id, promotor.name);
-                                  console.log('Current selection:', selectedBulkPromotor);
                                   // Toggle: if same promotor clicked, deselect; otherwise select new one
-                                  if (selectedBulkPromotor && String(selectedBulkPromotor.id) === String(promotor.user_id)) {
-                                    console.log('Deselecting promotor');
+                                  if (selectedBulkPromotor && selectedBulkPromotor.id === promotor.id) {
                                     setSelectedBulkPromotor(null);
                                   } else {
-                                    console.log('Selecting promotor with ID:', String(promotor.user_id));
-                                    setSelectedBulkPromotor({ id: String(promotor.user_id), name: promotor.name });
+                                    setSelectedBulkPromotor({ id: promotor.id, name: promotor.name });
                                   }
                                 }}
                                 className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                                  (selectedBulkPromotor && String(selectedBulkPromotor.id) === String(promotor.user_id))
+                                  (selectedBulkPromotor && selectedBulkPromotor.id === promotor.id)
                                     ? 'bg-green-50/50 border-green-200 shadow-sm'
                                     : 'bg-white border-gray-100 hover:bg-gray-50 hover:border-gray-200'
                                 }`}
@@ -3883,18 +3879,13 @@ Import EP
                                         {promotor.name}
                                       </span>
                                     </div>
-                                    {promotor.phone && (
-                                      <div className="text-xs text-gray-600" style={{ opacity: 0.7 }}>
-                                        {promotor.phone}
-                                      </div>
-                                    )}
                                     {promotor.region && (
                                       <div className="text-xs text-gray-500 mt-0.5">
                                         {promotor.region}
                                       </div>
                                     )}
                                   </div>
-                                  {(selectedBulkPromotor && String(selectedBulkPromotor.id) === String(promotor.user_id)) && (
+                                  {(selectedBulkPromotor && selectedBulkPromotor.id === promotor.id) && (
                                     <Check className="h-4 w-4 text-green-600 flex-shrink-0" />
                                   )}
                                 </div>
