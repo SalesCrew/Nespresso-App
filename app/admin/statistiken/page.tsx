@@ -46,6 +46,7 @@ export default function StatistikenPage() {
   const [generatingAll, setGeneratingAll] = useState(false);
   const shouldStopGenerationRef = useRef(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showExcelFormatInfo, setShowExcelFormatInfo] = useState(false);
   const [cardData, setCardData] = useState<CardData[]>([]);
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [selectedCard, setSelectedCard] = useState<CardData | null>(null);
@@ -3053,6 +3054,46 @@ Liebe Grüße, dein Nespresso Team`;
 
               {/* Modal Content */}
               <div className="p-6">
+                {/* Excel Format Info */}
+                <div className="mb-6 p-4 bg-blue-50/50 border border-blue-100 rounded-lg">
+                  <button
+                    onClick={() => setShowExcelFormatInfo(!showExcelFormatInfo)}
+                    className="w-full flex items-center justify-between text-xs font-semibold text-blue-900 hover:text-blue-700 transition-colors"
+                  >
+                    <span>Excel Format</span>
+                    {showExcelFormatInfo ? (
+                      <ChevronUp className="h-4 w-4 text-blue-100" style={{ color: 'rgb(191 219 254)' }} />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-blue-100" style={{ color: 'rgb(191 219 254)' }} />
+                    )}
+                  </button>
+                  
+                  {showExcelFormatInfo && (
+                    <div className="space-y-1.5 mt-2.5">
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte A:</span>
+                        <span className="text-gray-600 ml-2">Name</span>
+                      </div>
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte B:</span>
+                        <span className="text-gray-600 ml-2">Email</span>
+                      </div>
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte I:</span>
+                        <span className="text-gray-600 ml-2">MC/ET</span>
+                      </div>
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte L:</span>
+                        <span className="text-gray-600 ml-2">TMA (%) - wird automatisch mit 100 multipliziert</span>
+                      </div>
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte Q:</span>
+                        <span className="text-gray-600 ml-2">VL Share (%) - wird automatisch mit 100 multipliziert</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* Drag and Drop Area */}
                 <div 
                   className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors"
@@ -3086,14 +3127,6 @@ Liebe Grüße, dein Nespresso Team`;
                     <p className="text-xs text-gray-400">
                       Unterstützte Formate: .xlsx, .xls
                     </p>
-                    <div className="text-xs text-gray-500 mt-4">
-                      <p className="font-medium mb-1">Erwartete Excel-Struktur:</p>
-                      <p>• Spalte A: Name</p>
-                      <p>• Spalte B: Email</p>
-                      <p>• Spalte I: MC/ET</p>
-                      <p>• Spalte L: TMA (%)</p>
-                      <p>• Spalte Q: VL Share (%)</p>
-                    </div>
                   </div>
                 </div>
 
