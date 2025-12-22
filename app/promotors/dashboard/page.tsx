@@ -2360,14 +2360,26 @@ export default function DashboardPage() {
         </Card>
 
       {/* Schulungen & Videos Button */}
-      <div className="mb-6">
+      <div className="mb-6 relative">
       <button 
-                            onClick={() => router.push('/promotors/schulungen-videos')}
-          className="w-full py-6 px-4 bg-gradient-to-r from-blue-500 via-indigo-600 via-purple-500 to-pink-500 hover:from-blue-600 hover:via-indigo-700 hover:via-purple-600 hover:to-pink-600 text-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center space-x-3"
+          className="w-full py-6 px-4 bg-gradient-to-r from-blue-500 via-indigo-600 via-purple-500 to-pink-500 text-white rounded-lg shadow-md transition-all duration-200 flex items-center justify-center space-x-3"
         >
           <GraduationCap className="h-6 w-6" />
           <span className="text-lg font-medium">Schulungen & Videos</span>
             </button>
+            
+            {/* Dark Overlay with "kommt bald!" */}
+            <div className="absolute inset-0 bg-gradient-to-br from-black/40 via-gray-900/50 to-black/40 dark:from-black/50 dark:via-gray-950/60 dark:to-black/50 rounded-lg flex items-center justify-center pointer-events-none z-10 backdrop-blur-[2px]">
+              <div className="relative">
+                {/* Glow effect behind the box */}
+                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/30 to-pink-500/30 blur-xl rounded-lg scale-110"></div>
+                
+                {/* Main "kommt bald!" box - clear and sharp, no blur */}
+                <div className="relative bg-gradient-to-r from-purple-500 to-pink-500 px-5 py-2.5 rounded-lg shadow-2xl">
+                  <span className="text-white text-sm font-semibold tracking-wide">kommt bald!</span>
+                </div>
+              </div>
+            </div>
           </div>
           
       <Card className="mb-6 overflow-hidden border-none shadow-md bg-white dark:bg-gray-900" ref={progressBarsRef}>
