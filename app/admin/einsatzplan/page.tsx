@@ -3861,16 +3861,16 @@ Import EP
                                   console.log('Promotor clicked:', promotor.user_id, promotor.name);
                                   console.log('Current selection:', selectedBulkPromotor);
                                   // Toggle: if same promotor clicked, deselect; otherwise select new one
-                                  if (selectedBulkPromotor && selectedBulkPromotor.id === promotor.user_id) {
+                                  if (selectedBulkPromotor && String(selectedBulkPromotor.id) === String(promotor.user_id)) {
                                     console.log('Deselecting promotor');
                                     setSelectedBulkPromotor(null);
                                   } else {
-                                    console.log('Selecting promotor');
-                                    setSelectedBulkPromotor({ id: promotor.user_id, name: promotor.name });
+                                    console.log('Selecting promotor with ID:', String(promotor.user_id));
+                                    setSelectedBulkPromotor({ id: String(promotor.user_id), name: promotor.name });
                                   }
                                 }}
                                 className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                                  selectedBulkPromotor !== null && selectedBulkPromotor.id === promotor.user_id
+                                  (selectedBulkPromotor && String(selectedBulkPromotor.id) === String(promotor.user_id))
                                     ? 'bg-green-50/50 border-green-200 shadow-sm'
                                     : 'bg-white border-gray-100 hover:bg-gray-50 hover:border-gray-200'
                                 }`}
@@ -3894,7 +3894,7 @@ Import EP
                                       </div>
                                     )}
                                   </div>
-                                  {selectedBulkPromotor !== null && selectedBulkPromotor.id === promotor.user_id && (
+                                  {(selectedBulkPromotor && String(selectedBulkPromotor.id) === String(promotor.user_id)) && (
                                     <Check className="h-4 w-4 text-green-600 flex-shrink-0" />
                                   )}
                                 </div>
