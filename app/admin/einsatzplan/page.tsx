@@ -276,6 +276,11 @@ export default function EinsatzplanPage() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [expandedRecommendations, setExpandedRecommendations] = useState<Set<string>>(new Set());
   
+  // Bulk Assignment (Massenverplanung) state
+  const [bulkAssignmentMode, setBulkAssignmentMode] = useState(false);
+  const [selectedBulkPromotor, setSelectedBulkPromotor] = useState<{id: string, name: string} | null>(null);
+  const [bulkPromotorSearch, setBulkPromotorSearch] = useState("");
+  
   // Assignments loading state  
   const [assignmentsLoading, setAssignmentsLoading] = useState(true); // Start loading immediately
   
@@ -3439,6 +3444,16 @@ Import EP
                                     ? prev.filter(id => id !== einsatz.id)
                                     : [...prev, einsatz.id]
                                 );
+                              } else if (bulkAssignmentMode && selectedBulkPromotor) {
+                                // Bulk Assignment Mode: assign selected promotor directly
+                                e.stopPropagation();
+                                setEditingEinsatz({
+                                  ...einsatz,
+                                  promotor: selectedBulkPromotor.name,
+                                  promotorId: selectedBulkPromotor.id,
+                                  status: 'Verplant'
+                                });
+                                assignPromotionToPromotor(selectedBulkPromotor.name, selectedBulkPromotor.id);
                               } else if (aiMode) {
                                 // AI mode: fetch recommendations instead of opening detail modal
                                 console.log('🧠 [CLIENT] AI mode click detected', { einsatzId: einsatz.id, aiMode });
@@ -3759,8 +3774,11 @@ Import EP
                 <CardContent className="p-3 h-full flex flex-col">
                   {/* Header with Toggle Button */}
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                      {aiMode ? 'Perfect Match' : 'Perfect Match'}
+                    <h3 
+                      onClick={() => setBulkAssignmentMode(!bulkAssignmentMode)}
+                      className="text-sm font-semibold text-gray-900 flex items-center gap-2 cursor-pointer hover:text-gray-700 transition-colors"
+                    >
+                      {bulkAssignmentMode ? 'Massenverplanung' : 'Perfect Match'}
                       <Sparkles className="h-4 w-4 text-black" />
                     </h3>
                     <div className="flex items-center gap-2">
@@ -3815,7 +3833,71 @@ Import EP
                       msOverflowStyle: 'none'
                     }}
                   >
-                    {aiMode ? (
+                    {bulkAssignmentMode ? (
+                      /* Bulk Assignment Mode (Massenverplanung) */
+                      <div className="flex flex-col h-full">
+                        {/* Search Bar */}
+                        <div className="mb-3">
+                          <input
+                            type="text"
+                            placeholder="Promotor suchen..."
+                            value={bulkPromotorSearch}
+                            onChange={(e) => setBulkPromotorSearch(e.target.value)}
+                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-0 focus:border-gray-200"
+                          />
+                        </div>
+
+                        {/* Promotors List */}
+                        <div className="flex-1 space-y-2 overflow-y-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                          {promotorsList
+                            .filter(p => 
+                              p.name.toLowerCase().includes(bulkPromotorSearch.toLowerCase()) ||
+                              (p.phone && p.phone.includes(bulkPromotorSearch))
+                            )
+                            .map((promotor) => (
+                              <div
+                                key={promotor.user_id}
+                                onClick={() => {
+                                  if (selectedBulkPromotor?.id === promotor.user_id) {
+                                    setSelectedBulkPromotor(null);
+                                  } else {
+                                    setSelectedBulkPromotor({ id: promotor.user_id, name: promotor.name });
+                                  }
+                                }}
+                                className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                                  selectedBulkPromotor?.id === promotor.user_id
+                                    ? 'bg-green-50/50 border-green-200 shadow-sm'
+                                    : 'bg-white border-gray-100 hover:bg-gray-50 hover:border-gray-200'
+                                }`}
+                              >
+                                <div className="flex items-center space-x-3">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center mb-1">
+                                      <User className="h-3 w-3 text-gray-400 mr-1 flex-shrink-0" />
+                                      <span className="font-medium text-gray-900 text-sm truncate">
+                                        {promotor.name}
+                                      </span>
+                                    </div>
+                                    {promotor.phone && (
+                                      <div className="text-xs text-gray-600" style={{ opacity: 0.7 }}>
+                                        {promotor.phone}
+                                      </div>
+                                    )}
+                                    {promotor.region && (
+                                      <div className="text-xs text-gray-500 mt-0.5">
+                                        {promotor.region}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {selectedBulkPromotor?.id === promotor.user_id && (
+                                    <Check className="h-4 w-4 text-green-600 flex-shrink-0" />
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    ) : aiMode ? (
                       /* AI Mode Content */
                       <div className="space-y-2">
                         {aiError && (
