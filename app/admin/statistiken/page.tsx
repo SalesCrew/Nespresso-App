@@ -1862,8 +1862,7 @@ Liebe Grüße, dein Nespresso Team`;
                         <span className="text-xs text-gray-500">{praemienWave ? `Wave: ${praemienWave}` : '—'}</span>
                         <button
                           onClick={() => setShowPraemienImportModal(true)}
-                          disabled={!praemienWave}
-                          className="inline-flex items-center px-2 py-1 rounded-md text-xs border border-gray-200 bg-gray-50 hover:bg-gray-100 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          className="inline-flex items-center px-2 py-1 rounded-md text-xs border border-gray-200 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors"
                         >
                           <Upload className="h-3.5 w-3.5 mr-1 text-purple-600" />
                           <span>Excel importieren</span>
