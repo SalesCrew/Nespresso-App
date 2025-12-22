@@ -3858,10 +3858,14 @@ Import EP
                               <div
                                 key={promotor.user_id}
                                 onClick={() => {
+                                  console.log('Promotor clicked:', promotor.user_id, promotor.name);
+                                  console.log('Current selection:', selectedBulkPromotor);
                                   // Toggle: if same promotor clicked, deselect; otherwise select new one
-                                  if (selectedBulkPromotor?.id === promotor.user_id) {
+                                  if (selectedBulkPromotor && selectedBulkPromotor.id === promotor.user_id) {
+                                    console.log('Deselecting promotor');
                                     setSelectedBulkPromotor(null);
                                   } else {
+                                    console.log('Selecting promotor');
                                     setSelectedBulkPromotor({ id: promotor.user_id, name: promotor.name });
                                   }
                                 }}
