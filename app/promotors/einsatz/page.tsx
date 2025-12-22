@@ -3272,7 +3272,8 @@ const loadProcessState = async () => {
         </Card>
 
         {/* Equipment Ordering Card */}
-        <Card className="mb-6 border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
+        <div className="mb-6 relative">
+        <Card className="border-gray-200 dark:border-gray-700 shadow-md overflow-hidden">
           <CardHeader className="bg-gradient-to-r from-green-500 to-emerald-600 text-white p-4">
             <CardTitle className="text-lg flex items-center">
               <Box className="mr-2 h-5 w-5" />
@@ -3398,6 +3399,20 @@ const loadProcessState = async () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Dark Overlay with "kommt bald!" */}
+        <div className="absolute inset-0 bg-gradient-to-br from-black/40 via-gray-900/50 to-black/40 dark:from-black/50 dark:via-gray-950/60 dark:to-black/50 rounded-lg flex items-center justify-center pointer-events-none z-10 backdrop-blur-[2px]">
+          <div className="relative">
+            {/* Glow effect behind the box */}
+            <div className="absolute inset-0 bg-gradient-to-r from-purple-500/30 to-pink-500/30 blur-xl rounded-lg scale-110"></div>
+
+            {/* Main "kommt bald!" box - clear and sharp, no blur */}
+            <div className="relative bg-gradient-to-r from-purple-500 to-pink-500 px-3 py-1.5 rounded-lg shadow-2xl">
+              <span className="text-white text-xs font-semibold tracking-wide">kommt bald!</span>
+            </div>
+          </div>
+        </div>
+        </div>
 
         {/* Anstehende Einsätze with Rotating Calendar - REMOVED (belongs only on main dashboard) */}
 
