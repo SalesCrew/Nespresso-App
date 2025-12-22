@@ -169,7 +169,7 @@ export default function EinsatzplanPage() {
 
   const [showImportModal, setShowImportModal] = useState(false);
   const [importType, setImportType] = useState<'roh' | 'intern'>('roh');
-  const [showExcelFormatInfo, setShowExcelFormatInfo] = useState(true);
+  const [showExcelFormatInfo, setShowExcelFormatInfo] = useState(false);
   const [einsatzplanData, setEinsatzplanData] = useState<any[]>([]);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedEinsatz, setSelectedEinsatz] = useState<any>(null);
