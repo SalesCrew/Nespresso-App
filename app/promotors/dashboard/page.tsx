@@ -2375,8 +2375,8 @@ export default function DashboardPage() {
                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500/30 to-pink-500/30 blur-xl rounded-lg scale-110"></div>
                 
                 {/* Main "kommt bald!" box - clear and sharp, no blur */}
-                <div className="relative bg-gradient-to-r from-purple-500 to-pink-500 px-5 py-2.5 rounded-lg shadow-2xl">
-                  <span className="text-white text-sm font-semibold tracking-wide">kommt bald!</span>
+                <div className="relative bg-gradient-to-r from-purple-500 to-pink-500 px-3 py-1.5 rounded-lg shadow-2xl">
+                  <span className="text-white text-xs font-semibold tracking-wide">kommt bald!</span>
                 </div>
               </div>
             </div>
