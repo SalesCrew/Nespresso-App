@@ -19,7 +19,9 @@ import {
   Calendar,
   Timer,
   X,
-  CheckCircle2
+  CheckCircle2,
+  ArrowLeft,
+  Check
 } from "lucide-react"
 
 interface OnboardingModalProps {
@@ -1443,12 +1445,26 @@ export default function OnboardingModal({ isOpen, onComplete, onClose }: Onboard
                   </div>
                 </div>
 
-                {/* Page Indicator */}
-                <div className="flex justify-center gap-2 pt-4">
-                  <div className="w-2 h-2 rounded-full bg-gray-300 cursor-pointer hover:bg-gray-400" onClick={() => setReviewPage(1)}></div>
-                  <div className="w-2 h-2 rounded-full bg-gray-300 cursor-pointer hover:bg-gray-400" onClick={() => setReviewPage(2)}></div>
-                  <div className="w-2 h-2 rounded-full bg-gray-300 cursor-pointer hover:bg-gray-400" onClick={() => setReviewPage(3)}></div>
-                  <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                {/* Page Indicator with inline navigation */}
+                <div className="flex justify-center items-center gap-3 pt-4">
+                  <button
+                    onClick={() => setReviewPage(3)}
+                    className="w-8 h-8 rounded-full border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                  <div className="flex gap-2 items-center">
+                    <div className="w-2 h-2 rounded-full bg-gray-300 cursor-pointer hover:bg-gray-400" onClick={() => setReviewPage(1)}></div>
+                    <div className="w-2 h-2 rounded-full bg-gray-300 cursor-pointer hover:bg-gray-400" onClick={() => setReviewPage(2)}></div>
+                    <div className="w-2 h-2 rounded-full bg-gray-300 cursor-pointer hover:bg-gray-400" onClick={() => setReviewPage(3)}></div>
+                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                  </div>
+                  <button
+                    onClick={handleNext}
+                    className="w-8 h-8 rounded-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 flex items-center justify-center text-white shadow-sm transition-all flex-shrink-0"
+                  >
+                    <Check className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
             )}
@@ -1588,24 +1604,6 @@ export default function OnboardingModal({ isOpen, onComplete, onClose }: Onboard
                 </div>
               )}
 
-              {/* Review step navigation - Page 4 (final) */}
-              {currentStep === 13 && reviewPage === 4 && (
-                <div className="flex gap-3 pt-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => setReviewPage(3)}
-                    className="flex-1"
-                  >
-                    Zurück
-                  </Button>
-                  <Button
-                    onClick={handleNext}
-                    className="flex-1 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700"
-                  >
-                    Absenden
-                  </Button>
-                </div>
-              )}
 
               {/* Neu beginnen link - subtle footer */}
               {currentStep > 1 && currentStep < 13 && (
