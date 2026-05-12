@@ -8,96 +8,123 @@ export async function POST(req: NextRequest) {
   const server = createSupabaseServerClient();
   const { data: auth } = await server.auth.getUser();
   if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const { ok } = await requireAdmin();
+  if (!ok) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
 
   const body = await req.json().catch(() => ({} as any));
-  const {
-    user_id,
-    file_path,
-    is_active,
-    employment_type,
-    hours_per_week,
-    monthly_gross,
-    start_date,
-    end_date,
-    is_temporary,
-  } = body || {};
-  // If file_path is missing, we treat this as sending an offer (no uploaded file yet)
-  if (!user_id) return NextResponse.json({ error: 'invalid payload' }, { status: 400 });
-  const svc = createSupabaseServiceClient();
-  const insertPayload: any = {
-    user_id,
-    file_path: file_path ?? null,
-    is_active: !!is_active && !!file_path,
-  };
-  if (employment_type) insertPayload.employment_type = String(employment_type);
-  if (hours_per_week !== undefined && hours_per_week !== '') insertPayload.hours_per_week = Number(hours_per_week);
-  if (monthly_gross !== undefined && monthly_gross !== '') insertPayload.monthly_gross = Number(monthly_gross);
-  if (start_date) insertPayload.start_date = start_date;
-  if (end_date) insertPayload.end_date = end_date;
-  if (typeof is_temporary === 'boolean') insertPayload.is_temporary = is_temporary;
-  if (!insertPayload.created_at) insertPayload.created_at = new Date().toISOString();
+  const { user_id, path, file_path, file_name, mime_type, file_ext, is_active, contract_hours_per_week } = body || {};
+  const normalizedPath = path || file_path;
+  if (!user_id || !normalizedPath) return NextResponse.json({ error: 'invalid payload' }, { status: 400 });
 
-  // Try with full payload; if columns are missing in DB, fall back to minimal insert
-  let insertRes = await svc
-    .from('contracts')
+  const ext = (String(file_ext || '').replace(/[^a-z0-9]/gi, '').toLowerCase()) || normalizedPath.split('.').pop()?.toLowerCase();
+  if (!ext || !['pdf', 'doc', 'docx'].includes(ext)) {
+    return NextResponse.json({ error: 'invalid file type' }, { status: 400 });
+  }
+
+  const svc = createSupabaseServiceClient();
+  const makeActive = is_active !== false;
+
+  const insertPayload = {
+    user_id,
+    file_path: normalizedPath,
+    file_name: file_name || normalizedPath.split('/').pop() || `contract.${ext}`,
+    mime_type: mime_type || (
+      ext === 'docx'
+        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : ext === 'doc'
+          ? 'application/msword'
+          : 'application/pdf'
+    ),
+    file_ext: ext,
+    is_active: false,
+    uploaded_by: auth.user.id,
+  };
+
+  const insertRes = await svc
+    .from('dienstvertrag_files')
     .insert(insertPayload)
     .select('*')
     .maybeSingle();
-  if (insertRes.error) {
-    const minimal = { user_id, file_path: file_path ?? null, is_active: !!is_active && !!file_path };
-    insertRes = await svc
-      .from('contracts')
-      .insert(minimal)
-      .select('*')
-      .maybeSingle();
-  }
   if (insertRes.error) return NextResponse.json({ error: insertRes.error.message }, { status: 500 });
+
+  if (makeActive) {
+    const { error: activateErr } = await svc.rpc('activate_dienstvertrag_file', {
+      p_user_id: user_id,
+      p_file_id: insertRes.data?.id,
+    });
+    if (activateErr) {
+      await svc.from('dienstvertrag_files').delete().eq('id', insertRes.data?.id);
+      try {
+        await svc.storage.from('dienstvertraege').remove([normalizedPath]);
+      } catch {}
+      return NextResponse.json({ error: activateErr.message }, { status: 500 });
+    }
+  }
+
+  if (contract_hours_per_week !== undefined && contract_hours_per_week !== null && String(contract_hours_per_week) !== '') {
+    const parsedHours = Number(contract_hours_per_week);
+    if (Number.isFinite(parsedHours)) {
+      await svc
+        .from('promotor_profiles')
+        .update({ contract_hours_per_week: parsedHours, updated_at: new Date().toISOString() })
+        .eq('user_id', user_id);
+    }
+  }
+
+  const { data: finalContract } = await svc
+    .from('dienstvertrag_files')
+    .select('*')
+    .eq('id', insertRes.data?.id)
+    .maybeSingle();
+
   try { await recomputeOnboarding(svc as any, user_id); } catch {}
-  return NextResponse.json({ contract: insertRes.data });
+  return NextResponse.json({ contract: finalContract || insertRes.data });
 }
 
 export async function PATCH(req: NextRequest) {
   const server = createSupabaseServerClient();
   const { data: auth } = await server.auth.getUser();
   if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const { ok } = await requireAdmin();
+  if (!ok) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
 
   const body = await req.json().catch(() => ({} as any));
-  const { id, is_active } = body || {};
+  const { id, is_active, contract_hours_per_week } = body || {};
   if (!id || typeof is_active !== 'boolean') return NextResponse.json({ error: 'invalid payload' }, { status: 400 });
   const svc = createSupabaseServiceClient();
 
-  // Fetch the target contract to get user_id and file_path for validation
+  // Fetch target row
   const { data: target, error: fetchErr } = await svc
-    .from('contracts')
+    .from('dienstvertrag_files')
     .select('id, user_id, file_path')
     .eq('id', id)
     .maybeSingle();
   if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
   if (!target) return NextResponse.json({ error: 'not found' }, { status: 404 });
 
-  // If activating a contract, ensure it has a signed file and demote existing actives
   if (is_active) {
-    if (!target.file_path) {
-      return NextResponse.json({ error: 'cannot activate without signed file' }, { status: 400 });
-    }
-    // Demote all other active contracts for this user
-    const { error: demoteErr } = await svc
-      .from('contracts')
+    const { error: activateErr } = await svc.rpc('activate_dienstvertrag_file', {
+      p_user_id: target.user_id as string,
+      p_file_id: id,
+    });
+    if (activateErr) return NextResponse.json({ error: activateErr.message }, { status: 500 });
+  } else {
+    const { error: deactivateErr } = await svc
+      .from('dienstvertrag_files')
       .update({ is_active: false, updated_at: new Date().toISOString() })
-      .eq('user_id', target.user_id as string)
-      .eq('is_active', true)
-      .neq('id', id);
-    if (demoteErr) return NextResponse.json({ error: demoteErr.message }, { status: 500 });
+      .eq('id', id);
+    if (deactivateErr) return NextResponse.json({ error: deactivateErr.message }, { status: 500 });
   }
 
-  const updates: any = { is_active, updated_at: new Date().toISOString() };
-  if (is_active) updates.accepted_at = new Date().toISOString();
-
-  const { error: activateErr } = await svc
-    .from('contracts')
-    .update(updates)
-    .eq('id', id);
-  if (activateErr) return NextResponse.json({ error: activateErr.message }, { status: 500 });
+  if (contract_hours_per_week !== undefined && contract_hours_per_week !== null && String(contract_hours_per_week) !== '') {
+    const parsedHours = Number(contract_hours_per_week);
+    if (Number.isFinite(parsedHours)) {
+      await svc
+        .from('promotor_profiles')
+        .update({ contract_hours_per_week: parsedHours, updated_at: new Date().toISOString() })
+        .eq('user_id', target.user_id as string);
+    }
+  }
 
   try { await recomputeOnboarding(svc as any, target.user_id); } catch {}
   return NextResponse.json({ ok: true });
@@ -115,12 +142,19 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: 'invalid payload' }, { status: 400 });
   const svc = createSupabaseServiceClient();
   const { data: deleted, error } = await svc
-    .from('contracts')
+    .from('dienstvertrag_files')
     .delete()
     .eq('id', id)
-    .select('user_id')
+    .select('user_id, file_path')
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (deleted?.file_path) {
+    try {
+      await svc.storage.from('dienstvertraege').remove([deleted.file_path]);
+    } catch {}
+  }
+
   try { await recomputeOnboarding(svc as any, deleted?.user_id); } catch {}
   return NextResponse.json({ ok: true });
 }

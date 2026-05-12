@@ -37,11 +37,11 @@ export async function recomputeOnboarding(svc: SupabaseClient, userId: string) {
     docs = (data as any[]) || [];
   } catch {}
 
-  // Contracts: tolerant if table missing
+  // Dienstvertrag files: tolerant if table missing
   let hasActiveContract = false;
   try {
     const { data } = await svc
-      .from('contracts')
+      .from('dienstvertrag_files')
       .select('id, is_active, file_path')
       .eq('user_id', userId);
     const rows = (data as any[]) || [];
@@ -91,7 +91,7 @@ export async function recomputeOnboarding(svc: SupabaseClient, userId: string) {
   const desired = [
     { step_key: 'profile_basics', label: 'Profil vervollständigen', status: profileStatus },
     { step_key: 'documents', label: 'Dokumente hochladen', status: documentsStatus },
-    { step_key: 'dienstvertrag', label: 'Dienstvertrag aktivieren', status: dienstvertragStatus },
+    { step_key: 'dienstvertrag', label: 'Dienstvertrag hinterlegt', status: dienstvertragStatus },
     { step_key: 'bank_details', label: 'Bankdaten hinterlegen', status: bankStatus },
     { step_key: 'first_training', label: 'Erste Schulung starten', status: firstTrainingStatus },
   ];

@@ -45,23 +45,26 @@ export async function GET() {
       // Continue without tracking data rather than failing
     }
 
-    // Process assignments to determine type (promotion vs buddy)
+    // Process assignments to determine type (promotion vs buddy vs schulung)
     const processedAssignments = (assignments || []).map((assignment: any) => {
       const startDate = new Date(assignment.start_ts)
       const endDate = new Date(assignment.end_ts)
+      const assignmentType = String(assignment.type || '').toLowerCase()
       
       // Check user role and buddy presence
       const userRole = participantRows?.find(p => p.assignment_id === assignment.id)?.role
       const hasBuddy = assignment.buddy_user_id || assignment.buddy_name || assignment.buddy_display_name
       
-      // If there's a buddy, always show in buddy section regardless of user role
-      const type = hasBuddy ? 'buddy' : 'promotion'
+      // Schulungen are shown in the Schulung tab.
+      const type = assignmentType === 'schulung'
+        ? 'schulung'
+        : (hasBuddy ? 'buddy' : 'promotion')
       
       // Determine whose name to show in buddy pill:
       // - If user is lead: show buddy's name
       // - If user is buddy: show lead's name
       let buddyDisplayName = null
-      if (hasBuddy) {
+      if (type === 'buddy' && hasBuddy) {
         if (userRole === 'lead') {
           // User is lead, show buddy's name
           buddyDisplayName = assignment.buddy_name || assignment.buddy_display_name
@@ -76,7 +79,9 @@ export async function GET() {
       
       return {
         id: assignment.id,
-        title: assignment.location_text || assignment.title || 'Promotion',
+        title: type === 'schulung'
+          ? (assignment.title || assignment.location_text || 'Schulung')
+          : (assignment.location_text || assignment.title || 'Promotion'),
         location: assignment.postal_code && assignment.city 
           ? `${assignment.postal_code} ${assignment.city}` 
           : assignment.location_text || '',

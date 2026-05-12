@@ -40,12 +40,12 @@ export async function GET(req: NextRequest) {
       .select('user_id, region')
       .in('user_id', userIds);
 
-    // Get active contracts with hours_per_week
-    const { data: contracts} = await svc
-      .from('contracts')
-      .select('user_id, hours_per_week')
+    // Get configured contract hours from promotor profiles
+    const { data: profileHours } = await svc
+      .from('promotor_profiles')
+      .select('user_id, contract_hours_per_week')
       .in('user_id', userIds)
-      .eq('is_active', true);
+      .not('contract_hours_per_week', 'is', null);
 
     // Get assignments for the selected week
     let assignmentsQuery = svc
@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
 
     // Build promotor workload data
     const profileMap = new Map((profiles || []).map(p => [p.user_id, p]));
-    const contractMap = new Map((contracts || []).map(c => [c.user_id, c]));
+    const contractHoursMap = new Map((profileHours || []).map((c: any) => [c.user_id, c]));
 
     // Group assignments by user and calculate hours
     const assignmentsByUser = new Map<string, any[]>();
@@ -102,7 +102,7 @@ export async function GET(req: NextRequest) {
 
     const workloadData = (users || []).map((user: any) => {
       const profile = profileMap.get(user.user_id);
-      const contract = contractMap.get(user.user_id);
+      const profileWithHours = contractHoursMap.get(user.user_id) as any;
       const assignments = assignmentsByUser.get(user.user_id) || [];
 
       // Calculate working hours (subtract 1 hour break if > 6 hours)
@@ -135,7 +135,7 @@ export async function GET(req: NextRequest) {
         activeSpecialStatus = specialStatusMap.get(user.user_id) || null;
       }
 
-      const contractHours = contract?.hours_per_week || 0;
+      const contractHours = profileWithHours?.contract_hours_per_week || 0;
       const assignedHours = Math.round(totalHours);
       const overtime = assignedHours > contractHours ? assignedHours - contractHours : 0;
 

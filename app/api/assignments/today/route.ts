@@ -81,9 +81,10 @@ export async function GET() {
       }, { status: 500 });
     }
 
+    const visibleAssignments = (assignments || []).filter((row: any) => String(row?.type || '').toLowerCase() !== 'schulung');
     console.log(`Fetched ${assignments?.length || 0} assignments for today`);
 
-    return NextResponse.json({ assignments: assignments || [] });
+    return NextResponse.json({ assignments: visibleAssignments });
   } catch (error) {
     console.error('Unexpected error in /api/assignments/today:', error);
     return NextResponse.json({ 

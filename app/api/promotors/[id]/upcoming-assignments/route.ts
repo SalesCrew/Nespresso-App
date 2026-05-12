@@ -29,6 +29,7 @@ export async function GET(
 
     const { searchParams } = new URL(request.url);
     const daysAhead = parseInt(searchParams.get('days_ahead') || '7');
+    const includeAllFuture = searchParams.get('include_all_future') === '1';
 
     // Calculate date range
     const today = new Date();
@@ -54,14 +55,19 @@ export async function GET(
     const assignmentIds = participations.map(p => p.assignment_id);
 
     // Fetch assignments from the view
-    const { data: assignments, error: assignmentsError } = await service
+    let assignmentsQuery = service
       .from('assignments_with_buddy_info')
       .select('*')
       .in('id', assignmentIds)
+      .in('status', ['assigned', 'buddy_tag'])
       .gte('start_ts', today.toISOString())
-      .lte('start_ts', futureDate.toISOString())
-      .not('status', 'in', '("cancelled","completed")')
       .order('start_ts', { ascending: true });
+
+    if (!includeAllFuture) {
+      assignmentsQuery = assignmentsQuery.lte('start_ts', futureDate.toISOString());
+    }
+
+    const { data: assignments, error: assignmentsError } = await assignmentsQuery;
 
     if (assignmentsError) {
       console.error('Error fetching assignments:', assignmentsError);

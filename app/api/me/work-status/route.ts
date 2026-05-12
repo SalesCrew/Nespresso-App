@@ -26,13 +26,12 @@ export async function GET() {
     const weekStart = monday.toISOString().split('T')[0];
     const weekEnd = sunday.toISOString().split('T')[0];
 
-    // Get active contract hours
-    const { data: contract } = await svc
-      .from('contracts')
-      .select('hours_per_week')
+    // Get configured contract hours from profile
+    const { data: profile } = await svc
+      .from('promotor_profiles')
+      .select('contract_hours_per_week')
       .eq('user_id', userId)
-      .eq('is_active', true)
-      .single();
+      .maybeSingle();
 
     // Get assignments for the current week
     const { data: participants } = await svc
@@ -66,7 +65,7 @@ export async function GET() {
       }
     });
 
-    const goalHours = contract?.hours_per_week || 0;
+    const goalHours = profile?.contract_hours_per_week || 0;
     const workedHours = Math.round(totalHours * 10) / 10; // Round to 1 decimal place
 
     return NextResponse.json({

@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Input } from "@/components/ui/input"
 import { createSupabaseBrowserClient } from "@/lib/supabase/client"
-import { DienstvertragTemplate } from "@/components/DienstvertragTemplate"
 import { 
   MapPin, 
   Mail, 
@@ -41,10 +40,6 @@ import {
   ExternalLink
 } from "lucide-react"
 
-// @ts-ignore
-// Avoid importing browser-only libraries at module scope to prevent SSR/prerender errors
-// We'll dynamically import `html2pdf.js` inside the functions that need it
-
 // Simple skeleton fade animation CSS (reused from admin/team)
 const skeletonStyles = `
   .animate-skeleton-fade {
@@ -64,6 +59,17 @@ const skeletonStyles = `
     100% { top: calc(100% + 1px); }
   }
 `;
+
+type DienstvertragFileRow = {
+  id: string
+  file_path: string
+  file_name: string
+  file_ext?: 'pdf' | 'doc' | 'docx' | string
+  is_active: boolean
+  created_at?: string
+  updated_at?: string
+  hours_per_week?: number | null
+}
 
 // Typing animation component for document names
 function TypingDocumentName({ documentName }: { documentName: string }) {
@@ -148,20 +154,16 @@ export default function ProfilPage() {
   const [isDocumentsExpanded, setIsDocumentsExpanded] = useState(false)
   const [showDienstvertragPopup, setShowDienstvertragPopup] = useState(false)
   const [showDienstvertragContent, setShowDienstvertragContent] = useState(false)
-  const [viewContractHTML, setViewContractHTML] = useState<string>('')
-  const [loadingContractHTML, setLoadingContractHTML] = useState(false)
+  const [contractPreviewUrl, setContractPreviewUrl] = useState<string>('')
+  const [contractPreviewExt, setContractPreviewExt] = useState<'pdf'|'doc'|'docx'|'unknown'>('unknown')
+  const [loadingContractPreview, setLoadingContractPreview] = useState(false)
+  const [selectedContractPreviewId, setSelectedContractPreviewId] = useState<string | null>(null)
+  const [contractPreviewError, setContractPreviewError] = useState(false)
   const [payrollCountdown, setPayrollCountdown] = useState({ days: 0, hours: 0, minutes: 0, isPayday: false })
-  const [isDownloading, setIsDownloading] = useState(false)
   const [showPhotoMenu, setShowPhotoMenu] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const photoInputRef = useRef<HTMLInputElement>(null)
-  const [downloadSuccess, setDownloadSuccess] = useState(false)
-  const [promotorContracts, setPromotorContracts] = useState<any[]>([])
-  const [selectedContractId, setSelectedContractId] = useState<string | null>(null)
-  const [showContractOnboarding, setShowContractOnboarding] = useState(false)
-  const [onboardingStep, setOnboardingStep] = useState<'highlight-button' | 'highlight-download' | 'highlight-upload'>('highlight-button')
-  const [showUploadJump, setShowUploadJump] = useState(false)
-  const [uploadingContractId, setUploadingContractId] = useState<string | null>(null)
+  const [promotorContracts, setPromotorContracts] = useState<DienstvertragFileRow[]>([])
   const [editableProfile, setEditableProfile] = useState({
     email: "",
     phone: ""
@@ -547,180 +549,67 @@ export default function ProfilPage() {
   }
 
   const handleDienstvertragSelect = async (contractId?: string) => {
-    if (contractId) setSelectedContractId(contractId)
+    if (!userId) return
+    const targetContract = contractId
+      ? promotorContracts.find((c) => c.id === contractId)
+      : promotorContracts.find((c) => c.is_active) || promotorContracts[0]
+    const targetContractId = targetContract?.id
+    if (!targetContractId) return
+
+    setSelectedContractPreviewId(targetContractId)
+    setContractPreviewError(false)
     setShowDienstvertragPopup(false)
-    setLoadingContractHTML(true)
+    setLoadingContractPreview(true)
     setShowDienstvertragContent(true)
-    
-    // Fetch sent HTML from sent_dienstvertrag table
+
     try {
-      const targetContractId = contractId || promotorContracts.find(c => c.is_active)?.id;
-      
-      if (targetContractId) {
-        const res = await fetch(`/api/admin/contracts/send-dienstvertrag?contract_id=${targetContractId}`, {
-          cache: 'no-store'
-        });
-        const data = await res.json();
-        
-        if (data.sent_dienstvertrag?.html_content) {
-          setViewContractHTML(data.sent_dienstvertrag.html_content);
-        } else {
-          // Fallback: generate from template if no sent HTML exists yet
-          const contract = promotorContracts.find(c => c.id === targetContractId);
-          if (contract) {
-            const { generateDienstvertragHTML } = await import('@/lib/templates/dienstvertrag');
-            const html = generateDienstvertragHTML({
-              promotorName: headerName || '',
-              promotorBirthDate: editablePersonalData.birthday || '',
-              promotorAddress: headerLocation || '',
-              hoursPerWeek: String(contract.hours_per_week || ''),
-              monthlyGross: String(contract.monthly_gross || ''),
-              startDate: contract.start_date ? new Date(contract.start_date).toLocaleDateString('de-DE') : '',
-              endDate: contract.end_date ? new Date(contract.end_date).toLocaleDateString('de-DE') : '',
-              isTemporary: !!contract.is_temporary
-            });
-            setViewContractHTML(html);
-          }
-        }
+      const res = await fetch(`/api/promotors/${userId}/contracts/signed-url?contract_id=${targetContractId}`, {
+        cache: 'no-store'
+      });
+      const data = await res.json();
+      if (data?.url) {
+        const extFromPath = String(targetContract.file_path || targetContract.file_name || '').split('.').pop()?.toLowerCase();
+        const ext = String(targetContract.file_ext || extFromPath || '').toLowerCase();
+        setContractPreviewExt(ext === 'pdf' || ext === 'doc' || ext === 'docx' ? ext : 'unknown');
+        const cacheBustedUrl = `${data.url}${String(data.url).includes('?') ? '&' : '?'}cb=${Date.now()}`;
+        setContractPreviewUrl(cacheBustedUrl);
+        setContractPreviewError(false)
+      } else {
+        throw new Error(data?.error || 'Vorschau konnte nicht geladen werden');
       }
     } catch (error) {
-      console.error('Error loading contract HTML:', error);
+      console.error('Error loading contract preview:', error);
+      setContractPreviewUrl('')
+      setContractPreviewError(true)
     } finally {
-      setLoadingContractHTML(false);
+      setLoadingContractPreview(false);
     }
   }
 
-  // Export Dienstvertrag as PDF using html2pdf.js for robust page breaking
-  const exportDienstvertragAsPDF = async () => {
-    const element = document.getElementById('dienstvertrag-content');
-    if (!element) return;
+  const refreshContractPreview = async () => {
+    if (!userId || !selectedContractPreviewId) return
+    const targetContract = promotorContracts.find((c) => c.id === selectedContractPreviewId)
+    if (!targetContract) return
 
-    const filename = `Dienstvertrag_${(headerName || 'Promotor').replace(/\s+/g, '_')}.pdf`;
-
-    // Detect mobile devices (iOS/Android)
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-    const opt = {
-      margin: 15,
-      filename: filename,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-    };
-
-    const clonedElement = element.cloneNode(true) as HTMLElement;
-    
-    const style = document.createElement('style');
-    style.textContent = `
-      p, li, h1, h2, h3, h4, h5, h6, div, tr, td {
-        page-break-inside: avoid !important;
-      }
-    `;
-    clonedElement.appendChild(style);
-
-    // Dynamically import browser-only library to avoid SSR usage
-    const mod = await import('html2pdf.js');
-    const html2pdf = mod.default ?? mod;
-    
-    if (isMobile) {
-      // Mobile: generate blob and open in new tab for download
-      const pdfBlob = await html2pdf().from(clonedElement).set(opt).outputPdf('blob');
-      const blobUrl = URL.createObjectURL(pdfBlob);
-      
-      // Create a temporary link and trigger download
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = filename;
-      link.click();
-      
-      // Clean up
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
-    } else {
-      // Desktop: normal save
-      html2pdf().from(clonedElement).set(opt).save();
-    }
-  };
-
-  const handleDownloadPDF = async () => {
-    setIsDownloading(true)
-    
+    setLoadingContractPreview(true)
     try {
-      // Get the contract content element
-      const element = document.getElementById('dienstvertrag-content')
-      if (!element) {
-        throw new Error('Contract content not found')
-      }
+      const res = await fetch(`/api/promotors/${userId}/contracts/signed-url?contract_id=${selectedContractPreviewId}`, {
+        cache: 'no-store'
+      })
+      const data = await res.json()
+      if (!data?.url) throw new Error(data?.error || 'Vorschau konnte nicht geladen werden')
 
-      // Dynamically import html2pdf
-      let html2pdf: any = null
-      try {
-        // @ts-ignore - html2pdf.js types not available
-        html2pdf = await import('html2pdf.js')
-      } catch {
-        // Fallback if html2pdf is not available
-        console.warn('html2pdf.js not available, using simple text download')
-      }
-
-      if (html2pdf && html2pdf.default) {
-        // Get the full height of the content
-        const contentHeight = element.scrollHeight + 100
-        
-        const opt = {
-          margin: [10, 10, 10, 10],
-          filename: `Dienstvertrag_${new Date().toISOString().split('T')[0]}.pdf`,
-          image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { 
-            scale: 1.5,
-            useCORS: true,
-            letterRendering: true,
-            backgroundColor: '#ffffff',
-            height: contentHeight,
-            width: 800,
-            scrollX: 0,
-            scrollY: 0
-          },
-          jsPDF: { 
-            unit: 'mm', 
-            format: 'a4', 
-            orientation: 'portrait'
-          }
-        }
-
-        await html2pdf.default().set(opt).from(element).save()
-      } else {
-        // Simple fallback: Download as text file
-        const contractText = element.innerText || element.textContent || ''
-        const blob = new Blob([`DIENSTVERTRAG\nSales Crew Verkaufsförderung GmbH\nErstellt am: ${new Date().toLocaleDateString('de-DE')}\n\n${contractText}`], {
-          type: 'text/plain;charset=utf-8'
-        })
-        
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = `Dienstvertrag_${new Date().toISOString().split('T')[0]}.txt`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        URL.revokeObjectURL(url)
-      }
-
-      // Show success state
-      setDownloadSuccess(true)
-      setTimeout(() => {
-        setDownloadSuccess(false)
-      }, 3000)
-
+      const extFromPath = String(targetContract.file_path || targetContract.file_name || '').split('.').pop()?.toLowerCase()
+      const ext = String(targetContract.file_ext || extFromPath || '').toLowerCase()
+      setContractPreviewExt(ext === 'pdf' || ext === 'doc' || ext === 'docx' ? ext : 'unknown')
+      const cacheBustedUrl = `${data.url}${String(data.url).includes('?') ? '&' : '?'}cb=${Date.now()}`
+      setContractPreviewUrl(cacheBustedUrl)
+      setContractPreviewError(false)
     } catch (error) {
-      console.error('Error generating PDF:', error)
-      
-      // Show success state anyway for user feedback
-      setDownloadSuccess(true)
-      setTimeout(() => {
-        setDownloadSuccess(false)
-      }, 3000)
+      console.error('Error refreshing contract preview:', error)
+      setContractPreviewError(true)
     } finally {
-      setIsDownloading(false)
+      setLoadingContractPreview(false)
     }
   }
 
@@ -872,24 +761,13 @@ export default function ProfilPage() {
       const json = await res.json();
       const contracts = json.contracts || [];
       setPromotorContracts(contracts);
-      
-      // Check if this is first contract and trigger onboarding
-      const hasContracts = contracts.length > 0;
-      const onboardingKey = `contract_onboarding_seen:${uid}`;
-      const hasSeenOnboarding = typeof window !== 'undefined' ? localStorage.getItem(onboardingKey) : null;
-      
-      if (hasContracts && !hasSeenOnboarding) {
-        setShowContractOnboarding(true);
-        setOnboardingStep('highlight-button');
-        try { localStorage.setItem(onboardingKey, '1'); } catch {}
-      }
     } catch (e) {
       console.error('Failed to load promotor contracts:', e);
       setPromotorContracts([]);
     }
   };
 
-  // When opening the modal, opportunistically refresh a few times to catch admin acceptance
+  // Refresh contracts when opening the modal
   useEffect(() => {
     if (!showDienstvertragPopup || !userId) return;
     let cancelled = false;
@@ -1348,15 +1226,25 @@ export default function ProfilPage() {
           {/* Action Cards */}
           <div className="grid grid-cols-2 gap-4">
             {/* Dienstvertrag Card */}
+            {(() => {
+              const hasActiveContract = promotorContracts.some((c: any) => c.is_active)
+              return (
             <Card 
-              className="border-none shadow-lg shadow-blue-500/30 bg-gradient-to-r from-blue-400 via-blue-500 to-indigo-600 h-24 flex items-center justify-center cursor-pointer hover:shadow-xl hover:shadow-blue-500/40 hover:scale-105 transition-all duration-300 group"
+              className="relative border-none shadow-lg shadow-blue-500/30 bg-gradient-to-r from-blue-400 via-blue-500 to-indigo-600 h-24 flex items-center justify-center cursor-pointer hover:shadow-xl hover:shadow-blue-500/40 hover:scale-105 transition-all duration-300 group"
               onClick={() => setShowDienstvertragPopup(true)}
             >
+              {hasActiveContract && (
+                <div className="absolute top-2 right-2 bg-white/20 rounded-full p-1">
+                  <Check className="h-3.5 w-3.5 text-white" />
+                </div>
+              )}
               <div className="text-center">
                 <FileSignature className="h-6 w-6 text-white mx-auto mb-2 group-hover:scale-110 transition-transform duration-300" />
                 <h3 className="text-white font-semibold text-xs">Dienstvertrag</h3>
               </div>
             </Card>
+              )
+            })()}
 
             {/* Sedcard Card */}
             <Card className="border-none shadow-lg shadow-purple-500/30 bg-gradient-to-r from-purple-400 via-purple-500 to-pink-500 h-24 flex items-center justify-center cursor-pointer hover:shadow-xl hover:shadow-purple-500/40 hover:scale-105 transition-all duration-300 group">
@@ -1501,11 +1389,8 @@ export default function ProfilPage() {
                 {(() => {
                   const activeContract = promotorContracts.find(c => c.is_active);
                   const hasActive = !!activeContract;
-                  const employmentType = hasActive ? activeContract?.employment_type : null;
-                  const hoursPerWeek = hasActive ? activeContract?.hours_per_week : null;
-                  const isTemporary = hasActive ? !!activeContract?.is_temporary : false;
-                  const endDate = hasActive && activeContract?.end_date ? new Date(activeContract.end_date).toLocaleDateString('de-DE') : '';
-                  const statusText = hasActive ? (isTemporary ? `befristet bis ${endDate}` : 'unbefristet') : null;
+                  const hoursPerWeek = userProfileData?.contract_hours_per_week ?? null;
+                  const statusText = hasActive ? 'Dienstvertrag hinterlegt' : null;
                   
                   return (
                     <>
@@ -1519,7 +1404,7 @@ export default function ProfilPage() {
                             <div className="h-6 w-24 rounded-full animate-skeleton-fade" />
                           ) : hasActive ? (
                             <Badge variant="secondary" className="px-2 py-0.5 rounded-full bg-gradient-to-r from-emerald-50 to-green-50 text-emerald-700 border border-emerald-200 shadow-sm dark:from-emerald-900/20 dark:to-green-900/20 dark:text-emerald-300 dark:border-emerald-900/40">
-                              {employmentType}
+                              Aktiv
                             </Badge>
                           ) : (
                             <p className="text-sm text-gray-500 dark:text-gray-400">Noch kein Vertrag eingespielt</p>
@@ -1534,7 +1419,7 @@ export default function ProfilPage() {
                         </label>
                         {isLoading ? (
                           <div className="h-5 w-8 rounded-md animate-skeleton-fade" />
-                        ) : hasActive ? (
+                        ) : hoursPerWeek !== null ? (
                           <p className="text-base font-semibold text-gray-900 dark:text-gray-100">
                             {hoursPerWeek}
                           </p>
@@ -2306,10 +2191,10 @@ export default function ProfilPage() {
       {showDienstvertragPopup && (
         <>
           <div 
-            className={`fixed inset-0 bg-black/30 backdrop-blur-sm ${showContractOnboarding ? 'z-[201]' : 'z-[60]'}`}
+            className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[60]"
             onClick={() => setShowDienstvertragPopup(false)}
           ></div>
-          <div className={`fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-gray-900 rounded-xl shadow-xl p-0 w-96 max-h-[80vh] overflow-hidden ${showContractOnboarding ? 'z-[202]' : 'z-[70]'}`}>
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-gray-900 rounded-xl shadow-xl p-0 w-96 max-h-[80vh] overflow-hidden z-[70]">
             {/* Header */}
             <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-4 rounded-t-xl">
               <div className="flex items-center justify-between">
@@ -2325,245 +2210,55 @@ export default function ProfilPage() {
                 </div>
               )}
 
-              {/* Pending contracts without file */}
-              {(() => {
-                const pendingContracts = promotorContracts.filter(c => !c.is_active && !c.file_path);
-                return pendingContracts.map((contract) => (
-                  <div key={contract.id} className="relative bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
-                    {uploadingContractId === contract.id && (
-                      <div className="absolute inset-0 rounded-lg overflow-hidden pointer-events-none z-10">
-                        <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-blue-50/50 backdrop-blur-[1px]"></div>
-                        <div className="absolute inset-0">
-                          <div className="absolute h-full w-1 bg-gradient-to-b from-transparent via-white to-transparent opacity-90 shadow-lg" style={{ left: '0%', filter: 'blur(1px)', animation: 'scanHorizontal 2s linear infinite' }}></div>
-                          <div className="absolute w-full h-1 bg-gradient-to-r from-transparent via-white to-transparent opacity-90 shadow-lg" style={{ top: '0%', filter: 'blur(1px)', animation: 'scanVertical 2s linear infinite' }}></div>
-                        </div>
-                      </div>
-                    )}
-                <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">Neuer Vertrag verfügbar</span>
-                      <span className="text-xs bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 px-2 py-1 rounded-full">Ausstehend</span>
-                </div>
-                <div className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                      <div>Wochenstunden: {contract.hours_per_week || 'N/A'}</div>
-                      <div>Laufzeit: {contract.start_date ? new Date(contract.start_date).toLocaleDateString('de-DE') : 'N/A'} - {contract.end_date ? new Date(contract.end_date).toLocaleDateString('de-DE') : 'unbefristet'}</div>
-                      <div>Anstellungsart: {contract.employment_type || 'N/A'}</div>
-                </div>
-                    <div className="flex items-center gap-2">
-                <button 
-                        className="flex-1 px-3 py-2 text-xs rounded-lg text-white bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700"
-                        onClick={() => {
-                          handleDienstvertragSelect(contract.id);
-                          if (showContractOnboarding && onboardingStep === 'highlight-button') {
-                            setOnboardingStep('highlight-download');
-                          }
-                        }}
-                >
-                  Ansehen & Unterschreiben
-                </button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 p-0 animate-bounce"
-                        onClick={async () => {
-                          if (!userId) return;
-                          // Stop jumping and end onboarding if active
-                          setShowUploadJump(false);
-                          if (showContractOnboarding && onboardingStep === 'highlight-upload') {
-                            setShowContractOnboarding(false);
-                          }
-                          const input = document.createElement('input');
-                          input.type = 'file';
-                          input.accept = 'application/pdf,image/*';
-                          input.style.display = 'none';
-                          document.body.appendChild(input);
-                          input.onchange = async () => {
-                            const file = input.files?.[0];
-                            document.body.removeChild(input);
-                            if (!file) return;
-                            const supabase = createSupabaseBrowserClient();
-                            const ext = (file.name.split('.').pop() || 'pdf').toLowerCase();
-                            try {
-                              setUploadingContractId(contract.id);
-                              const upRes = await fetch(`/api/promotors/${userId}/contracts/upload-url`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_ext: ext }) });
-                              const up = await upRes.json();
-                              if (!up?.path || !up?.token) return;
-                              const { error: upErr } = await supabase.storage.from('contracts').uploadToSignedUrl(up.path, up.token, file);
-                              if (upErr) return;
-                              await fetch(`/api/promotors/${userId}/contracts/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contract_id: contract.id, file_path: up.path }) });
-                              await loadPromotorContracts(userId);
-                            } finally {
-                              setUploadingContractId(null);
-                            }
-                          };
-                          input.click();
-                        }}
-                        title="Unterschriebenen Vertrag hochladen"
-                      >
-                        <Upload className="h-4 w-4" />
-                      </Button>
-              </div>
-                  </div>
-                ));
-              })()}
-
-              {/* Pending contracts with file (awaiting admin acceptance) */}
-              {(() => {
-                const active = promotorContracts.find(c => c.is_active);
-                // candidates: non-active contracts that have a file
-                const candidates = promotorContracts.filter(c => !c.is_active && !!c.file_path);
-                // pick only those newer than the active (if there is one)
-                const newerThanActive = active?.created_at
-                  ? candidates.filter(c => new Date(c.created_at).getTime() > new Date(active.created_at).getTime())
-                  : candidates;
-                const awaitingAcceptance = newerThanActive
-                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                  .slice(0, 1); // show only newest awaiting
-                if (awaitingAcceptance.length === 0) return null;
-                return awaitingAcceptance.map((contract) => (
-                  <div key={contract.id} className="bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">Gesendet – Ausstehend</span>
-                      <div className="flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 text-amber-500 animate-spin" />
-                        <span className="text-xs bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 px-2 py-1 rounded-full">Warte auf Freigabe</span>
-                      </div>
-                    </div>
-                    <div className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                      <div>Wochenstunden: {contract.hours_per_week || 'N/A'}</div>
-                      <div>Laufzeit: {contract.start_date ? new Date(contract.start_date).toLocaleDateString('de-DE') : 'N/A'} - {contract.end_date ? new Date(contract.end_date).toLocaleDateString('de-DE') : 'unbefristet'}</div>
-                      <div>Anstellungsart: {contract.employment_type || 'N/A'}</div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      {contract.file_path && (
-                        <button
-                          className="px-2 py-1 text-xs rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-                          onClick={async () => {
-                            if (!userId) return;
-                            const r = await fetch(`/api/promotors/${userId}/contracts/signed-url?contract_id=${contract.id}`);
-                            const j = await r.json();
-                            if (j?.url) window.open(j.url, '_blank');
-                          }}
-                          title="Hochgeladenen Vertrag ansehen"
-                        >
-                          Signiert ansehen
-                        </button>
-                      )}
-                      <button
-                        className="px-2 py-1 text-xs rounded-lg text-white bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700"
-                        onClick={() => handleDienstvertragSelect(contract.id)}
-                      >
-                        Vertrag ansehen
-                      </button>
-                    </div>
-                  </div>
-                ));
-              })()}
-
-              {/* Active Contract */}
-              {(() => {
-                const activeContract = promotorContracts.find(c => c.is_active);
-                if (!activeContract) return null;
-                
-                return (
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">Aktiver Vertrag</span>
-                  <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full">Aktiv</span>
-                </div>
-                <div className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                      <div>Wochenstunden: {activeContract.hours_per_week || 'N/A'}</div>
-                      <div>Laufzeit: {activeContract.start_date ? new Date(activeContract.start_date).toLocaleDateString('de-DE') : 'N/A'} - {activeContract.end_date ? new Date(activeContract.end_date).toLocaleDateString('de-DE') : 'unbefristet'}</div>
-                      <div>Anstellungsart: {activeContract.employment_type || 'N/A'}</div>
-                </div>
-                    <div className="flex items-center justify-between">
-                <button 
-                        className="px-2 py-1 text-xs rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-                        onClick={async () => {
-                          if (!userId || !activeContract.file_path) return;
-                          const r = await fetch(`/api/promotors/${userId}/contracts/signed-url?contract_id=${activeContract.id}`);
-                          const j = await r.json();
-                          if (j?.url) window.open(j.url, '_blank');
-                        }}
-                      >
-                        Signiert ansehen
-                      </button>
-                      <button 
-                        className="px-2 py-1 text-xs rounded-lg text-white bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700"
-                        onClick={() => handleDienstvertragSelect(activeContract.id)}
-                >
-                  Vertrag ansehen
-                </button>
-              </div>
-                  </div>
-                );
-              })()}
-
-              {/* Previous Contracts */}
               {(() => {
                 const contracts = Array.isArray(promotorContracts) ? promotorContracts : [];
-                const active = contracts.find((c: any) => c.is_active);
-                const nonActiveWithFile = contracts.filter((c: any) => !c.is_active && c.file_path);
+                if (contracts.length === 0) return null;
 
-                // Find newest pending (awaiting) contract id
-                let newestPendingId: string | null = null;
-                if (active?.created_at) {
-                  const pending = [...nonActiveWithFile]
-                    .filter((c: any) => new Date(c.created_at).getTime() > new Date(active.created_at).getTime())
-                    .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-                  newestPendingId = pending?.id || null;
-                } else {
-                  const top = [...nonActiveWithFile].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-                  newestPendingId = top?.id || null;
-                }
-
-                const previousContracts = nonActiveWithFile
-                  .filter((c: any) => {
-                    if (newestPendingId && c.id === newestPendingId) return false; // exclude the currently pending contract
-                    if (active?.created_at) {
-                      return new Date(c.created_at).getTime() <= new Date(active.created_at).getTime();
-                    }
-                    // If no active exists, show all non-active-with-file except newest pending (above)
-                    return true;
-                  })
-                  .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-                if (previousContracts.length === 0) return null;
-                
                 return (
               <div className="space-y-2">
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 px-1">Frühere Verträge</h4>
-                    {previousContracts.map((contract, index) => (
-                      <div key={contract.id} className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+                    {contracts.map((contract) => (
+                      <div
+                        key={contract.id}
+                        className={`border rounded-lg p-3 ${
+                          contract.is_active
+                            ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800'
+                            : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+                        }`}
+                      >
                   <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                            Vertrag {previousContracts.length - index}
+                          <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                            {contract.is_active ? 'Aktiver Dienstvertrag' : 'Vergangener Dienstvertrag'}
                           </span>
-                          <span className="text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-1 rounded-full">Beendet</span>
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            contract.is_active
+                              ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                              : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                          }`}>
+                            {contract.is_active ? 'Aktiv' : 'Archiv'}
+                          </span>
                   </div>
                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                          <div>Laufzeit: {contract.start_date ? new Date(contract.start_date).toLocaleDateString('de-DE') : 'N/A'} - {contract.end_date ? new Date(contract.end_date).toLocaleDateString('de-DE') : 'N/A'}</div>
+                          <div>Datei: {contract.file_name || contract.file_path?.split('/').pop() || 'N/A'}</div>
+                          <div>Hinterlegt am: {contract.created_at ? new Date(contract.created_at).toLocaleDateString('de-DE') : 'N/A'}</div>
                   </div>
                         <div className="flex items-center gap-2">
                   <button 
-                            className="flex-1 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-lg transition-all duration-200"
+                            className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${
+                              contract.is_active
+                                ? 'text-white bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700'
+                                : 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300'
+                            }`}
                             onClick={() => handleDienstvertragSelect(contract.id)}
                   >
-                    Archiv ansehen
+                    {contract.is_active ? 'Aktiver Dienstvertrag' : 'Archiv ansehen'}
                   </button>
-                          {contract.file_path && (
-                  <button 
-                              className="px-2 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-xs rounded-lg"
-                              onClick={async () => {
-                                if (!userId) return;
-                                const r = await fetch(`/api/promotors/${userId}/contracts/signed-url?contract_id=${contract.id}`);
-                                const j = await r.json();
-                                if (j?.url) window.open(j.url, '_blank');
-                              }}
-                              title="Unterschriebenen Vertrag ansehen"
-                            >
-                              <Eye className="h-3 w-3" />
-                  </button>
-                          )}
+                          <button
+                            className="p-1.5 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                            onClick={() => handleDienstvertragSelect(contract.id)}
+                            title="Vorschau öffnen"
+                          >
+                            <Eye className="h-3.5 w-3.5 text-gray-700 dark:text-gray-200" />
+                          </button>
                 </div>
               </div>
                     ))}
@@ -2607,35 +2302,28 @@ export default function ProfilPage() {
                     </button>
                     <h3 className="text-xl font-bold">Dienstvertrag</h3>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    {/* Download PDF Button */}
+                  <div className="flex items-center gap-2">
+                    {(contractPreviewExt === 'doc' || contractPreviewExt === 'docx') && (
+                      <>
+                        <button
+                          onClick={refreshContractPreview}
+                          className="px-2.5 py-1.5 text-xs bg-white/15 hover:bg-white/25 rounded-lg transition-colors"
+                        >
+                          Neu laden
+                        </button>
+                        {contractPreviewUrl && (
+                          <button
+                            onClick={() => window.open(contractPreviewUrl, '_blank')}
+                            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                            title="In neuem Tab öffnen"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </button>
+                        )}
+                      </>
+                    )}
                     <button 
-                      onClick={() => {
-                        exportDienstvertragAsPDF();
-                        if (showContractOnboarding && onboardingStep === 'highlight-download') {
-                          // Move to upload step after download
-                          setOnboardingStep('highlight-upload');
-                          setShowDienstvertragContent(false);
-                          setShowDienstvertragPopup(true);
-                        }
-                        // Always make upload icon jump after download
-                        setShowUploadJump(true);
-                        setTimeout(() => setShowUploadJump(false), 3000);
-                      }}
-                      disabled={isDownloading}
-                      className="p-2 hover:bg-white/20 rounded-lg transition-all duration-200 disabled:opacity-50"
-                      title="Als PDF herunterladen"
-                    >
-                      {downloadSuccess ? (
-                        <Check className="h-5 w-5 text-green-400" />
-                      ) : (
-                        <Download className={`h-5 w-5 ${isDownloading ? 'animate-pulse' : ''}`} />
-                      )}
-                    </button>
-                    
-                    {/* Close Button */}
-                    <button 
-                      onClick={() => { setShowDienstvertragContent(false); setSelectedContractId(null) }}
+                      onClick={() => setShowDienstvertragContent(false)}
                       className="p-2 hover:bg-white/20 rounded-lg transition-colors"
                     >
                       <X className="h-5 w-5" />
@@ -2646,80 +2334,31 @@ export default function ProfilPage() {
               
               {/* Content */}
               <div className="overflow-y-auto max-h-[calc(90vh-120px)] p-6">
-                <div id="dienstvertrag-content">
-                  {loadingContractHTML ? (
+                {loadingContractPreview ? (
                     <div className="flex items-center justify-center py-12">
                       <Loader2 className="h-8 w-8 text-gray-400 animate-spin" />
                     </div>
-                  ) : (
-                    <div 
-                      className="prose prose-sm"
-                      dangerouslySetInnerHTML={{ __html: viewContractHTML }}
+                ) : contractPreviewUrl ? (
+                    <iframe
+                      src={contractPreviewExt === 'pdf'
+                        ? contractPreviewUrl
+                        : `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(contractPreviewUrl)}`}
+                      className="w-full h-[70vh] rounded-lg border border-gray-200 dark:border-gray-700"
+                      title="Dienstvertrag Vorschau"
+                      onError={() => setContractPreviewError(true)}
                     />
+                ) : (
+                    <div className="text-sm text-gray-600 dark:text-gray-300 text-center py-12">Keine Vorschau verfügbar</div>
                   )}
-                </div>
+                {contractPreviewError && (
+                  <div className="mt-3 text-center text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-3">
+                    Die Vorschau konnte nicht zuverlässig geladen werden. Bitte "Neu laden" versuchen oder im neuen Tab öffnen.
+                  </div>
+                )}
               </div>
             </div>
           </>
         )}
-
-      {/* Contract Onboarding Windows */}
-      {showContractOnboarding && onboardingStep === 'highlight-button' && (
-        <div className="fixed top-[10%] left-1/2 transform -translate-x-1/2 z-[300] pointer-events-auto">
-          <div className="bg-white rounded-lg shadow-2xl p-4 max-w-sm border-2 border-blue-400">
-            <h4 className="font-semibold text-gray-900 mb-2">Neuer Dienstvertrag!</h4>
-            <p className="text-sm text-gray-600 mb-3">
-              Klicken Sie auf "Ansehen & Unterschreiben" um Ihren ersten Dienstvertrag zu öffnen.
-            </p>
-            <div className="flex justify-end">
-              <button
-                onClick={() => setShowContractOnboarding(false)}
-                className="text-xs text-gray-500 hover:text-gray-700"
-              >
-                Überspringen
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showContractOnboarding && onboardingStep === 'highlight-download' && (
-        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[300] pointer-events-auto">
-          <div className="bg-white rounded-lg shadow-2xl p-4 max-w-sm border-2 border-blue-400">
-            <h4 className="font-semibold text-gray-900 mb-2">Download verfügbar!</h4>
-            <p className="text-sm text-gray-600 mb-3">
-              Klicken Sie auf das Download-Symbol um den Vertrag als PDF herunterzuladen.
-            </p>
-            <div className="flex justify-end">
-              <button
-                onClick={() => setShowContractOnboarding(false)}
-                className="text-xs text-gray-500 hover:text-gray-700"
-              >
-                Verstanden
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showContractOnboarding && onboardingStep === 'highlight-upload' && (
-        <div className="fixed top-[10%] left-1/2 transform -translate-x-1/2 z-[300] pointer-events-auto">
-          <div className="bg-white rounded-lg shadow-2xl p-4 max-w-sm border-2 border-blue-400">
-            <h4 className="font-semibold text-gray-900 mb-2">Vertrag hochladen!</h4>
-            <p className="text-sm text-gray-600 mb-3">
-              Lade hier den unterschriebenen Vertrag als PDF wieder hoch.
-            </p>
-            <div className="flex justify-end">
-              <button
-                onClick={() => setShowContractOnboarding(false)}
-                className="text-xs text-gray-500 hover:text-gray-700"
-              >
-                Verstanden
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       </div>
     )
 } 

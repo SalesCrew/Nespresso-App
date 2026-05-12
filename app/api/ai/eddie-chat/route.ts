@@ -155,12 +155,18 @@ export async function POST(req: Request) {
     // Note: applications table is NOT queried - all promotor data comes from promotor_profiles
     // promotor_profiles is the single source of truth for all personal data
 
-    // 5. Get contract data
+    // 5. Get dienstvertrag files and configured contract hours
     const { data: contracts } = await svc
-      .from('contracts')
+      .from('dienstvertrag_files')
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
+
+    const { data: profileContractMeta } = await svc
+      .from('promotor_profiles')
+      .select('contract_hours_per_week')
+      .eq('user_id', user.id)
+      .maybeSingle()
 
     // 6. Get access credentials (Zugangsdaten)
     const { data: accessCredentials } = await svc
@@ -420,11 +426,12 @@ Status: ${a.status || 'offen'}`
     // Format contract data
     let vertragDaten = 'Kein Dienstvertrag vorhanden.'
     if (contracts && contracts.length > 0) {
-      const activeContract = contracts.find(c => c.is_active) || contracts[0]
-      vertragDaten = `Status: ${activeContract.status || 'unbekannt'}
-Stunden pro Woche: ${activeContract.hours_per_week || 'Nicht angegeben'}
-Startdatum: ${activeContract.start_date ? new Date(activeContract.start_date).toLocaleDateString('de-DE') : 'Nicht angegeben'}
-${activeContract.signed_at ? `Unterschrieben am: ${new Date(activeContract.signed_at).toLocaleDateString('de-DE')}` : 'Noch nicht unterschrieben'}`
+      const activeContract = contracts.find((c: any) => c.is_active) || contracts[0]
+      const fileName = activeContract?.file_name || activeContract?.file_path?.split('/').pop() || 'Datei'
+      vertragDaten = `Status: ${activeContract?.is_active ? 'aktiv' : 'hinterlegt'}
+Stunden pro Woche: ${profileContractMeta?.contract_hours_per_week || 'Nicht angegeben'}
+Datei: ${fileName}
+Hinterlegt am: ${activeContract?.created_at ? new Date(activeContract.created_at).toLocaleDateString('de-DE') : 'Nicht angegeben'}`
     }
 
     // Format recent chat history for context
@@ -458,7 +465,7 @@ Wir sind das größte Marketingunternehmen in Österreich names SalesCrew und wi
 
 App Hintergrundinfos: 
 
-Ein Promotor, der sich bei uns in der App anmeldet, hat die Onboarding-Fragen beantwortet und bekommt anschließend von uns das Login-Passwort. Da wir dieses Passwort kennen, wird dringend empfohlen, es zu ändern – das geht im Header unter dem Einstellungs-Icon sehr schnell über die App. Dann müssen die Promotoren noch auf der Profil-Seite (im Menü die letzte Option) Bankdaten eingeben und die Zugänge wie Hübner, Boost App, TMA, Demotool für später speichern. Wenn der Account fertig angelegt ist, muss der Promotor über die Dokumente-Karte in der Profil-Page die Pflichtdokumente hochladen – das sind jene, bei denen nicht „optional" steht; man kann die verpflichtenden Dokumente, die noch fehlen, auch in der To-do-Liste im Dashboard sehen. Wenn man über das Upload-Icon links neben dem Status-Icon (normalerweise X) ein Dokument hochgeladen hat, ist statt des roten X jetzt ein drehender Kreis in Orange; das bedeutet, dass das Dokument abgesendet, aber noch nicht angenommen wurde. Die internen Mitarbeiter nehmen dann das Dokument an, und danach hat der Promotor ein grünes Häkchen als Bestätigung. Links neben dem grünen Häkchen, wo vorher das Upload-Icon war, ist jetzt ein Augen-Icon – darüber kann man sich das Dokument ansehen. Sollten die internen Mitarbeiter aus irgendeinem Grund das Dokument abgelehnt haben (nicht leserlich, falsches Dokument usw.), sieht der Promotor auf seiner Seite wieder das Upload-Icon mit dem roten X. Alle nicht optionalen Dokumente müssen abgeschickt und angenommen werden. Dann bekommt der Promotor einen Dienstvertrag zugeschickt. Diesen findet man auch in der Profil-Page auf dem großen blauen „Dienstvertrag"-Button. Dort muss der Vertrag angesehen und heruntergeladen werden. Nachdem man auf „Ansehen & Unterschreiben" gedrückt hat, kann man den Vertrag über das Download-Icon im Header oben rechts herunterladen. Dann soll der Promotor den heruntergeladenen Vertrag (PDF) unterschreiben und anschließend über das Upload-Icon rechts neben dem „Ansehen & Unterschreiben"-Button hochladen.  Wenn das auch fertig ist, würde der Promotor als nächsten Schritt nicht direkt, sondern im Laufe der nächsten Stunden bis Tage, auf der Einsatz-Page (zweite Option im Menü) 3–5 Promotion-Termine für einen Buddy-Tag bekommen (auf der Karte im Header steht: „Suche dir deinen Buddy-Tag selber aus!") – dort kann man einen aussuchen und annehmen. Im Kalender im Dashboard sieht man jetzt den Buddy-Tag als Promotion. Wenn der Promotor schon ein eingearbeiteter Promotor ist, bekommt man einige Promotions zugeschickt (normale Promotions, kein Buddy) und kann sich aus mehreren welche aussuchen. Wenn man das gemacht hat, wird man in eine Warteschleife gesetzt und der Promotor sieht einen Wartescreen. Wenn die internen Mitarbeiter die Einsätze bewilligen, muss der Promotor dies nur noch wahrnehmen und auf „Verstanden" drücken; sollten sie es ablehnen, dann bekommt der Promotor Ersatztermine zugeschickt. Sollte ein Promotor krank werden oder einen Notfall haben, kann der Promotor in der Einsatz-Page so etwas beantragen über „Krankenstand beantragen" oder „Notfall beantragen". Bevor sie aber auf „Beantragen" drücken, müssen sie diese Nummer anrufen: +43699141630. Die App ist noch in Entwicklung; wenn du über etwas gefragt wirst, das mit Funktionen zu tun hat, die nicht hier im Prompt stehen, dann sag bitte, dass es noch nicht so weit ist und dass diese Funktionen bald kommen. Die Zugänge wie Hübner, Boost App, TMA und Demotool sind nicht verpflichtender Teil des Onboardings und nur Hilfen für den eigenen Arbeitsalltag.
+Ein Promotor, der sich bei uns in der App anmeldet, hat die Onboarding-Fragen beantwortet und bekommt anschließend von uns das Login-Passwort. Da wir dieses Passwort kennen, wird dringend empfohlen, es zu ändern – das geht im Header unter dem Einstellungs-Icon sehr schnell über die App. Dann müssen die Promotoren noch auf der Profil-Seite (im Menü die letzte Option) Bankdaten eingeben und die Zugänge wie Hübner, Boost App, TMA, Demotool für später speichern. Wenn der Account fertig angelegt ist, muss der Promotor über die Dokumente-Karte in der Profil-Page die Pflichtdokumente hochladen – das sind jene, bei denen nicht „optional" steht; man kann die verpflichtenden Dokumente, die noch fehlen, auch in der To-do-Liste im Dashboard sehen. Wenn man über das Upload-Icon links neben dem Status-Icon (normalerweise X) ein Dokument hochgeladen hat, ist statt des roten X jetzt ein drehender Kreis in Orange; das bedeutet, dass das Dokument abgesendet, aber noch nicht angenommen wurde. Die internen Mitarbeiter nehmen dann das Dokument an, und danach hat der Promotor ein grünes Häkchen als Bestätigung. Links neben dem grünen Häkchen, wo vorher das Upload-Icon war, ist jetzt ein Augen-Icon – darüber kann man sich das Dokument ansehen. Sollten die internen Mitarbeiter aus irgendeinem Grund das Dokument abgelehnt haben (nicht leserlich, falsches Dokument usw.), sieht der Promotor auf seiner Seite wieder das Upload-Icon mit dem roten X. Alle nicht optionalen Dokumente müssen abgeschickt und angenommen werden. Der Dienstvertrag wird danach von internen Mitarbeitern direkt als Datei in der Profil-Seite hinterlegt. Der Promotor kann den hinterlegten Vertrag dort über den Dienstvertrag-Button ansehen. Wenn das auch fertig ist, würde der Promotor als nächsten Schritt nicht direkt, sondern im Laufe der nächsten Stunden bis Tage, auf der Einsatz-Page (zweite Option im Menü) 3–5 Promotion-Termine für einen Buddy-Tag bekommen (auf der Karte im Header steht: „Suche dir deinen Buddy-Tag selber aus!") – dort kann man einen aussuchen und annehmen. Im Kalender im Dashboard sieht man jetzt den Buddy-Tag als Promotion. Wenn der Promotor schon ein eingearbeiteter Promotor ist, bekommt man einige Promotions zugeschickt (normale Promotions, kein Buddy) und kann sich aus mehreren welche aussuchen. Wenn man das gemacht hat, wird man in eine Warteschleife gesetzt und der Promotor sieht einen Wartescreen. Wenn die internen Mitarbeiter die Einsätze bewilligen, muss der Promotor dies nur noch wahrnehmen und auf „Verstanden" drücken; sollten sie es ablehnen, dann bekommt der Promotor Ersatztermine zugeschickt. Sollte ein Promotor krank werden oder einen Notfall haben, kann der Promotor in der Einsatz-Page so etwas beantragen über „Krankenstand beantragen" oder „Notfall beantragen". Bevor sie aber auf „Beantragen" drücken, müssen sie diese Nummer anrufen: +43699141630. Die App ist noch in Entwicklung; wenn du über etwas gefragt wirst, das mit Funktionen zu tun hat, die nicht hier im Prompt stehen, dann sag bitte, dass es noch nicht so weit ist und dass diese Funktionen bald kommen. Die Zugänge wie Hübner, Boost App, TMA und Demotool sind nicht verpflichtender Teil des Onboardings und nur Hilfen für den eigenen Arbeitsalltag.
 
 !!!!!WICHTIGE REGELN IMMER IMMER IMMER BEACHTEN NIE VERLETZEN:
 

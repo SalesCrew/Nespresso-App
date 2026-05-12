@@ -224,18 +224,18 @@ export async function POST(req: Request) {
 
     const clusterFilteredUserIds = clusterFilteredProfiles.map((p: any) => p.user_id)
 
-    // Get active contracts for weekly hours (only for cluster-filtered promotors)
-    console.log('📄 Fetching active contracts...')
-    const { data: contracts, error: contractsError } = await svc
-      .from('contracts')
-      .select('user_id, hours_per_week, is_active')
+    // Get configured weekly hours from promotor profiles (only for cluster-filtered promotors)
+    console.log('📄 Fetching configured weekly hours...')
+    const { data: profileHours, error: contractsError } = await svc
+      .from('promotor_profiles')
+      .select('user_id, contract_hours_per_week')
       .in('user_id', clusterFilteredUserIds)
-      .eq('is_active', true)
+      .not('contract_hours_per_week', 'is', null)
 
     if (contractsError) {
       console.log('⚠️ Contracts fetch error:', contractsError.message)
     }
-    console.log(`✅ Found ${contracts?.length || 0} active contracts`)
+    console.log(`✅ Found ${profileHours?.length || 0} configured weekly-hours entries`)
 
     // Calculate current calendar week from assignment date
     const assignmentDate = new Date(assignment.start_ts || assignment.date)
@@ -369,7 +369,7 @@ export async function POST(req: Request) {
     // Create maps for quick lookup
     console.log('🗂️ Creating lookup maps...')
     const profileByUser = new Map(clusterFilteredProfiles.map((p: any) => [p.user_id, p]))
-    const contractByUser = new Map((contracts || []).map((c: any) => [c.user_id, c]))
+    const contractByUser = new Map((profileHours || []).map((c: any) => [c.user_id, c]))
     console.log(`📋 Profile map: ${profileByUser.size} entries`)
     console.log(`📄 Contract map: ${contractByUser.size} entries`)
     
@@ -391,7 +391,7 @@ export async function POST(req: Request) {
     
     availableUserIds.forEach((userId: string) => {
       const contract = contractByUser.get(userId)
-      const contractHours = contract?.hours_per_week || 0
+      const contractHours = contract?.contract_hours_per_week || 0
       
       if (contractHours === 0) {
         // No contract hours defined, include promotor
@@ -421,7 +421,7 @@ export async function POST(req: Request) {
         const contract = contractByUser.get(id)
         const weekAssignments = weekAssignmentsByUser.get(id) || []
         const worked = calculateWorkedHours(weekAssignments)
-        const remaining = Math.max(0, (contract?.hours_per_week || 0) - worked)
+        const remaining = Math.max(0, (contract?.contract_hours_per_week || 0) - worked)
         return `${user?.display_name || 'Unknown'} (${remaining}h free)`
       })
       console.log('✅ Promotors with available hours:', availableHoursNames.join(', '))
@@ -434,7 +434,7 @@ export async function POST(req: Request) {
         const contract = contractByUser.get(id)
         const weekAssignments = weekAssignmentsByUser.get(id) || []
         const worked = calculateWorkedHours(weekAssignments)
-        const remaining = Math.max(0, (contract?.hours_per_week || 0) - worked)
+        const remaining = Math.max(0, (contract?.contract_hours_per_week || 0) - worked)
         return `${user?.display_name || 'Unknown'} (${remaining}h free)`
       })
       console.log('⏱️ Promotors with full hours:', fullHoursNames.join(', '))
@@ -507,7 +507,7 @@ export async function POST(req: Request) {
       
       // Calculate worked hours this week
       const workedHours = calculateWorkedHours(weekAssignments)
-      const contractHours = contract?.hours_per_week || 0
+      const contractHours = contract?.contract_hours_per_week || 0
       const remainingHours = Math.max(0, contractHours - workedHours)
       
       const promotorData = {

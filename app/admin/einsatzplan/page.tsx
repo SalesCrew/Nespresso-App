@@ -80,6 +80,27 @@ const TypingText = ({ text, isTyping }: { text: string; isTyping: boolean }) => 
   return <>{displayedText}</>;
 };
 
+type InternImportStage = 'upload' | 'preview_mapping' | 'resolve_promotors';
+type InternColumnMapping = {
+  addressCol: string;
+  plzCol: string;
+  dateCol: string;
+  startCol: string;
+  endCol: string;
+  promotorCol: string;
+};
+type InternUnresolvedPromotor = {
+  rowKey: string;
+  rowNumber: number;
+  importedName: string;
+  address?: string;
+  plz?: string;
+  start_ts?: string;
+  end_ts?: string;
+  reason?: string;
+  candidatePromotors?: Array<{ user_id: string; name: string }>;
+};
+
 export default function EinsatzplanPage() {
   // Custom scrollbar and skeleton styles
   const customScrollbarStyle = `
@@ -170,6 +191,22 @@ export default function EinsatzplanPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importType, setImportType] = useState<'roh' | 'intern'>('roh');
   const [showExcelFormatInfo, setShowExcelFormatInfo] = useState(false);
+  const [internImportStage, setInternImportStage] = useState<InternImportStage>('upload');
+  const [internSheetRows, setInternSheetRows] = useState<any[][]>([]);
+  const [internSourceFileName, setInternSourceFileName] = useState('');
+  const [internMapping, setInternMapping] = useState<InternColumnMapping>({
+    addressCol: 'A',
+    plzCol: 'B',
+    dateCol: 'C',
+    startCol: 'D',
+    endCol: 'E',
+    promotorCol: 'F',
+  });
+  const [internSkipFirstRow, setInternSkipFirstRow] = useState(true);
+  const [internImportBusy, setInternImportBusy] = useState(false);
+  const [internRowErrors, setInternRowErrors] = useState<Array<{ rowKey: string; rowNumber: number; message: string }>>([]);
+  const [internUnresolvedPromotors, setInternUnresolvedPromotors] = useState<InternUnresolvedPromotor[]>([]);
+  const [internResolutionSelections, setInternResolutionSelections] = useState<Record<string, string>>({});
   const [einsatzplanData, setEinsatzplanData] = useState<any[]>([]);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedEinsatz, setSelectedEinsatz] = useState<any>(null);
@@ -384,6 +421,7 @@ export default function EinsatzplanPage() {
   
   // Create assignment modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createAssignmentMode, setCreateAssignmentMode] = useState<'einsatz' | 'schulung'>('einsatz');
   const [newAssignment, setNewAssignment] = useState({
     title: 'Promotion',
     location_text: '',
@@ -394,6 +432,11 @@ export default function EinsatzplanPage() {
     end_time: '18:30',
     notes: ''
   });
+  const [showSchulungPromotorSelection, setShowSchulungPromotorSelection] = useState(false);
+  const [schulungSelectedPromotorIds, setSchulungSelectedPromotorIds] = useState<string[]>([]);
+  const [schulungActiveRegionFilter, setSchulungActiveRegionFilter] = useState<string>("all");
+  const [schulungPromotorSelectionSearch, setSchulungPromotorSelectionSearch] = useState("");
+  const [schulungLastSelectedByIcon, setSchulungLastSelectedByIcon] = useState<string[]>([]);
   
   // Delete assignment state
   const [pendingAssignmentDelete, setPendingAssignmentDelete] = useState<Record<string, boolean>>({});
@@ -633,9 +676,16 @@ export default function EinsatzplanPage() {
   // Function to create new assignment
   const createNewAssignment = async () => {
     try {
+      const isSchulung = createAssignmentMode === 'schulung';
+
       // Validate required fields
       if (!newAssignment.location_text || !newAssignment.postal_code || !newAssignment.start_date) {
         alert('Bitte füllen Sie alle Pflichtfelder aus.');
+        return;
+      }
+
+      if (isSchulung && schulungSelectedPromotorIds.length === 0) {
+        alert('Bitte wählen Sie mindestens einen GL für die Schulung aus.');
         return;
       }
       
@@ -647,14 +697,14 @@ export default function EinsatzplanPage() {
       const region = getRegionFromPLZ(newAssignment.postal_code);
       
       const assignmentData = {
-        title: newAssignment.title,
+        title: isSchulung ? 'Schulung' : newAssignment.title,
         location_text: newAssignment.location_text,
         postal_code: newAssignment.postal_code,
         city: newAssignment.city,
         region,
         start_ts: startDateTime.toISOString(),
         end_ts: endDateTime.toISOString(),
-        type: 'promotion',
+        type: isSchulung ? 'schulung' : 'promotion',
         notes: newAssignment.notes
       };
       
@@ -665,20 +715,41 @@ export default function EinsatzplanPage() {
       });
       
       if (!response.ok) {
-        throw new Error('Fehler beim Erstellen des Einsatzes');
+        throw new Error(isSchulung ? 'Fehler beim Erstellen der Schulung' : 'Fehler beim Erstellen des Einsatzes');
+      }
+
+      const created = await response.json().catch(() => ({} as any));
+      const createdAssignmentId = created?.assignment?.id as string | undefined;
+
+      if (isSchulung) {
+        if (!createdAssignmentId) {
+          throw new Error('Schulung wurde erstellt, aber die ID konnte nicht gelesen werden.');
+        }
+
+        const participantResponses = await Promise.all(
+          schulungSelectedPromotorIds.map((userId, index) =>
+            fetch(`/api/assignments/${createdAssignmentId}/participants/choose`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                user_id: userId,
+                role: index === 0 ? 'lead' : 'trainer'
+              })
+            })
+          )
+        );
+
+        const failedResponse = participantResponses.find((res) => !res.ok);
+        if (failedResponse) {
+          const failedBody = await failedResponse.text().catch(() => '');
+          // Best effort rollback so a broken Schulung creation does not leave partial data.
+          await fetch(`/api/assignments/${createdAssignmentId}`, { method: 'DELETE' }).catch(() => null);
+          throw new Error(`Teilnehmer konnten nicht gespeichert werden. ${failedBody || ''}`.trim());
+        }
       }
       
       // Reset form and close modal
-      setNewAssignment({
-        title: 'Promotion',
-        location_text: '',
-        postal_code: '',
-        city: '',
-        start_date: '',
-        start_time: '09:30',
-        end_time: '18:30',
-        notes: ''
-      });
+      resetCreateAssignmentState();
       setShowCreateModal(false);
       
       // Refresh assignments
@@ -1618,6 +1689,53 @@ export default function EinsatzplanPage() {
       setLastSelectedByIcon(filteredNames);
     }
   };
+
+  const selectAllFilteredSchulungPromotors = () => {
+    const filteredIds = promotorsList
+      .filter((promotor: any) =>
+        (schulungActiveRegionFilter === "all" || promotor.region === schulungActiveRegionFilter) &&
+        promotor.name.toLowerCase().includes(schulungPromotorSelectionSearch.toLowerCase())
+      )
+      .map((promotor: any) => promotor.id)
+      .filter(Boolean);
+
+    const allFilteredSelected = filteredIds.every((id: string) => schulungSelectedPromotorIds.includes(id));
+    const matchesLastSelection = schulungLastSelectedByIcon.length > 0 &&
+      filteredIds.every((id: string) => schulungLastSelectedByIcon.includes(id)) &&
+      schulungLastSelectedByIcon.every((id: string) => filteredIds.includes(id));
+
+    if (allFilteredSelected && matchesLastSelection) {
+      setSchulungSelectedPromotorIds((prev) => prev.filter((id) => !schulungLastSelectedByIcon.includes(id)));
+      setSchulungLastSelectedByIcon([]);
+    } else {
+      setSchulungSelectedPromotorIds((prev) => [...new Set([...prev, ...filteredIds])]);
+      setSchulungLastSelectedByIcon(filteredIds);
+    }
+  };
+
+  const resetCreateAssignmentState = () => {
+    setCreateAssignmentMode('einsatz');
+    setNewAssignment({
+      title: 'Promotion',
+      location_text: '',
+      postal_code: '',
+      city: '',
+      start_date: '',
+      start_time: '09:30',
+      end_time: '18:30',
+      notes: ''
+    });
+    setSchulungSelectedPromotorIds([]);
+    setSchulungPromotorSelectionSearch("");
+    setSchulungActiveRegionFilter("all");
+    setSchulungLastSelectedByIcon([]);
+    setShowSchulungPromotorSelection(false);
+  };
+
+  const selectedSchulungPromotors = useMemo(() => {
+    const selected = new Set(schulungSelectedPromotorIds);
+    return promotorsList.filter((promotor: any) => selected.has(promotor.id));
+  }, [promotorsList, schulungSelectedPromotorIds]);
   // PLZ to region mapping based on Austrian postal codes
   // Helper function to get tracking status color (for overview tab - same as dashboard)
   const getTrackingStatusColor = (einsatz: any) => {
@@ -1927,91 +2045,193 @@ export default function EinsatzplanPage() {
     reader.readAsArrayBuffer(file);
   };
 
-  // Process Excel file for EP intern import
-  const processInternExcel = (file: File) => {
+  const resetInternImportState = useCallback(() => {
+    setInternImportStage('upload');
+    setInternSheetRows([]);
+    setInternSourceFileName('');
+    setInternMapping({
+      addressCol: 'A',
+      plzCol: 'B',
+      dateCol: 'C',
+      startCol: 'D',
+      endCol: 'E',
+      promotorCol: 'F',
+    });
+    setInternSkipFirstRow(true);
+    setInternImportBusy(false);
+    setInternRowErrors([]);
+    setInternUnresolvedPromotors([]);
+    setInternResolutionSelections({});
+  }, []);
+
+  const isValidColumnLetter = (value: string) => /^[A-Z]+$/.test(String(value || '').trim().toUpperCase());
+  const normalizeColumnLetter = (value: string) => String(value || '').trim().toUpperCase();
+  const columnIndexToLetter = (index: number) => {
+    let n = index + 1;
+    let letter = '';
+    while (n > 0) {
+      const rem = (n - 1) % 26;
+      letter = String.fromCharCode(65 + rem) + letter;
+      n = Math.floor((n - 1) / 26);
+    }
+    return letter;
+  };
+
+  const prepareInternExcelPreview = (file: File) => {
     const reader = new FileReader();
-    reader.onload = async (e) => {
+    reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-        // Reuse the same parsing as Roh: header row contains dates E→, body has counts
-        const header = jsonData[0] || [];
-        const rows: any[] = [];
-        if (header.length < 5) throw new Error('Excel-Format unerwartet (Header fehlt)');
-        for (let r = 1; r < jsonData.length; r++) {
-          const row = jsonData[r] || [];
-          const location_text = String(row[0] || '').trim();
-          const postal_code = String(row[1] || '').trim();
-          if (!location_text || !postal_code) continue;
-          const city = '';
-          const region = getRegionFromPLZ(postal_code);
-          for (let c = 4; c < header.length; c++) {
-            const label = String(header[c] || '').trim();
-            if (!label) continue;
-            const cell = row[c];
-            const val = typeof cell === 'number' ? cell : parseFloat(String(cell).replace(',', '.'));
-            if (![1, 2, 0.75].includes(val)) continue;
-            
-            // Handle Excel serial dates or text dates
-            let start: Date;
-            const numericLabel = parseInt(label, 10);
-            
-            if (!isNaN(numericLabel) && numericLabel > 40000) {
-              // Excel serial date (days since 1900-01-01, but with leap year bug)
-              const excelEpoch = new Date(1899, 11, 30); // December 30, 1899
-              const dateOnly = new Date(excelEpoch.getTime() + numericLabel * 24 * 60 * 60 * 1000);
-              // Create date in UTC to avoid timezone shifts
-              start = new Date(Date.UTC(dateOnly.getFullYear(), dateOnly.getMonth(), dateOnly.getDate(), 9, 30, 0, 0));
-          } else {
-              // Try parsing as text date (e.g., "04.Aug")
-              const parts = label.split('.');
-              if (parts.length < 2) continue;
-              const day = parseInt(parts[0], 10);
-              const monthName = parts[1];
-              const months: Record<string, number> = { Jan:0, Feb:1, Mär:2, Mrz:2, Apr:3, Mai:4, Jun:5, Jul:6, Aug:7, Sep:8, Okt:9, Nov:10, Dez:11 };
-              const month = months[monthName as keyof typeof months];
-              if (month == null || isNaN(day)) continue;
-              const year = new Date().getFullYear();
-              start = new Date(Date.UTC(year, month, day, 9, 30));
-            }
-            const end = new Date(start);
-            if (val === 1 || val === 2) {
-              end.setUTCHours(18, 30, 0, 0);
-            } else if (val === 0.75) {
-              end.setUTCHours(15, 30, 0, 0);
-            }
-            const base = {
-              title: 'Promotion',
-              location_text,
-              postal_code,
-              city,
-              region,
-              start_ts: start.toISOString(),
-              end_ts: end.toISOString(),
-              type: 'promotion' as const,
-            };
-            rows.push(base);
-            if (val === 2) rows.push(base);
-          }
-        }
-        
-        const res = await fetch('/api/assignments/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }) })
-        if (!res.ok) {
-          const t = await res.text();
-          throw new Error(`Import fehlgeschlagen: ${res.status} ${t}`);
-        }
-        setShowImportModal(false)
-        // Load ALL assignments after import to see the new ones
-        await loadAssignments(true)
+        const rows2d: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true, defval: '' });
+        setInternSheetRows(Array.isArray(rows2d) ? rows2d : []);
+        setInternSourceFileName(file.name);
+        setInternRowErrors([]);
+        setInternUnresolvedPromotors([]);
+        setInternResolutionSelections({});
+        setInternImportStage('preview_mapping');
       } catch (error: any) {
-        console.error('Error processing EP intern Excel file:', error);
-        alert(error?.message || 'Fehler beim Verarbeiten der EP intern Excel-Datei');
+        console.error('Error preparing EP intern preview:', error);
+        alert(error?.message || 'Fehler beim Lesen der EP intern Excel-Datei');
       }
     };
     reader.readAsArrayBuffer(file);
+  };
+
+  const formatIsoDateTimeForPreview = (iso?: string | null) => {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso);
+    return `${d.toLocaleDateString('de-DE')} ${String(iso).substring(11, 16)}`;
+  };
+
+  const buildMappingForApi = () => ({
+    addressCol: normalizeColumnLetter(internMapping.addressCol),
+    plzCol: normalizeColumnLetter(internMapping.plzCol),
+    dateCol: normalizeColumnLetter(internMapping.dateCol),
+    startCol: normalizeColumnLetter(internMapping.startCol),
+    endCol: normalizeColumnLetter(internMapping.endCol),
+    promotorCol: normalizeColumnLetter(internMapping.promotorCol),
+  });
+
+  const buildResolutionOverridesPayload = () => {
+    const payload: Record<string, string> = {};
+    Object.entries(internResolutionSelections).forEach(([rowKey, userId]) => {
+      if (!userId) return;
+      payload[rowKey] = userId;
+    });
+    return payload;
+  };
+
+  const validateInternMapping = () => {
+    const required = [
+      internMapping.addressCol,
+      internMapping.plzCol,
+      internMapping.dateCol,
+      internMapping.startCol,
+      internMapping.endCol,
+    ];
+    if (required.some((v) => !isValidColumnLetter(v))) {
+      alert('Bitte gültige Spaltenbuchstaben (A, B, C, ...) für Adresse, PLZ, Datum, Start und Ende eingeben.');
+      return false;
+    }
+    if (internMapping.promotorCol && !isValidColumnLetter(internMapping.promotorCol)) {
+      alert('Promotor-Spalte ist ungültig. Bitte leer lassen oder einen gültigen Spaltenbuchstaben eingeben.');
+      return false;
+    }
+    return true;
+  };
+
+  const runInternImportCommit = async (resolutionOverrides?: Record<string, string>) => {
+    const res = await fetch('/api/assignments/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'ep_intern_commit',
+        sheetRows: internSheetRows,
+        mapping: buildMappingForApi(),
+        skipFirstRow: internSkipFirstRow,
+        resolutionOverrides: resolutionOverrides || {},
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`Import fehlgeschlagen: ${res.status} ${t}`);
+    }
+    return await res.json();
+  };
+
+  const handleInternPreviewAndImport = async () => {
+    if (!validateInternMapping()) return;
+    if (!internSheetRows.length) {
+      alert('Bitte zuerst eine EP intern Datei auswählen.');
+      return;
+    }
+
+    try {
+      setInternImportBusy(true);
+      const previewRes = await fetch('/api/assignments/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'ep_intern_preview',
+          sheetRows: internSheetRows,
+          mapping: buildMappingForApi(),
+          skipFirstRow: internSkipFirstRow,
+        }),
+      });
+      if (!previewRes.ok) {
+        const t = await previewRes.text();
+        throw new Error(`Vorschau fehlgeschlagen: ${previewRes.status} ${t}`);
+      }
+
+      const previewData = await previewRes.json();
+      const unresolved: InternUnresolvedPromotor[] = Array.isArray(previewData?.unresolvedPromotors) ? previewData.unresolvedPromotors : [];
+      const rowErrors = Array.isArray(previewData?.rowErrors) ? previewData.rowErrors : [];
+      setInternRowErrors(rowErrors);
+
+      if (unresolved.length > 0) {
+        const defaults: Record<string, string> = {};
+        unresolved.forEach((item) => {
+          const candidates = Array.isArray(item?.candidatePromotors) ? item.candidatePromotors : [];
+          defaults[item.rowKey] = candidates.length === 1 ? String(candidates[0].user_id) : '__none__';
+        });
+        setInternUnresolvedPromotors(unresolved);
+        setInternResolutionSelections(defaults);
+        setInternImportStage('resolve_promotors');
+        return;
+      }
+
+      const commitData = await runInternImportCommit({});
+      setShowImportModal(false);
+      resetInternImportState();
+      await loadAssignments(true);
+      alert(`Import abgeschlossen: ${commitData.inserted || 0} Einsätze (${commitData.assigned || 0} verplant, ${commitData.open || 0} offen).`);
+    } catch (error: any) {
+      console.error('Error importing EP intern:', error);
+      alert(error?.message || 'Fehler beim Importieren der EP intern Datei');
+    } finally {
+      setInternImportBusy(false);
+    }
+  };
+
+  const handleFinalizeResolvedInternImport = async () => {
+    if (!internUnresolvedPromotors.length) return;
+    try {
+      setInternImportBusy(true);
+      const commitData = await runInternImportCommit(buildResolutionOverridesPayload());
+      setShowImportModal(false);
+      resetInternImportState();
+      await loadAssignments(true);
+      alert(`Import abgeschlossen: ${commitData.inserted || 0} Einsätze (${commitData.assigned || 0} verplant, ${commitData.open || 0} offen).`);
+    } catch (error: any) {
+      console.error('Error finalizing EP intern import:', error);
+      alert(error?.message || 'Fehler beim finalen EP intern Import');
+    } finally {
+      setInternImportBusy(false);
+    }
   };
 
   // Process Excel file for Markets (POS) import
@@ -2136,7 +2356,7 @@ export default function EinsatzplanPage() {
       if (importType === 'roh') {
         processRohExcel(file);
       } else if (importType === 'intern') {
-        processInternExcel(file);
+        prepareInternExcelPreview(file);
       } else {
         console.log('Unknown import type:', importType);
         }
@@ -2160,13 +2380,26 @@ export default function EinsatzplanPage() {
       if (importType === 'roh') {
         processRohExcel(file);
       } else if (importType === 'intern') {
-        processInternExcel(file);
+        prepareInternExcelPreview(file);
       } else {
         console.log('Unknown import type:', importType);
         }
       }
     }
   };
+
+  useEffect(() => {
+    if (!showImportModal) {
+      resetInternImportState();
+    }
+  }, [showImportModal, resetInternImportState]);
+
+  useEffect(() => {
+    if (importType !== 'intern') {
+      resetInternImportState();
+    }
+  }, [importType, resetInternImportState]);
+
   // Generate day cards with status counts
   const generateDayCards = () => {
     const dayMap = new Map();
@@ -2427,6 +2660,7 @@ export default function EinsatzplanPage() {
 
         return {
           id: r.id,
+          type: r.type || 'promotion',
           date: r.start_ts ? new Date(r.start_ts).toISOString().slice(0,10) : '',
           time: timeText,
           city: r.city || r.location_text || '',
@@ -2739,7 +2973,10 @@ Import EP
                           <Dumbbell className="h-4 w-4 text-gray-600" />
                         </button>
                         <button
-                          onClick={() => setShowCreateModal(true)}
+                          onClick={() => {
+                            resetCreateAssignmentState();
+                            setShowCreateModal(true);
+                          }}
                           className="p-1 rounded hover:bg-gray-100 transition-colors opacity-50"
                           title="Neuen Einsatz erstellen"
                         >
@@ -3460,6 +3697,7 @@ Import EP
                           .map((einsatz) => {
                         const hasPromotor = ['Verplant', 'bestätigt', 'Krankenstand'].includes(einsatz.status);
                         const isUnplanned = !hasPromotor;
+                        const isSchulung = einsatz.type === 'schulung';
                         return (
                           <div 
                             key={einsatz.id}
@@ -3509,8 +3747,8 @@ Import EP
                             className={`relative p-4 rounded-lg border transition-all duration-200 hover:shadow-sm cursor-pointer ${
                               selectedPromotions.includes(einsatz.id) 
                                 ? 'border-blue-300 bg-blue-50 shadow-md' 
-                                : (einsatz.status === 'Beendet' ? 'border-[#EFB54E]/30' : 'border-gray-100')
-                            } ${getStatusBackgroundColor(einsatz.status)} ${flashAssignmentId === einsatz.id ? '' : ''}`}
+                                : (einsatz.status === 'Beendet' ? 'border-[#EFB54E]/30' : (isSchulung ? 'border-orange-200/70' : 'border-gray-100'))
+                            } ${isSchulung ? 'bg-orange-50/35' : getStatusBackgroundColor(einsatz.status)} ${flashAssignmentId === einsatz.id ? '' : ''}`}
                             style={einsatz.status === 'Beendet' ? { background: 'linear-gradient(to right, rgba(239, 181, 78, 0.05), rgba(255, 237, 150, 0.05), rgba(252, 217, 76, 0.05), rgba(249, 247, 147, 0.05), rgba(239, 185, 77, 0.05))' } : ((flashAssignmentId === einsatz.id || (selectedEinsatz?.id === einsatz.id && aiMode)) 
                               ? { boxShadow: flashAssignmentId === einsatz.id 
                                   ? '0 0 20px rgba(34,197,94,0.35)'
@@ -3608,6 +3846,7 @@ Import EP
                                 <div className="text-xs text-center flex items-center justify-end space-x-2">
                                   <span className={`font-medium ${
                                     einsatz.status === 'Beendet' ? 'bg-gradient-to-r from-[#EFB54E] via-[#FFED96] via-[#FCD94C] via-[#F9F793] to-[#EFB94D] bg-clip-text text-transparent' :
+                                    isSchulung ? 'text-orange-500' :
                                     einsatz.status === 'Verplant' || einsatz.status === 'bestätigt' ? 'text-green-500' :
                                     einsatz.status === 'Buddy Tag' ? 'text-purple-500' :
                                     einsatz.status === 'Krankenstand' ? 'text-red-500' :
@@ -3621,6 +3860,7 @@ Import EP
                                   </span>
                                   <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
                                     einsatz.status === 'Beendet' ? 'bg-gradient-to-r from-[#EFB54E] via-[#FFED96] via-[#FCD94C] via-[#F9F793] to-[#EFB94D]' :
+                                    isSchulung ? 'bg-orange-400' :
                                     einsatz.status === 'Verplant' || einsatz.status === 'bestätigt' ? 'bg-green-400' :
                                     einsatz.status === 'Buddy Tag' ? 'bg-gradient-to-r from-purple-500 to-pink-500' :
                                     einsatz.status === 'Krankenstand' ? 'bg-red-400' :
@@ -4968,6 +5208,169 @@ Import EP
           </Card>
         </div>
       )}
+
+      {showSchulungPromotorSelection && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+          <Card className="w-full max-w-4xl border border-gray-200 shadow-sm max-h-[90vh] overflow-hidden bg-white">
+            <CardContent className="pb-4 border-b border-gray-200">
+              <div className="flex items-center justify-between pt-6">
+                <h3 className="text-lg font-semibold text-gray-900">GLs für Schulung auswählen</h3>
+                <button
+                  onClick={() => setShowSchulungPromotorSelection(false)}
+                  className="h-8 w-8 text-gray-900 hover:text-gray-700 flex items-center justify-center"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <div>
+                  <input
+                    type="text"
+                    placeholder="Promotor suchen..."
+                    value={schulungPromotorSelectionSearch}
+                    onChange={(e) => setSchulungPromotorSelectionSearch(e.target.value)}
+                    className="px-3 py-1.5 text-sm border border-gray-200 bg-white rounded-lg focus:outline-none placeholder-gray-400"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setSchulungActiveRegionFilter("all")}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 bg-gray-100/70 text-gray-700 hover:bg-gray-200/80 ${
+                        schulungActiveRegionFilter === "all" ? "scale-110" : ""
+                      }`}
+                    >
+                      Alle
+                    </button>
+                    <button
+                      onClick={() => setSchulungActiveRegionFilter("wien-noe-bgl")}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 border text-gray-700 hover:bg-gray-200/80 ${getRegionGradient("wien-noe-bgl")} ${getRegionBorder("wien-noe-bgl")} ${
+                        schulungActiveRegionFilter === "wien-noe-bgl" ? "scale-110" : ""
+                      }`}
+                    >
+                      W/NÖ/BGL
+                    </button>
+                    <button
+                      onClick={() => setSchulungActiveRegionFilter("steiermark")}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 border text-gray-700 hover:bg-gray-200/80 ${getRegionGradient("steiermark")} ${getRegionBorder("steiermark")} ${
+                        schulungActiveRegionFilter === "steiermark" ? "scale-110" : ""
+                      }`}
+                    >
+                      ST
+                    </button>
+                    <button
+                      onClick={() => setSchulungActiveRegionFilter("salzburg")}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 border text-gray-700 hover:bg-gray-200/80 ${getRegionGradient("salzburg")} ${getRegionBorder("salzburg")} ${
+                        schulungActiveRegionFilter === "salzburg" ? "scale-110" : ""
+                      }`}
+                    >
+                      SBG
+                    </button>
+                    <button
+                      onClick={() => setSchulungActiveRegionFilter("oberoesterreich")}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 border text-gray-700 hover:bg-gray-200/80 ${getRegionGradient("oberoesterreich")} ${getRegionBorder("oberoesterreich")} ${
+                        schulungActiveRegionFilter === "oberoesterreich" ? "scale-110" : ""
+                      }`}
+                    >
+                      OÖ
+                    </button>
+                    <button
+                      onClick={() => setSchulungActiveRegionFilter("tirol")}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 border text-gray-700 hover:bg-gray-200/80 ${getRegionGradient("tirol")} ${getRegionBorder("tirol")} ${
+                        schulungActiveRegionFilter === "tirol" ? "scale-110" : ""
+                      }`}
+                    >
+                      T
+                    </button>
+                    <button
+                      onClick={() => setSchulungActiveRegionFilter("vorarlberg")}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 border text-gray-700 hover:bg-gray-200/80 ${getRegionGradient("vorarlberg")} ${getRegionBorder("vorarlberg")} ${
+                        schulungActiveRegionFilter === "vorarlberg" ? "scale-110" : ""
+                      }`}
+                    >
+                      V
+                    </button>
+                    <button
+                      onClick={() => setSchulungActiveRegionFilter("kaernten")}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 border text-gray-700 hover:bg-gray-200/80 ${getRegionGradient("kaernten")} ${getRegionBorder("kaernten")} ${
+                        schulungActiveRegionFilter === "kaernten" ? "scale-110" : ""
+                      }`}
+                    >
+                      K
+                    </button>
+                  </div>
+
+                  <div
+                    onClick={selectAllFilteredSchulungPromotors}
+                    className="cursor-pointer"
+                    title="Alle gefilterten auswählen/abwählen"
+                  >
+                    <CheckSquare className="h-5 w-5 text-black hover:text-gray-700 transition-colors" />
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+
+            <CardContent
+              className="p-6 flex flex-col h-[400px] [&::-webkit-scrollbar]:hidden"
+              style={{
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none'
+              }}
+            >
+              <div className="flex-1 overflow-auto custom-scrollbar">
+                <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                  {promotorsList
+                    .filter((promotor: any) =>
+                      (schulungActiveRegionFilter === "all" || promotor.region === schulungActiveRegionFilter) &&
+                      promotor.name.toLowerCase().includes(schulungPromotorSelectionSearch.toLowerCase())
+                    )
+                    .map((promotor: any) => {
+                      const isSelected = schulungSelectedPromotorIds.includes(promotor.id);
+                      return (
+                        <button
+                          key={promotor.id || promotor.name}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSchulungSelectedPromotorIds((prev) => prev.filter((id) => id !== promotor.id));
+                            } else {
+                              setSchulungSelectedPromotorIds((prev) => [...prev, promotor.id]);
+                            }
+                          }}
+                          className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 w-full h-10 flex items-center justify-center border ${
+                            isSelected
+                              ? "bg-white/80 text-gray-900 shadow-md border-gray-300 backdrop-blur-sm"
+                              : `${getRegionGradient(promotor.region)} ${getRegionBorder(promotor.region)} text-gray-700 hover:bg-gray-200/80`
+                          }`}
+                        >
+                          {promotor.name}
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {schulungSelectedPromotorIds.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-100 flex-shrink-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">
+                      {schulungSelectedPromotorIds.length} GL{schulungSelectedPromotorIds.length !== 1 ? 's' : ''} ausgewählt
+                    </span>
+                    <button
+                      onClick={() => setShowSchulungPromotorSelection(false)}
+                      className="bg-white/40 text-gray-700 hover:bg-white/60 border border-gray-200/50 backdrop-blur-sm px-4 py-2 rounded-lg text-sm transition-colors"
+                    >
+                      Bestätigen
+                    </button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
       {/* History Detail Modal */}
       {showHistoryDetail && selectedHistoryItem && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -5956,7 +6359,11 @@ Import EP
       {/* Import EP Modal */}
       {showImportModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-96 max-w-[90vw]">
+          <div className={`bg-white rounded-lg shadow-lg max-w-[95vw] ${
+            activeView === 'einsatzplan' && importType === 'intern' && internImportStage !== 'upload'
+              ? 'w-[980px]'
+              : 'w-96'
+          }`}>
             {/* Modal Header */}
             <div className="flex items-center justify-between p-6 border-b border-gray-100">
               <h3 className="text-lg font-semibold text-gray-900">{activeView === 'maerkte' ? 'Import POS' : 'Import EP'}</h3>
@@ -6053,56 +6460,230 @@ Import EP
                 </div>
               )}
 
-              {/* Drag and Drop Area */}
-              <div 
-                className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors"
-                onDragOver={handleDragOver}
-                onDrop={handleDrop}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.xls"
-                  onChange={handleFileSelect}
-                  className="hidden"
-                />
-                <div className="space-y-3">
-                  <div className="mx-auto w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
-                    <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">
-                      {activeView === 'maerkte' ? 'Märkte Excel hier importieren' : 'Excel-Datei hier ablegen oder'}
+              {(activeView !== 'einsatzplan' || importType !== 'intern' || internImportStage === 'upload') && (
+                <div 
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors"
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                  <div className="space-y-3">
+                    <div className="mx-auto w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                      <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">
+                        {activeView === 'maerkte' ? 'Märkte Excel hier importieren' : 'Excel-Datei hier ablegen oder'}
+                      </p>
+                      <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        Datei auswählen
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      Unterstützte Formate: .xlsx, .xls
                     </p>
-                    <button 
-                      onClick={() => fileInputRef.current?.click()}
-                      className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                    >
-                      Datei auswählen
-                    </button>
                   </div>
-                  <p className="text-xs text-gray-400">
-                    Unterstützte Formate: .xlsx, .xls
-                  </p>
                 </div>
-              </div>
+              )}
+
+              {activeView === 'einsatzplan' && importType === 'intern' && internImportStage === 'preview_mapping' && (
+                <div className="space-y-4">
+                  <div className="text-xs text-gray-500">
+                    Datei: <span className="font-medium text-gray-700">{internSourceFileName || '-'}</span>
+                  </div>
+                  <div className="border border-gray-200 rounded-lg">
+                    <div className="px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-700">
+                      Vorschau (horizontal + vertikal scrollbar)
+                    </div>
+                    <div className="max-h-[300px] overflow-auto">
+                      {(() => {
+                        const previewMaxCols = internSheetRows.reduce((max, row) => {
+                          const rowLen = Array.isArray(row) ? row.length : 0;
+                          return Math.max(max, rowLen);
+                        }, 0);
+                        return (
+                      <table className="min-w-max text-xs">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="bg-gray-50 border-b border-gray-200">
+                            <th className="sticky left-0 bg-gray-50 border-r border-gray-200 px-2 py-1 text-gray-500 w-10 text-left">#</th>
+                            {Array.from({ length: previewMaxCols }).map((_, colIndex) => (
+                              <th
+                                key={`preview-col-header-${colIndex}`}
+                                className="px-2 py-1 text-[11px] font-semibold text-gray-600 border-r border-gray-200 whitespace-nowrap text-left"
+                              >
+                                {columnIndexToLetter(colIndex)}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {internSheetRows.map((row, rowIndex) => (
+                            <tr key={`preview-row-${rowIndex}`} className="border-b border-gray-100 last:border-b-0">
+                              <td className="sticky left-0 bg-white border-r border-gray-200 px-2 py-1 text-gray-400 w-10">
+                                {rowIndex + 1}
+                              </td>
+                              {Array.from({ length: previewMaxCols }).map((_, cellIndex) => (
+                                <td key={`preview-cell-${rowIndex}-${cellIndex}`} className="px-2 py-1 whitespace-nowrap text-gray-700 border-r border-gray-100">
+                                  {String((Array.isArray(row) ? row[cellIndex] : '') ?? '')}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { key: 'addressCol', label: 'Adresse' },
+                      { key: 'plzCol', label: 'PLZ' },
+                      { key: 'dateCol', label: 'Datum' },
+                      { key: 'startCol', label: 'Startzeit' },
+                      { key: 'endCol', label: 'Endzeit' },
+                      { key: 'promotorCol', label: 'Promotor (optional)' },
+                    ].map((field) => (
+                      <div key={field.key} className="space-y-1">
+                        <label className="text-xs font-medium text-gray-700">{field.label}</label>
+                        <input
+                          value={(internMapping as any)[field.key] || ''}
+                          onChange={(e) =>
+                            setInternMapping((prev) => ({
+                              ...prev,
+                              [field.key]: normalizeColumnLetter(e.target.value),
+                            }))
+                          }
+                          placeholder="A"
+                          className="w-full h-9 rounded-md border border-gray-200 px-2 text-sm"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={internSkipFirstRow}
+                      onChange={(e) => setInternSkipFirstRow(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    Erste Zeile überspringen (Header)
+                  </label>
+
+                  {internRowErrors.length > 0 && (
+                    <div className="max-h-28 overflow-auto rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      <div className="font-semibold mb-1">Hinweise aus letzter Vorschau:</div>
+                      <div className="space-y-1">
+                        {internRowErrors.slice(0, 8).map((err) => (
+                          <div key={`${err.rowKey}-${err.message}`}>Zeile {err.rowNumber}: {err.message}</div>
+                        ))}
+                        {internRowErrors.length > 8 && (
+                          <div>+{internRowErrors.length - 8} weitere</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeView === 'einsatzplan' && importType === 'intern' && internImportStage === 'resolve_promotors' && (
+                <div className="space-y-4">
+                  <div className="text-sm font-medium text-gray-800">
+                    Promotor-Zuordnung prüfen ({internUnresolvedPromotors.length})
+                  </div>
+                  <div className="max-h-[360px] overflow-auto space-y-3 pr-1">
+                    {internUnresolvedPromotors.map((item) => (
+                      <div key={item.rowKey} className="rounded-lg border border-gray-200 p-3">
+                        <div className="text-xs text-gray-500 mb-2">Zeile {item.rowNumber}</div>
+                        <div className="text-sm text-gray-800 mb-1">
+                          Importierter Promotor: <span className="font-semibold">{item.importedName}</span>
+                        </div>
+                        <div className="text-xs text-gray-500 mb-2">
+                          {item.address || '-'} | {item.plz || '-'} | {formatIsoDateTimeForPreview(item.start_ts)} - {formatIsoDateTimeForPreview(item.end_ts)}
+                        </div>
+                        <select
+                          value={internResolutionSelections[item.rowKey] || '__none__'}
+                          onChange={(e) =>
+                            setInternResolutionSelections((prev) => ({
+                              ...prev,
+                              [item.rowKey]: e.target.value,
+                            }))
+                          }
+                          className="w-full h-9 rounded-md border border-gray-200 px-2 text-sm"
+                        >
+                          <option value="__none__">Kein Promotor zuweisen</option>
+                          {(promotorsList.length ? promotorsList : marketsPromotorsList).map((p: any) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="flex justify-end space-x-3 mt-6">
                 <button
-                  onClick={() => setShowImportModal(false)}
+                  onClick={() => {
+                    if (activeView === 'einsatzplan' && importType === 'intern' && internImportStage === 'resolve_promotors') {
+                      setInternImportStage('preview_mapping');
+                      return;
+                    }
+                    if (activeView === 'einsatzplan' && importType === 'intern' && internImportStage === 'preview_mapping') {
+                      resetInternImportState();
+                      return;
+                    }
+                    setShowImportModal(false);
+                  }}
                   className="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                 >
-                  Abbrechen
+                  {activeView === 'einsatzplan' && importType === 'intern' && internImportStage !== 'upload' ? 'Zurück' : 'Abbrechen'}
                 </button>
-                <button
-                  className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-                  disabled
-                >
-                  Importieren
-                </button>
+
+                {activeView === 'einsatzplan' && importType === 'intern' && internImportStage === 'preview_mapping' && (
+                  <button
+                    onClick={handleInternPreviewAndImport}
+                    disabled={internImportBusy || internSheetRows.length === 0}
+                    className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    {internImportBusy ? 'Wird geprüft...' : 'Importieren'}
+                  </button>
+                )}
+
+                {activeView === 'einsatzplan' && importType === 'intern' && internImportStage === 'resolve_promotors' && (
+                  <button
+                    onClick={handleFinalizeResolvedInternImport}
+                    disabled={internImportBusy}
+                    className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    {internImportBusy ? 'Import läuft...' : 'Import finalisieren'}
+                  </button>
+                )}
+
+                {(activeView !== 'einsatzplan' || importType !== 'intern' || internImportStage === 'upload') && (
+                  <button
+                    className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                    disabled
+                  >
+                    Importieren
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -6261,20 +6842,13 @@ Import EP
           <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full max-h-[90vh] flex flex-col">
             {/* Modal Header */}
             <div className="flex items-center justify-between p-6 border-b border-gray-100">
-              <h3 className="text-lg font-semibold text-gray-900">Neuen Einsatz erstellen</h3>
+              <h3 className="text-lg font-semibold text-gray-900">
+                {createAssignmentMode === 'schulung' ? 'Neue Schulung erstellen' : 'Neuen Einsatz erstellen'}
+              </h3>
               <button
                 onClick={() => {
                   setShowCreateModal(false);
-                  setNewAssignment({
-                    title: 'Promotion',
-                    location_text: '',
-                    postal_code: '',
-                    city: '',
-                    start_date: '',
-                    start_time: '09:30',
-                    end_time: '18:30',
-                    notes: ''
-                  });
+                  resetCreateAssignmentState();
                 }}
                 className="p-1 rounded hover:bg-gray-100 transition-colors"
               >
@@ -6285,6 +6859,34 @@ Import EP
             {/* Modal Content */}
             <div className="flex-1 overflow-y-auto p-6">
               <div className="space-y-6">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Typ</label>
+                  <div className="grid grid-cols-2 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setCreateAssignmentMode('einsatz')}
+                      className={`h-9 rounded-md text-sm font-medium transition-colors ${
+                        createAssignmentMode === 'einsatz'
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Einsatz
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCreateAssignmentMode('schulung')}
+                      className={`h-9 rounded-md text-sm font-medium transition-colors ${
+                        createAssignmentMode === 'schulung'
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Schulung
+                    </button>
+                  </div>
+                </div>
+
                 {/* Title */}
                 <div className="space-y-1 hidden">
                   <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Titel</label>
@@ -6462,6 +7064,55 @@ Import EP
                     placeholder="Zusätzliche Informationen..."
                   />
                 </div>
+
+                {createAssignmentMode === 'schulung' && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                        Teilnehmer (GLs) *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setShowSchulungPromotorSelection(true)}
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                      >
+                        <UserPlus className="h-3.5 w-3.5" />
+                        GLs auswählen
+                      </button>
+                    </div>
+
+                    {selectedSchulungPromotors.length === 0 ? (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        Bitte mindestens einen GL für die Schulung auswählen.
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-gray-200 p-3">
+                        <div className="mb-2 text-xs text-gray-500">
+                          {selectedSchulungPromotors.length} ausgewählt
+                        </div>
+                        <div className="flex max-h-28 flex-wrap gap-1.5 overflow-auto">
+                          {selectedSchulungPromotors.map((promotor: any) => (
+                            <span
+                              key={promotor.id}
+                              className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-700"
+                            >
+                              {promotor.name}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSchulungSelectedPromotorIds((prev) => prev.filter((id) => id !== promotor.id))
+                                }
+                                className="text-gray-400 hover:text-gray-700"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -6471,16 +7122,7 @@ Import EP
                 <button
                   onClick={() => {
                     setShowCreateModal(false);
-                    setNewAssignment({
-                      title: 'Promotion',
-                      location_text: '',
-                      postal_code: '',
-                      city: '',
-                      start_date: '',
-                      start_time: '09:30',
-                      end_time: '18:30',
-                      notes: ''
-                    });
+                    resetCreateAssignmentState();
                   }}
                   className="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                 >
@@ -6490,7 +7132,7 @@ Import EP
                   onClick={createNewAssignment}
                   className="px-4 py-2 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
                 >
-                  Speichern
+                  {createAssignmentMode === 'schulung' ? 'Schulung speichern' : 'Einsatz speichern'}
                 </button>
               </div>
             </div>

@@ -72,13 +72,13 @@ export async function GET() {
     const krankenstandCount = (pendingRequests || []).filter(r => r.request_type === 'krankenstand').length;
     const notfallCount = (pendingRequests || []).filter(r => r.request_type === 'notfall').length;
 
-    // 5. Promotors ohne Dienstvertrag (promotor_profiles without active contracts)
+    // 5. Promotors ohne aktiven Dienstvertrag
     const { data: allPromotors } = await svc
       .from('promotor_profiles')
       .select('user_id');
     
     const { data: activeContracts } = await svc
-      .from('contracts')
+      .from('dienstvertrag_files')
       .select('user_id')
       .eq('is_active', true);
     
@@ -94,21 +94,8 @@ export async function GET() {
     
     const promotorsWithoutContractNames = (promotorsWithoutContract || []).map(p => p.display_name).join(', ') || 'Keine';
 
-    // 6. Dienstvertrag zum Annehmen (uploaded signed DV in documents)
-    const { data: uploadedDVs } = await svc
-      .from('documents')
-      .select('user_id, document_type')
-      .eq('document_type', 'signed_dienstvertrag')
-      .eq('status', 'uploaded');
-    
-    const uploadedDVUserIds = (uploadedDVs || []).map(d => d.user_id);
-    
-    const { data: dvPromotors } = await svc
-      .from('user_profiles')
-      .select('display_name')
-      .in('user_id', uploadedDVUserIds.length > 0 ? uploadedDVUserIds : ['00000000-0000-0000-0000-000000000000']);
-    
-    const dvPromotorNames = (dvPromotors || []).map(p => p.display_name).join(', ') || 'Keine';
+    // 6. In the new flow there is no promotor-side contract acceptance queue
+    const dvPromotorNames = 'Keine';
 
     // 7. Bewerber mit Status "received"
     const { data: receivedApplications } = await svc
@@ -190,7 +177,7 @@ ${krankenstandCount} Krankenstand und ${notfallCount} Notfall
 Dienstvertrag: 
 
 Dienstvertrag Regeln: 
-1. Wenn Ein Promotor noch keinen Dienstvertrag hat dann bitte erwähne dass die Person noch keinen Dienstvertrag hat zB so: "Name 1 und Name 2 haben noch keinen Dienstvertrag zugeschickt bekommen" 
+1. Wenn ein Promotor noch keinen aktiven Dienstvertrag hat, erwähne das kurz und klar, zB: "Name 1 und Name 2 haben noch keinen aktiven Dienstvertrag hinterlegt."
 
 Kein Dienstvertrag:
 ${promotorsWithoutContractNames}
@@ -198,8 +185,8 @@ ${promotorsWithoutContractNames}
 Dienstvertrag zum Annehmen: 
 
 Dienstvertrag zum Annehmen Regeln:
-1.	It detects this via the documents table: when the promotor uploads the signed DV as a document, the document's status changes to "uploaded/accepted" and the admin UI reads that to show the "waiting for approval" state. Das bedeutet wir müssen dann zu dem Promotor gehen und den Vertrag Annehmen. 
-2.	Das kannst du so machen: "Name 1 hat den unterschriebenen DV geschickt!"
+1. Dieser Bereich ist aktuell meist leer, da Verträge jetzt direkt von Admins eingespielt werden.
+2. Wenn keine offenen Annahmen vorliegen, schreibe klar "Keine offenen Vertragsannahmen".
 
 Dienstvertrag zum Annehmen:
 ${dvPromotorNames}

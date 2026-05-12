@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import * as XLSX from 'xlsx';
 import {
   Bell,
   Settings,
@@ -36,10 +37,10 @@ import {
   EyeOff,
   Video,
   HelpCircle,
+  Upload,
   FileSignature,
   Cake,
   ArrowLeft,
-  Download,
   CreditCard,
   Ruler,
   Edit2,
@@ -54,9 +55,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { DatePicker } from "@/components/ui/date-picker";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DienstvertragTemplate } from "@/components/DienstvertragTemplate";
 import AdminNavigation from "@/components/AdminNavigation";
 import AdminEddieAssistant from "@/components/AdminEddieAssistant";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
@@ -141,6 +139,60 @@ export default function PromotorenPage() {
       }
     }
   `;
+
+type DienstvertragFileRow = {
+  id: string;
+  user_id: string;
+  file_path: string;
+  file_name: string;
+  file_ext: 'pdf' | 'doc' | 'docx' | string;
+  is_active: boolean;
+  created_at: string;
+  updated_at?: string;
+  mime_type?: string;
+  hours_per_week?: number | null;
+};
+type UpcomingAssignmentRow = {
+  id: string;
+  title?: string | null;
+  location_text?: string | null;
+  postal_code?: string | null;
+  city?: string | null;
+  start_ts?: string | null;
+  end_ts?: string | null;
+  status?: string | null;
+  user_role?: string | null;
+  buddy_name?: string | null;
+  buddy_display_name?: string | null;
+  buddy_user_id?: string | null;
+  promotor?: string | null;
+};
+
+type AccessImportStage = 'upload' | 'preview_mapping' | 'resolve_promotors';
+type AccessImportMapping = {
+  fullNameCol: string;
+  huebnerEmailCol: string;
+  huebnerPasswordCol: string;
+  demotoolEmailCol: string;
+  demotoolPasswordCol: string;
+  tmaEmailCol: string;
+  tmaPasswordCol: string;
+  boostAppEmailCol: string;
+  boostAppPasswordCol: string;
+};
+type AccessImportUnresolvedPromotor = {
+  rowKey: string;
+  rowNumber: number;
+  importedName: string;
+  reason?: string;
+  candidatePromotors?: Array<{ user_id: string; name: string }>;
+};
+type AccessImportResult = {
+  updated: number;
+  updatedRows?: number;
+  skipped: number;
+  unresolved: number;
+};
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [regionFilter, setRegionFilter] = useState("all");
@@ -177,25 +229,17 @@ export default function PromotorenPage() {
   // Dienstvertrag functionality
   const [showDienstvertragPopup, setShowDienstvertragPopup] = useState(false);
   const [showDienstvertragContent, setShowDienstvertragContent] = useState(false);
-  const [showContractPreview, setShowContractPreview] = useState(false);
-  const [selectedPromotorForContract, setSelectedPromotorForContract] = useState<number | null>(null);
-  const [contractForm, setContractForm] = useState({
-    hoursPerWeek: '',
-    monthlyGross: '',
-    startDate: '',
-    endDate: '',
-    isTemporary: false,
-    employmentType: 'geringfügig' as 'geringfügig' | 'teilzeit' | 'vollzeit'
-  });
-  const [editableContractHTML, setEditableContractHTML] = useState<string>('');
-  const [viewContractHTML, setViewContractHTML] = useState<string>('');
-  const [loadingContractHTML, setLoadingContractHTML] = useState(false);
-  const [sendingContract, setSendingContract] = useState(false);
-  const editableContractRef = useRef<HTMLDivElement>(null);
+  const [selectedPromotorForContract, setSelectedPromotorForContract] = useState<string | null>(null);
+  const [loadingContractPreview, setLoadingContractPreview] = useState(false);
+  const [contractPreviewUrl, setContractPreviewUrl] = useState<string>('');
+  const [contractPreviewExt, setContractPreviewExt] = useState<'pdf' | 'doc' | 'docx' | 'unknown'>('unknown');
+  const [selectedContractPreviewId, setSelectedContractPreviewId] = useState<string | null>(null);
+  const [contractPreviewError, setContractPreviewError] = useState(false);
+  const [uploadingContractFile, setUploadingContractFile] = useState(false);
+  const [isContractDropActive, setIsContractDropActive] = useState(false);
   // Contracts for selected promotor
-  const [promotorContracts, setPromotorContracts] = useState<any[] | null>(null);
+  const [promotorContracts, setPromotorContracts] = useState<DienstvertragFileRow[] | null>(null);
   const [loadingContracts, setLoadingContracts] = useState(false);
-  const [acceptingContract, setAcceptingContract] = useState(false);
 
   const refreshPromotorContracts = async (promotorId: string) => {
     try {
@@ -209,19 +253,12 @@ export default function PromotorenPage() {
   };
 
   useEffect(() => {
-    const uid = selectedPromotorForContract ? String(selectedPromotorForContract) : null;
+    const uid = selectedPromotorForContract;
     if (uid && showDienstvertragPopup) {
       refreshPromotorContracts(uid);
     }
   }, [selectedPromotorForContract, showDienstvertragPopup]);
 
-  // Populate editable ref when HTML is set
-  useEffect(() => {
-    if (editableContractRef.current && editableContractHTML) {
-      editableContractRef.current.innerHTML = editableContractHTML;
-    }
-  }, [editableContractHTML]);
-  
   // Bank details functionality - for showing/hiding IBAN
   const [ibanVisible, setIbanVisible] = useState<Record<number, boolean>>({});
   const [ibanTimeouts, setIbanTimeouts] = useState<Record<number, NodeJS.Timeout>>({});
@@ -273,6 +310,29 @@ export default function PromotorenPage() {
   const [passwordVisibility, setPasswordVisibility] = useState<Record<string, boolean>>({});
   const [editingCredentials, setEditingCredentials] = useState<Record<string, boolean>>({});
   const [editCredentialsForm, setEditCredentialsForm] = useState<Record<string, any>>({});
+
+  // Zugänge Excel import (header action)
+  const [showAccessImportModal, setShowAccessImportModal] = useState(false);
+  const [accessImportStage, setAccessImportStage] = useState<AccessImportStage>('upload');
+  const [accessImportSourceFileName, setAccessImportSourceFileName] = useState('');
+  const [accessImportSheetRows, setAccessImportSheetRows] = useState<any[][]>([]);
+  const [accessImportMapping, setAccessImportMapping] = useState<AccessImportMapping>({
+    fullNameCol: 'A',
+    huebnerEmailCol: 'B',
+    huebnerPasswordCol: 'C',
+    demotoolEmailCol: 'D',
+    demotoolPasswordCol: 'E',
+    tmaEmailCol: 'F',
+    tmaPasswordCol: 'G',
+    boostAppEmailCol: 'H',
+    boostAppPasswordCol: 'I',
+  });
+  const [accessImportSkipFirstRow, setAccessImportSkipFirstRow] = useState(true);
+  const [accessImportBusy, setAccessImportBusy] = useState(false);
+  const [accessImportRowErrors, setAccessImportRowErrors] = useState<Array<{ rowKey: string; rowNumber: number; message: string }>>([]);
+  const [accessImportUnresolvedPromotors, setAccessImportUnresolvedPromotors] = useState<AccessImportUnresolvedPromotor[]>([]);
+  const [accessImportResolutionSelections, setAccessImportResolutionSelections] = useState<Record<string, string>>({});
+  const [accessImportResult, setAccessImportResult] = useState<AccessImportResult | null>(null);
   
   // Edit states for promotor details
   const [editingBankData, setEditingBankData] = useState<Record<string, boolean>>({});
@@ -1137,6 +1197,9 @@ Dein Nespresso Team`;
   const [promotorStatsLoading, setPromotorStatsLoading] = useState<Record<number, boolean>>({});
   const [kpiByPromotor, setKpiByPromotor] = useState<Record<number, { mcet: number; tma: number; vlshare: number }>>({});
   const [kpiLoading, setKpiLoading] = useState<Record<number, boolean>>({});
+  const [upcomingAssignmentsByPromotor, setUpcomingAssignmentsByPromotor] = useState<Record<string, UpcomingAssignmentRow[]>>({});
+  const [upcomingAssignmentsLoading, setUpcomingAssignmentsLoading] = useState<Record<string, boolean>>({});
+  const [upcomingAssignmentsError, setUpcomingAssignmentsError] = useState<Record<string, boolean>>({});
 
   const loadPromotorStats = useCallback(async (promotorId: number) => {
     try {
@@ -1165,6 +1228,35 @@ Dein Nespresso Team`;
       loadPromotorStats(detailedViewOpen);
     }
   }, [detailedViewOpen, loadPromotorStats]);
+
+  const loadUpcomingAssignments = useCallback(async (promotorId: string) => {
+    try {
+      setUpcomingAssignmentsLoading(prev => ({ ...prev, [promotorId]: true }));
+      setUpcomingAssignmentsError(prev => ({ ...prev, [promotorId]: false }));
+
+      const res = await fetch(`/api/promotors/${promotorId}/upcoming-assignments?include_all_future=1`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const rows = Array.isArray(data.assignments) ? data.assignments : [];
+      const sorted = [...rows].sort((a: any, b: any) => {
+        const aTime = new Date(a?.start_ts || 0).getTime();
+        const bTime = new Date(b?.start_ts || 0).getTime();
+        return aTime - bTime;
+      });
+      setUpcomingAssignmentsByPromotor(prev => ({ ...prev, [promotorId]: sorted }));
+    } catch {
+      setUpcomingAssignmentsByPromotor(prev => ({ ...prev, [promotorId]: [] }));
+      setUpcomingAssignmentsError(prev => ({ ...prev, [promotorId]: true }));
+    } finally {
+      setUpcomingAssignmentsLoading(prev => ({ ...prev, [promotorId]: false }));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!detailedViewOpen) return;
+    const promotorId = String(detailedViewOpen);
+    loadUpcomingAssignments(promotorId);
+  }, [detailedViewOpen, loadUpcomingAssignments]);
 
   const getAttendanceColor = (rate: number) => {
     if (rate >= 80) return "text-green-600";
@@ -1295,6 +1387,34 @@ Dein Nespresso Team`;
     return `vor ${diffDays - 1} Tagen`;
   };
 
+  const formatIsoTimeNoTZ = (iso: string | null | undefined) => {
+    if (!iso) return "--:--";
+    const s = String(iso);
+    return s.includes("T") ? s.substring(11, 16) : s;
+  };
+
+  const getAssignmentDateLabel = (iso: string | null | undefined) => {
+    if (!iso) return "Unbekannt";
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return "Unbekannt";
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const assignmentDay = new Date(date);
+    assignmentDay.setHours(0, 0, 0, 0);
+
+    if (assignmentDay.getTime() === today.getTime()) return "Heute";
+    if (assignmentDay.getTime() === tomorrow.getTime()) return "Morgen";
+
+    return date.toLocaleDateString("de-DE", {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+    });
+  };
+
 
 
   // Notes functions
@@ -1329,6 +1449,196 @@ Dein Nespresso Team`;
     const windowWidth = window.innerWidth;
     const spaceToRight = windowWidth - rect.right;
     return spaceToRight < 320; // 320px is the width of notes panel
+  };
+
+  const resetAccessImportState = () => {
+    setAccessImportStage('upload');
+    setAccessImportSourceFileName('');
+    setAccessImportSheetRows([]);
+    setAccessImportMapping({
+      fullNameCol: 'A',
+      huebnerEmailCol: 'B',
+      huebnerPasswordCol: 'C',
+      demotoolEmailCol: 'D',
+      demotoolPasswordCol: 'E',
+      tmaEmailCol: 'F',
+      tmaPasswordCol: 'G',
+      boostAppEmailCol: 'H',
+      boostAppPasswordCol: 'I',
+    });
+    setAccessImportSkipFirstRow(true);
+    setAccessImportBusy(false);
+    setAccessImportRowErrors([]);
+    setAccessImportUnresolvedPromotors([]);
+    setAccessImportResolutionSelections({});
+    setAccessImportResult(null);
+  };
+
+  const isValidColumnLetter = (value: string) => /^[A-Z]+$/.test(String(value || '').trim().toUpperCase());
+  const normalizeColumnLetter = (value: string) => String(value || '').trim().toUpperCase().replace(/[^A-Z]/g, '');
+  const columnIndexToLetter = (index: number): string => {
+    let n = index + 1;
+    let letter = '';
+    while (n > 0) {
+      const rem = (n - 1) % 26;
+      letter = String.fromCharCode(65 + rem) + letter;
+      n = Math.floor((n - 1) / 26);
+    }
+    return letter;
+  };
+
+  const prepareAccessImportPreview = async (file: File) => {
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      if (!firstSheetName) {
+        alert('Keine Tabelle in der Datei gefunden.');
+        return;
+      }
+      const worksheet = workbook.Sheets[firstSheetName];
+      const rows2d = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true, defval: '' }) as any[][];
+      setAccessImportSheetRows(rows2d);
+      setAccessImportSourceFileName(file.name || firstSheetName);
+      setAccessImportStage('preview_mapping');
+      setAccessImportRowErrors([]);
+      setAccessImportUnresolvedPromotors([]);
+      setAccessImportResolutionSelections({});
+      setAccessImportResult(null);
+    } catch (error) {
+      console.error('Fehler beim Lesen der Excel-Datei:', error);
+      alert('Excel-Datei konnte nicht gelesen werden.');
+    }
+  };
+
+  const buildAccessImportMappingForApi = () => ({
+    fullNameCol: normalizeColumnLetter(accessImportMapping.fullNameCol),
+    huebnerEmailCol: normalizeColumnLetter(accessImportMapping.huebnerEmailCol),
+    huebnerPasswordCol: normalizeColumnLetter(accessImportMapping.huebnerPasswordCol),
+    demotoolEmailCol: normalizeColumnLetter(accessImportMapping.demotoolEmailCol),
+    demotoolPasswordCol: normalizeColumnLetter(accessImportMapping.demotoolPasswordCol),
+    tmaEmailCol: normalizeColumnLetter(accessImportMapping.tmaEmailCol),
+    tmaPasswordCol: normalizeColumnLetter(accessImportMapping.tmaPasswordCol),
+    boostAppEmailCol: normalizeColumnLetter(accessImportMapping.boostAppEmailCol),
+    boostAppPasswordCol: normalizeColumnLetter(accessImportMapping.boostAppPasswordCol),
+  });
+
+  const validateAccessImportMapping = (mapping: ReturnType<typeof buildAccessImportMappingForApi>): string | null => {
+    const requiredValues = Object.values(mapping);
+    if (requiredValues.some((value) => !value)) return 'Bitte alle Spalten (A,B,C...) ausfüllen.';
+    if (requiredValues.some((value) => !isValidColumnLetter(value))) return 'Ungültige Spaltenangabe. Nur A-Z erlaubt.';
+    const unique = new Set(requiredValues);
+    if (unique.size !== requiredValues.length) return 'Jede Spalte darf nur einmal verwendet werden.';
+    return null;
+  };
+
+  const buildAccessResolutionOverridesPayload = () => {
+    const overrides: Record<string, string> = {};
+    Object.entries(accessImportResolutionSelections).forEach(([rowKey, userId]) => {
+      if (!userId) return;
+      overrides[rowKey] = userId;
+    });
+    return overrides;
+  };
+
+  const runAccessImportCommit = async (resolutionOverrides?: Record<string, string>) => {
+    const mapping = buildAccessImportMappingForApi();
+    const mappingErr = validateAccessImportMapping(mapping);
+    if (mappingErr) {
+      alert(mappingErr);
+      return false;
+    }
+
+    const response = await fetch('/api/admin/team/access-credentials-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'commit',
+        sheetRows: accessImportSheetRows,
+        mapping,
+        skipFirstRow: accessImportSkipFirstRow,
+        resolutionOverrides: resolutionOverrides || {},
+      }),
+    });
+
+    const data = await response.json().catch(() => ({} as any));
+    if (!response.ok) {
+      throw new Error(data?.error || `HTTP ${response.status}`);
+    }
+
+    setAccessImportRowErrors(Array.isArray(data.rowErrors) ? data.rowErrors : []);
+    setAccessImportUnresolvedPromotors(Array.isArray(data.unresolvedPromotors) ? data.unresolvedPromotors : []);
+    const updated = Number(data.updated ?? 0);
+    const updatedRows = Number(data.updatedRows ?? 0);
+    const skipped = Number(data.skipped ?? 0);
+    const unresolved = Number(data.unresolved ?? 0);
+    setAccessImportResult({ updated, updatedRows, skipped, unresolved });
+    setToastMsg(`Zugänge importiert: ${updated} aktualisiert, ${skipped} übersprungen, ${unresolved} offen`);
+    setAccessImportStage('preview_mapping');
+    setTimeout(() => setToastMsg(null), 3500);
+    return true;
+  };
+
+  const handleAccessImportPreviewAndImport = async () => {
+    if (accessImportBusy) return;
+    try {
+      setAccessImportBusy(true);
+      setAccessImportResult(null);
+      const mapping = buildAccessImportMappingForApi();
+      const mappingErr = validateAccessImportMapping(mapping);
+      if (mappingErr) {
+        alert(mappingErr);
+        return;
+      }
+
+      const response = await fetch('/api/admin/team/access-credentials-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'preview',
+          sheetRows: accessImportSheetRows,
+          mapping,
+          skipFirstRow: accessImportSkipFirstRow,
+        }),
+      });
+      const data = await response.json().catch(() => ({} as any));
+      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+
+      const unresolved = Array.isArray(data.unresolvedPromotors) ? data.unresolvedPromotors : [];
+      const rowErrors = Array.isArray(data.rowErrors) ? data.rowErrors : [];
+      setAccessImportRowErrors(rowErrors);
+      setAccessImportUnresolvedPromotors(unresolved);
+
+      if (unresolved.length > 0) {
+        const defaults: Record<string, string> = {};
+        unresolved.forEach((item: AccessImportUnresolvedPromotor) => {
+          const candidateIds = Array.isArray(item.candidatePromotors) ? item.candidatePromotors.map((c) => c.user_id) : [];
+          defaults[item.rowKey] = candidateIds.length === 1 ? candidateIds[0] : '__none__';
+        });
+        setAccessImportResolutionSelections(defaults);
+        setAccessImportStage('resolve_promotors');
+        return;
+      }
+
+      await runAccessImportCommit({});
+    } catch (error: any) {
+      alert(error?.message || 'Fehler beim Prüfen des Imports.');
+    } finally {
+      setAccessImportBusy(false);
+    }
+  };
+
+  const handleFinalizeResolvedAccessImport = async () => {
+    if (accessImportBusy) return;
+    try {
+      setAccessImportBusy(true);
+      setAccessImportResult(null);
+      await runAccessImportCommit(buildAccessResolutionOverridesPayload());
+    } catch (error: any) {
+      alert(error?.message || 'Fehler beim Finalisieren des Imports.');
+    } finally {
+      setAccessImportBusy(false);
+    }
   };
 
   const updateNotes = (promotorId: string, noteText: string) => {
@@ -1552,51 +1862,130 @@ Dein Nespresso Team`;
   };
 
   // Dienstvertrag handler functions
-  const handleDienstvertragSelect = async () => {
+  const handleDienstvertragSelect = async (contractId?: string) => {
+    const targetContract = contractId
+      ? (promotorContracts || []).find((c) => c.id === contractId)
+      : (promotorContracts || []).find((c) => c.is_active) || (promotorContracts || [])[0];
+    if (!targetContract || !selectedPromotorForContract) return;
+
+    setSelectedContractPreviewId(targetContract.id);
+    setContractPreviewError(false);
     setShowDienstvertragPopup(false);
-    setLoadingContractHTML(true);
+    setLoadingContractPreview(true);
     setShowDienstvertragContent(true);
-    
-    // Fetch sent HTML from sent_dienstvertrag table
+
     try {
-      const contracts = Array.isArray(promotorContracts) ? promotorContracts : [];
-      const active = contracts.find((c: any) => c.is_active);
-      const newestPending = [...contracts]
-        .filter((c: any) => !c.is_active)
-        .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-      const selected = newestPending || active;
-      
-      if (selected?.id) {
-        const res = await fetch(`/api/admin/contracts/send-dienstvertrag?contract_id=${selected.id}`, {
-          cache: 'no-store'
-        });
-        const data = await res.json();
-        
-        if (data.sent_dienstvertrag?.html_content) {
-          setViewContractHTML(data.sent_dienstvertrag.html_content);
-        } else {
-          // Fallback: generate from template if no sent HTML exists yet
-          const promotor = promotors.find(p => p.id === selectedPromotorForContract);
-          if (promotor) {
-            const { generateDienstvertragHTML } = await import('@/lib/templates/dienstvertrag');
-            const html = generateDienstvertragHTML({
-              promotorName: promotor.name || '',
-              promotorBirthDate: promotor.birthDate || '',
-              promotorAddress: promotor.address || '',
-              hoursPerWeek: String(selected.hours_per_week || ''),
-              monthlyGross: String(selected.monthly_gross || ''),
-              startDate: selected.start_date ? new Date(selected.start_date).toLocaleDateString('de-DE') : '',
-              endDate: selected.end_date ? new Date(selected.end_date).toLocaleDateString('de-DE') : '',
-              isTemporary: !!selected.is_temporary
-            });
-            setViewContractHTML(html);
-          }
-        }
+      const res = await fetch(
+        `/api/admin/promotors/${selectedPromotorForContract}/contracts/signed-url?contract_id=${targetContract.id}`,
+        { cache: 'no-store' }
+      );
+      const data = await res.json();
+      if (!data?.url) {
+        throw new Error(data?.error || 'Keine Vorschau verfügbar');
       }
+
+      const extFromPath = String(targetContract.file_path || targetContract.file_name || '').split('.').pop()?.toLowerCase();
+      const ext = String(targetContract.file_ext || extFromPath || '').toLowerCase();
+      setContractPreviewExt(ext === 'pdf' || ext === 'doc' || ext === 'docx' ? ext : 'unknown');
+      const cacheBustedUrl = `${data.url}${String(data.url).includes('?') ? '&' : '?'}cb=${Date.now()}`;
+      setContractPreviewUrl(cacheBustedUrl);
+      setContractPreviewError(false);
     } catch (error) {
-      console.error('Error loading contract HTML:', error);
+      console.error('Error loading contract preview:', error);
+      setToastMsg('Vorschau konnte nicht geladen werden');
+      setContractPreviewUrl('');
+      setContractPreviewError(true);
     } finally {
-      setLoadingContractHTML(false);
+      setLoadingContractPreview(false);
+    }
+  };
+
+  const refreshContractPreview = async () => {
+    if (!selectedPromotorForContract || !selectedContractPreviewId) return;
+    const targetContract = (promotorContracts || []).find((c) => c.id === selectedContractPreviewId);
+    if (!targetContract) return;
+
+    setLoadingContractPreview(true);
+    try {
+      const res = await fetch(
+        `/api/admin/promotors/${selectedPromotorForContract}/contracts/signed-url?contract_id=${selectedContractPreviewId}`,
+        { cache: 'no-store' }
+      );
+      const data = await res.json();
+      if (!data?.url) throw new Error(data?.error || 'Keine Vorschau verfügbar');
+
+      const extFromPath = String(targetContract.file_path || targetContract.file_name || '').split('.').pop()?.toLowerCase();
+      const ext = String(targetContract.file_ext || extFromPath || '').toLowerCase();
+      setContractPreviewExt(ext === 'pdf' || ext === 'doc' || ext === 'docx' ? ext : 'unknown');
+      const cacheBustedUrl = `${data.url}${String(data.url).includes('?') ? '&' : '?'}cb=${Date.now()}`;
+      setContractPreviewUrl(cacheBustedUrl);
+      setContractPreviewError(false);
+    } catch (error) {
+      console.error('Error refreshing contract preview:', error);
+      setContractPreviewError(true);
+      setToastMsg('Vorschau konnte nicht neu geladen werden');
+    } finally {
+      setLoadingContractPreview(false);
+    }
+  };
+
+  const handleAdminContractImport = async (file: File) => {
+    const uid = selectedPromotorForContract;
+    if (!uid) return;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (!['pdf', 'doc', 'docx'].includes(ext)) {
+      setToastMsg('Nur PDF, DOC und DOCX sind erlaubt');
+      return;
+    }
+
+    try {
+      setUploadingContractFile(true);
+      const supabase = createSupabaseBrowserClient();
+
+      const upRes = await fetch('/api/admin/contracts/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: uid,
+          file_ext: ext,
+        }),
+      });
+      const up = await upRes.json();
+      if (!upRes.ok || !up?.path || !up?.token) {
+        throw new Error(up?.error || 'Upload-URL konnte nicht erstellt werden');
+      }
+
+      const { error: uploadErr } = await supabase.storage
+        .from('dienstvertraege')
+        .uploadToSignedUrl(up.path, up.token, file);
+      if (uploadErr) {
+        throw new Error(uploadErr.message || 'Datei-Upload fehlgeschlagen');
+      }
+
+      const saveRes = await fetch('/api/admin/contracts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: uid,
+          path: up.path,
+          file_name: file.name,
+          mime_type: file.type || (ext === 'pdf' ? 'application/pdf' : ext === 'doc' ? 'application/msword' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
+          file_ext: ext,
+          is_active: true,
+        }),
+      });
+      const saved = await saveRes.json().catch(() => ({}));
+      if (!saveRes.ok) {
+        throw new Error(saved?.error || 'Dienstvertrag konnte nicht gespeichert werden');
+      }
+
+      await refreshPromotorContracts(uid);
+      setToastMsg('Dienstvertrag erfolgreich eingespielt');
+    } catch (e: any) {
+      console.error(e);
+      setToastMsg(e?.message || 'Fehler beim Einspielen des Dienstvertrags');
+    } finally {
+      setUploadingContractFile(false);
     }
   };
 
@@ -1718,51 +2107,6 @@ Dein Nespresso Team`;
       ));
       setShowStatusConfirmation(false);
       setStatusChangePromotorId(null);
-    }
-  };
-
-  // Export Dienstvertrag as PDF
-  const exportDienstvertragAsPDF = async () => {
-    // Only run on client side
-    if (typeof window === 'undefined') return;
-    
-    const element = document.getElementById('dienstvertrag-content');
-    if (!element) return;
-
-    const promotor = promotors.find(p => p.id === selectedPromotorForContract);
-    const filename = promotor 
-      ? `Dienstvertrag_${promotor.name.replace(/\s+/g, '_')}.pdf` 
-      : 'Dienstvertrag.pdf';
-
-    const opt = {
-      margin: 15,
-      filename: filename,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, logging: false },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-    };
-
-    // Use a cloned element to avoid modifying the original
-    const clonedElement = element.cloneNode(true) as HTMLElement;
-    
-    // Apply styles to help with page breaking
-    const style = document.createElement('style');
-    style.textContent = `
-      p, li, h1, h2, h3, h4, h5, h6, div, tr, td {
-        page-break-inside: avoid !important;
-      }
-    `;
-    clonedElement.appendChild(style);
-
-    try {
-      // Dynamically import html2pdf only when needed (client-side)
-      const html2pdf = (await import('html2pdf.js')).default;
-      
-      // Generate the PDF
-      html2pdf().from(clonedElement).set(opt).save();
-    } catch (error) {
-      console.error('Error loading html2pdf:', error);
     }
   };
 
@@ -1890,6 +2234,18 @@ Dein Nespresso Team`;
               <p className="text-gray-500 text-sm">{showStammdatenblatt ? 'Stammdaten-Verwaltung' : 'Team Management'}</p>
             </div>
             <div className="flex items-center space-x-3">
+              {!showStammdatenblatt && (
+                <button
+                  onClick={() => {
+                    resetAccessImportState();
+                    setShowAccessImportModal(true);
+                  }}
+                  className="flex items-center space-x-2 px-3 py-2 text-sm border rounded-lg transition-all duration-200 bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  <span>Import Zugänge</span>
+                </button>
+              )}
               <button
                 onClick={() => setShowStammdatenblatt(false)}
                 className={`flex items-center space-x-2 px-3 py-2 text-sm border rounded-lg transition-all duration-200 ${
@@ -2698,7 +3054,7 @@ Dein Nespresso Team`;
           <div 
             className="fixed inset-0 bg-black/60 transition-opacity duration-300 z-[60]"
             onClick={() => {
-              if (!showDienstvertragPopup && !showDienstvertragContent && !showContractPreview) {
+              if (!showDienstvertragPopup && !showDienstvertragContent) {
                 setDetailedViewOpen(null);
               }
             }}
@@ -2708,7 +3064,7 @@ Dein Nespresso Team`;
           <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[95vh] overflow-hidden relative">
               {/* Dark overlay when Dienstvertrag is open */}
-              {(showDienstvertragPopup || showDienstvertragContent || showContractPreview) && (
+              {(showDienstvertragPopup || showDienstvertragContent) && (
                 <div className="absolute inset-0 bg-black/40 z-[5] rounded-2xl"></div>
               )}
               {(() => {
@@ -2757,7 +3113,7 @@ Dein Nespresso Team`;
                         
                       <button
                         onClick={() => {
-                          if (!showDienstvertragPopup && !showDienstvertragContent && !showContractPreview) {
+                          if (!showDienstvertragPopup && !showDienstvertragContent) {
                             setDetailedViewOpen(null);
                           }
                         }}
@@ -3206,27 +3562,29 @@ Dein Nespresso Team`;
                                 {(() => {
                                   const contracts = Array.isArray(promotorContracts) ? promotorContracts : [];
                                   const activeContract = contracts.find((c: any) => c.is_active);
-                                  const hasAnyContract = contracts.length > 0;
                                   
                                   return (
                                     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-3">
                                       <div className="flex items-center justify-between mb-2">
-                                        <span className="text-sm font-semibold text-blue-700">Aktiver Vertrag</span>
-                                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">Aktiv</span>
+                                        <span className="text-sm font-semibold text-blue-700">
+                                          {activeContract ? 'Aktiver Dienstvertrag' : 'Kein aktiver Dienstvertrag'}
+                                        </span>
+                                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                                          {activeContract ? 'Aktiv' : 'Offen'}
+                                        </span>
                                       </div>
                                       <div className="text-xs text-gray-600 mb-2">
-                                        <div>Wochenstunden: {activeContract?.hours_per_week ? `${activeContract.hours_per_week}h` : '/'}</div>
-                                        <div>Laufzeit: {activeContract?.start_date || '/'} - {activeContract?.end_date || 'unbefristet'}</div>
-                                        <div>Status: {activeContract?.employment_type || '/'}</div>
+                                        <div>Datei: {activeContract?.file_name || activeContract?.file_path?.split('/').pop() || '/'}</div>
+                                        <div>Zuletzt hinterlegt: {activeContract?.created_at ? new Date(activeContract.created_at).toLocaleDateString('de-DE') : '/'}</div>
                                       </div>
                                       <button 
                                         className="w-full p-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white text-sm font-medium rounded-lg transition-all duration-200"
                                         onClick={() => {
-                                          setSelectedPromotorForContract(promotor.id);
+                                          setSelectedPromotorForContract(String(promotor.id));
                                           setShowDienstvertragPopup(true);
                                         }}
                                       >
-                                        {hasAnyContract ? 'Alle Verträge anzeigen' : 'Vertrag erstellen'}
+                                        {activeContract ? 'Aktiver Dienstvertrag' : 'Dienstvertrag einspielen'}
                                       </button>
                                     </div>
                                   );
@@ -3295,7 +3653,8 @@ Dein Nespresso Team`;
                                 <GraduationCap className="h-4 w-4 mr-2 text-indigo-500" />
                                 Schulungen & Training
                               </h3>
-                              <div className="space-y-2 max-h-48 overflow-y-auto [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                              <div className="relative h-48">
+                                <div className="space-y-2 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden pr-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                                 {[
                                   { 
                                     name: "Grundlagen des Verkaufs", 
@@ -3401,6 +3760,16 @@ Dein Nespresso Team`;
                                     </div>
                                   );
                                 })}
+                                </div>
+                                <div className="absolute inset-0 bg-gradient-to-br from-black/30 via-gray-900/40 to-black/30 rounded-lg flex items-center justify-center pointer-events-none z-10 backdrop-blur-[2px]">
+                                  <div className="relative text-center px-3">
+                                    <div className="absolute inset-0 bg-gradient-to-r from-green-500/30 to-emerald-500/30 blur-xl rounded-lg scale-110"></div>
+                                    <div className="relative bg-gradient-to-r from-green-500 to-emerald-600 px-4 py-2 rounded-lg shadow-2xl inline-block">
+                                      <span className="text-white text-sm font-semibold tracking-wide">kommt bald!</span>
+                                    </div>
+                                    <p className="mt-3 text-xs text-white/90">Keine Schulungen verfügbar</p>
+                                  </div>
+                                </div>
                               </div>
                             </CardContent>
                           </Card>
@@ -3669,31 +4038,95 @@ Dein Nespresso Team`;
                                  <Briefcase className="h-4 w-4 mr-2 text-teal-500" />
                                  Kommende Einsätze
                                </h3>
-                               <div className="space-y-3 h-[260px]">
-                                 {[
-                                   { date: "Heute", time: "10:00-18:00", location: "MediaMarkt Seiersberg", type: "Promotion" },
-                                   { date: "Morgen", time: "09:00-17:30", location: "Saturn Klagenfurt", type: "Buddy Tag" },
-                                   { date: "Do, 25. Jan", time: "14:00-20:00", location: "Saturn Graz", type: "Promotion" }
-                                 ].map((assignment, index) => (
-                                   <div key={index} className="p-3 border border-gray-200 rounded-lg">
-                                     <div className="flex items-center justify-between mb-1">
-                                       <span className="text-sm font-medium text-gray-900">{assignment.date}</span>
-                                       <Badge 
-                                         variant="outline" 
-                                         className={`text-xs border-0 text-white font-medium ${
-                                           assignment.type === "Promotion" 
-                                             ? "bg-gradient-to-r from-blue-500 to-blue-600" 
-                                             : "bg-gradient-to-r from-purple-500 to-pink-500"
-                                         }`}
-                                       >
-                                         {assignment.type}
-                                       </Badge>
-                                     </div>
-                                     <p className="text-xs text-gray-600">{assignment.time}</p>
-                                     <p className="text-xs text-gray-500">{assignment.location}</p>
-                                   </div>
-                                 ))}
-                               </div>
+                              <div className="h-[260px]">
+                                {(() => {
+                                  const promotorId = String(promotor.id);
+                                  const isLoading = !!upcomingAssignmentsLoading[promotorId];
+                                  const hasError = !!upcomingAssignmentsError[promotorId];
+                                  const assignments = [...(upcomingAssignmentsByPromotor[promotorId] || [])].sort((a, b) => {
+                                    const aTime = new Date(a?.start_ts || 0).getTime();
+                                    const bTime = new Date(b?.start_ts || 0).getTime();
+                                    return aTime - bTime;
+                                  });
+
+                                  if (isLoading) {
+                                    return (
+                                      <div className="space-y-3 h-full">
+                                        {[0, 1, 2].map((i) => (
+                                          <div key={i} className="p-3 border border-gray-200 rounded-lg animate-skeleton-fade">
+                                            <div className="flex items-center justify-between mb-2">
+                                              <div className="h-4 w-20 rounded bg-gray-200" />
+                                              <div className="h-5 w-20 rounded-full bg-gray-200" />
+                                            </div>
+                                            <div className="h-3 w-24 rounded bg-gray-200 mb-1" />
+                                            <div className="h-3 w-36 rounded bg-gray-200" />
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  }
+
+                                  if (hasError) {
+                                    return (
+                                      <div className="h-full flex items-center justify-center p-4 border border-dashed border-gray-200 rounded-lg text-center">
+                                        <div>
+                                          <p className="text-sm font-medium text-gray-700">Einsätze konnten nicht geladen werden</p>
+                                          <p className="text-xs text-gray-500 mt-1">Bitte später erneut versuchen.</p>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+
+                                  if (assignments.length === 0) {
+                                    return (
+                                      <div className="h-full flex items-center justify-center p-4 border border-dashed border-gray-200 rounded-lg text-center">
+                                        <div>
+                                          <Calendar className="h-5 w-5 text-gray-400 mx-auto mb-2" />
+                                          <p className="text-sm font-medium text-gray-700">Keine kommenden Einsätze</p>
+                                          <p className="text-xs text-gray-500 mt-1">Dieser Promotor ist aktuell nicht verplant.</p>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+
+                                  return (
+                                    <div className="space-y-3 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden pr-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                                      {assignments.map((assignment: UpcomingAssignmentRow) => {
+                                        const isBuddyTag = assignment.user_role === 'buddy'
+                                          || assignment.status === 'buddy_tag'
+                                          || !!(assignment.buddy_name || assignment.buddy_display_name || assignment.buddy_user_id);
+                                        const typeLabel = isBuddyTag ? 'Buddy Tag' : 'Promotion';
+                                        const start = formatIsoTimeNoTZ(assignment.start_ts);
+                                        const end = formatIsoTimeNoTZ(assignment.end_ts);
+                                        const timeLabel = end !== '--:--' ? `${start}-${end}` : start;
+                                        const location = assignment.location_text
+                                          || [assignment.postal_code, assignment.city].filter(Boolean).join(' ')
+                                          || 'Unbekannter Einsatzort';
+
+                                        return (
+                                          <div key={`${assignment.id}-${assignment.user_role || 'unknown'}`} className="p-3 border border-gray-200 rounded-lg">
+                                            <div className="flex items-center justify-between mb-1">
+                                              <span className="text-sm font-medium text-gray-900">{getAssignmentDateLabel(assignment.start_ts)}</span>
+                                              <Badge
+                                                variant="outline"
+                                                className={`text-xs border-0 text-white font-medium ${
+                                                  typeLabel === "Promotion"
+                                                    ? "bg-gradient-to-r from-blue-500 to-blue-600"
+                                                    : "bg-gradient-to-r from-purple-500 to-pink-500"
+                                                }`}
+                                              >
+                                                {typeLabel}
+                                              </Badge>
+                                            </div>
+                                            <p className="text-xs text-gray-600">{timeLabel}</p>
+                                            <p className="text-xs text-gray-500">{location}</p>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
                              </CardContent>
                            </Card>
 
@@ -3797,17 +4230,9 @@ Dein Nespresso Team`;
             onClick={() => {
               setShowDienstvertragPopup(false);
               setSelectedPromotorForContract(null);
-              setContractForm({
-                hoursPerWeek: '',
-                monthlyGross: '',
-                startDate: '',
-                endDate: '',
-                isTemporary: false,
-                employmentType: 'geringfügig'
-              });
             }}
           ></div>
-          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-xl z-[80] p-0 w-[600px] max-h-[85vh] overflow-hidden">
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-xl z-[80] p-0 w-[640px] max-h-[85vh] overflow-hidden">
             {/* Header */}
             <div className="text-white p-6 rounded-t-xl" style={{background: 'linear-gradient(135deg, #22C55E, #105F2D)'}}>
               <div className="flex items-center justify-between">
@@ -3816,14 +4241,6 @@ Dein Nespresso Team`;
                   onClick={() => {
                     setShowDienstvertragPopup(false);
                     setSelectedPromotorForContract(null);
-                    setContractForm({
-                      hoursPerWeek: '',
-                      monthlyGross: '',
-                      startDate: '',
-                      endDate: '',
-                      isTemporary: false,
-                      employmentType: 'geringfügig'
-                    });
                   }}
                   className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                 >
@@ -3833,422 +4250,121 @@ Dein Nespresso Team`;
             </div>
             
             <div className="p-6 space-y-6 max-h-[calc(85vh-120px)] overflow-y-auto [&::-webkit-scrollbar]:hidden" style={{scrollbarWidth: 'none', msOverflowStyle: 'none'}}>
-              {/* Contract Creation Section */}
               <div className="space-y-4">
-                <h4 className="text-lg font-semibold text-gray-900">Neuen Vertrag erstellen</h4>
-                
-                {/* Employee Info - Fetched from Promotor */}
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2">
-                  <h5 className="font-medium text-gray-700 mb-2">Mitarbeiter Information</h5>
-                  <div className="border-b border-gray-200 mb-3"></div>
-                  {(() => {
-                    const promotor = promotors.find(p => p.id === selectedPromotorForContract);
-                    if (!promotor) return null;
-                    
-                    return (
-                      <div className="grid grid-cols-2 gap-3 text-sm">
-                        <div>
-                          <span className="text-gray-500">Name:</span>
-                          <p className="font-medium">{promotor.name}</p>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Email:</span>
-                          <p className="font-medium">{promotor.email}</p>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Region:</span>
-                          <p className="font-medium">{regionNames[promotor.region as keyof typeof regionNames]}</p>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Status:</span>
-                          <p className="font-medium">{promotor.status === 'active' ? 'Aktiv' : promotor.status === 'newjoiner' ? 'New Joiner' : 'Inaktiv'}</p>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
+                <h4 className="text-lg font-semibold text-gray-900">Dienstvertrag einspielen</h4>
+                <p className="text-sm text-gray-600">
+                  Lade einen bereits unterschriebenen Dienstvertrag als PDF, DOC oder DOCX hoch.
+                  Beim Upload wird der neue Vertrag sofort aktiv, der bisher aktive wird automatisch archiviert.
+                </p>
 
-                {/* Contract Details Form */}
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Wochenstunden
-                      </label>
-                      <input
-                        type="number"
-                        placeholder="z.B. 32"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        value={contractForm.hoursPerWeek}
-                        onChange={(e) => setContractForm({...contractForm, hoursPerWeek: e.target.value})}
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Monatsgehalt (Brutto)
-                      </label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">€</span>
-                        <input
-                          type="number"
-                          placeholder="2000"
-                          className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                          value={contractForm.monthlyGross}
-                          onChange={(e) => setContractForm({...contractForm, monthlyGross: e.target.value})}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Anstellungsart
-                      </label>
-                      <Select value={contractForm.employmentType} onValueChange={(v) => setContractForm({ ...contractForm, employmentType: v as any })}>
-                        <SelectTrigger className="w-full h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0 focus:ring-offset-0 data-[state=open]:ring-0 data-[state=open]:ring-offset-0">
-                          <SelectValue placeholder="Anstellungsart wählen" />
-                        </SelectTrigger>
-                        <SelectContent className="z-[100] rounded-md border border-gray-200 bg-white shadow-xl">
-                          <SelectItem value="geringfügig" className="text-sm text-gray-700 hover:bg-gray-50 focus:bg-gray-50">geringfügig</SelectItem>
-                          <SelectItem value="teilzeit" className="text-sm text-gray-700 hover:bg-gray-50 focus:bg-gray-50">teilzeit</SelectItem>
-                          <SelectItem value="vollzeit" className="text-sm text-gray-700 hover:bg-gray-50 focus:bg-gray-50">vollzeit</SelectItem>
-                          {/* freelancer option intentionally hidden in frontend */}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Vertragsbeginn
-                    </label>
-                    <DatePicker
-                      value={contractForm.startDate}
-                      onChange={(value) => setContractForm({...contractForm, startDate: value})}
-                      placeholder="tt.mm.jjjj"
-                      className="w-full"
-                    />
-                  </div>
-
-                  {/* Befristung Option */}
-                  <div className="space-y-3">
-                    <label className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-0"
-                        checked={contractForm.isTemporary}
-                        onChange={(e) => setContractForm({...contractForm, isTemporary: e.target.checked})}
-                      />
-                      <span className="text-sm font-medium text-gray-700">Befristeter Vertrag</span>
-                    </label>
-                    
-                    {contractForm.isTemporary && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Vertragsende
-                        </label>
-                        <DatePicker
-                          value={contractForm.endDate}
-                          onChange={(value) => setContractForm({...contractForm, endDate: value})}
-                          placeholder="tt.mm.jjjj"
-                          className="w-full"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Send Button - Now shows preview first */}
-                <button
-                  onClick={async () => {
-                    // Generate HTML from template
-                    const promotor = promotors.find(p => p.id === selectedPromotorForContract);
-                    if (!promotor) return;
-                    
-                    const { generateDienstvertragHTML } = await import('@/lib/templates/dienstvertrag');
-                    const html = generateDienstvertragHTML({
-                      promotorName: promotor.name || '',
-                      promotorBirthDate: promotor.birthDate || '',
-                      promotorAddress: promotor.address || '',
-                      hoursPerWeek: contractForm.hoursPerWeek,
-                      monthlyGross: contractForm.monthlyGross,
-                      startDate: contractForm.startDate ? new Date(contractForm.startDate).toLocaleDateString('de-DE') : '',
-                      endDate: contractForm.endDate ? new Date(contractForm.endDate).toLocaleDateString('de-DE') : '',
-                      isTemporary: contractForm.isTemporary
-                    });
-                    
-                    setEditableContractHTML(html);
-                    setShowContractPreview(true);
-                  }}
-                  disabled={!contractForm.hoursPerWeek || !contractForm.monthlyGross || !contractForm.startDate}
-                  className={`w-full py-3 rounded-lg font-medium transition-all duration-200 text-white ${
-                    contractForm.hoursPerWeek && contractForm.monthlyGross && contractForm.startDate
-                      ? ''
-                      : 'opacity-50 cursor-not-allowed'
+                <div
+                  className={`border-2 border-dashed rounded-lg p-6 text-center transition-all ${
+                    isContractDropActive ? 'border-green-400 bg-green-50' : 'border-gray-300 bg-gray-50'
                   }`}
-                  style={contractForm.hoursPerWeek && contractForm.monthlyGross && contractForm.startDate
-                    ? {background: 'linear-gradient(135deg, #22C55E, #105F2D)'}
-                    : {background: '#9CA3AF'}
-                  }
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsContractDropActive(true);
+                  }}
+                  onDragLeave={() => setIsContractDropActive(false)}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    setIsContractDropActive(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (!file) return;
+                    await handleAdminContractImport(file);
+                  }}
                 >
-                  Vertrag erstellen & senden
-                </button>
-              </div>
-
-              {/* Divider */}
-              <div className="border-t border-gray-200 pt-6">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4">Vertragshistorie</h4>
-
-                {/* Contracts List */}
-                <div className="space-y-3">
-                  {/* No contracts state */}
-                  {(() => {
-                    const contracts = Array.isArray(promotorContracts) ? promotorContracts : [];
-                    if (contracts.length === 0) {
-                      return (
-                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
-                          <span className="text-sm text-gray-600">Kein Dienstvertrag verfügbar</span>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
-                  
-                  {/* Pending Contract (dynamic) */}
-                  {(() => {
-                    const contracts = Array.isArray(promotorContracts) ? promotorContracts : [];
-                    const activeContract = contracts.find((c: any) => c.is_active);
-                    const nonActive = contracts.filter((c: any) => !c.is_active);
-                    const sortedNonActive = [...nonActive].sort(
-                      (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                    );
-
-                    let newestPending: any | null = null;
-                    if (activeContract?.created_at) {
-                      // Only treat as pending if it is newer than the current active contract
-                      newestPending = sortedNonActive.find(
-                        (c: any) => new Date(c.created_at).getTime() > new Date(activeContract.created_at).getTime()
-                      ) || null;
-                    } else {
-                      newestPending = sortedNonActive[0] || null;
-                    }
-                    if (!newestPending) return null;
-
-                    const contract = newestPending;
-                    return (
-                      <div key={contract.id} className="bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-orange-700">Ausstehender Vertrag</span>
-                  <div className="flex items-center space-x-2">
-                            {contract.file_path ? (
-                              <CheckCircle className="h-4 w-4 text-green-500" />
-                            ) : (
-                        <Loader2 className="h-4 w-4 text-orange-500 animate-spin" />
-                            )}
-                            <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
-                              {contract.file_path ? 'Unterschrieben' : 'Warte auf Unterschrift'}
-                            </span>
-                  </div>
-                </div>
-                        <div className="text-xs text-gray-600 mb-3">
-                          <div>Wochenstunden: {contract.hours_per_week || 'N/A'}</div>
-                          <div>Monatsgehalt: {contract.monthly_gross ? `€ ${contract.monthly_gross},-- brutto` : 'N/A'}</div>
-                          <div>Laufzeit: {contract.start_date ? new Date(contract.start_date).toLocaleDateString('de-DE') : 'N/A'} - {contract.end_date ? new Date(contract.end_date).toLocaleDateString('de-DE') : 'unbefristet'}</div>
-                          <div>Anstellungsart: {contract.employment_type || 'N/A'}</div>
-                </div>
-                    <div className="flex space-x-2">
-                          {contract.file_path ? (
-                            <>
-                <button 
-                                className="flex-1 py-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white text-sm font-medium rounded-lg transition-all duration-200 disabled:opacity-70"
-                                disabled={acceptingContract}
-                                onClick={async () => {
-                                  if (acceptingContract) return;
-                                  try {
-                                    setAcceptingContract(true);
-                                    const res = await fetch('/api/admin/contracts', {
-                                      method: 'PATCH',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ id: contract.id, is_active: true }),
-                                    });
-                                    if (!res.ok) throw new Error('Fehler beim Annehmen des Vertrags');
-                                    await refreshPromotorContracts(String(selectedPromotorForContract));
-                                    setToastMsg('Vertrag erfolgreich angenommen!');
-                                  } catch (e: any) {
-                                    setToastMsg(e.message || 'Fehler beim Annehmen des Vertrags');
-                                    console.error(e);
-                                  } finally {
-                                    setAcceptingContract(false);
-                                  }
-                                }}
-                              >
-                                {acceptingContract ? (
-                                  <span className="inline-flex items-center"><Loader2 className="h-4 w-4 animate-spin mr-2" />wird angenommen</span>
-                                ) : (
-                                  'Vertrag annehmen'
-                                )}
-                      </button>
-                      <button 
-                                className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-all duration-200 border border-gray-300"
-                                onClick={async () => {
-                                  try {
-                                    const res = await fetch(`/api/admin/promotors/${selectedPromotorForContract}/contracts/signed-url?contract_id=${contract.id}`, {
-                                      cache: 'no-store'
-                                    });
-                                    const j = await res.json();
-                                    if (j?.url) window.open(j.url, '_blank');
-                                  } catch (e) {
-                                    console.error(e);
-                                  }
-                                }}
-                                title="Unterschriebenen Vertrag ansehen"
-                              >
-                                <Eye className="h-4 w-4" />
-                </button>
-                            </>
-                          ) : (
-                            <button 
-                              className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-all duration-200 border border-gray-300"
-                              onClick={handleDienstvertragSelect}
-                            >
-                              Details anzeigen
-                            </button>
-                          )}
-                    </div>
-              </div>
-                    );
-                  })()}
-
-              {/* Current Active Contract */}
-                  {(() => {
-                    const contracts = Array.isArray(promotorContracts) ? promotorContracts : [];
-                    const activeContract = contracts.find(c => c.is_active);
-                    if (!activeContract) return null;
-                    
-                    return (
-                  <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-green-700">Aktiver Vertrag</span>
-                      <div className="flex items-center space-x-2">
-                            {activeContract.file_path && (
-                        <button 
-                                className="p-1 hover:bg-green-100/50 rounded transition-colors"
-                          title="Unterschriebenen Vertrag ansehen"
-                                onClick={async () => {
-                                  try {
-                                    const res = await fetch(`/api/admin/promotors/${selectedPromotorForContract}/contracts/signed-url?contract_id=${activeContract.id}`, {
-                                      cache: 'no-store'
-                                    });
-                                    const j = await res.json();
-                                    if (j?.url) window.open(j.url, '_blank');
-                                  } catch (e) {
-                                    console.error(e);
-                                  }
-                                }}
-                        >
-                          <Eye className="h-3 w-3 text-green-600" />
-                        </button>
-                            )}
-                        <Check className="h-4 w-4 text-green-500" />
-                        <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">Aktiv</span>
-                </div>
-                    </div>
-                    <div className="text-sm text-gray-600 mb-3">
-                          <div>Wochenstunden: {activeContract.hours_per_week || 'N/A'}</div>
-                          <div>Monatsgehalt: {activeContract.monthly_gross ? `€ ${activeContract.monthly_gross},-- brutto` : 'N/A'}</div>
-                          <div>Laufzeit: {activeContract.start_date ? new Date(activeContract.start_date).toLocaleDateString('de-DE') : 'N/A'} - {activeContract.end_date ? new Date(activeContract.end_date).toLocaleDateString('de-DE') : 'unbefristet'}</div>
-                          <div>Anstellungsart: {activeContract.employment_type || 'N/A'}</div>
-                </div>
-                <button 
-                      className="w-full py-2 text-white text-sm font-medium rounded-lg transition-all duration-200"
-                      style={{background: 'linear-gradient(135deg, #22C55E, #105F2D)'}}
-                  onClick={handleDienstvertragSelect}
-                >
-                  Vertrag ansehen
-                </button>
-              </div>
-                    );
-                  })()}
-
-              {/* Previous Contracts */}
-              {(() => {
-                const contracts = Array.isArray(promotorContracts) ? promotorContracts : [];
-                const activeContract = contracts.find((c: any) => c.is_active);
-                const nonActiveWithFile = contracts.filter((c: any) => !c.is_active && c.file_path);
-
-                // Determine the newest pending (awaiting acceptance) contract id
-                let newestPendingId: string | null = null;
-                if (activeContract?.created_at) {
-                  const pending = [...nonActiveWithFile]
-                    .filter((c: any) => new Date(c.created_at).getTime() > new Date(activeContract.created_at).getTime())
-                    .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-                  newestPendingId = pending?.id || null;
-                } else {
-                  // No active contract yet → the topmost non-active-with-file is the one in the pending box
-                  const top = [...nonActiveWithFile].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-                  newestPendingId = top?.id || null;
-                }
-
-                const previousContracts = nonActiveWithFile
-                  .filter((c: any) => {
-                    if (newestPendingId && c.id === newestPendingId) return false; // exclude the contract currently shown as pending
-                    if (activeContract?.created_at) {
-                      return new Date(c.created_at).getTime() <= new Date(activeContract.created_at).getTime();
-                    }
-                    return true;
-                  })
-                  .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-                if (previousContracts.length === 0) return null;
-
-                return (
-              <div className="space-y-2">
-                    <h5 className="text-sm font-medium text-gray-700">Frühere Verträge</h5>
-                    {previousContracts.map((contract: any, index: number) => (
-                      <div key={contract.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium text-gray-600">
-                            Vertrag v{previousContracts.length - index}.0
-                          </span>
-                    <div className="flex items-center space-x-2">
-                            {contract.file_path && (
-                      <button 
-                                className="p-1 hover:bg-gray-200/50 rounded transition-colors"
-                        title="Unterschriebenen Vertrag ansehen"
-                                onClick={async () => {
-                                  try {
-                                    const res = await fetch(`/api/admin/promotors/${selectedPromotorForContract}/contracts/signed-url?contract_id=${contract.id}`, {
-                                      cache: 'no-store'
-                                    });
-                                    const j = await res.json();
-                                    if (j?.url) window.open(j.url, '_blank');
-                                  } catch (e) {
-                                    console.error(e);
-                                  }
-                                }}
-                      >
-                        <Eye className="h-3 w-3 text-gray-600" />
-                      </button>
-                            )}
-                    <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">Beendet</span>
-                    </div>
-                  </div>
-                  <div className="text-xs text-gray-500 mb-2">
-                          <div>Wochenstunden: {contract.hours_per_week || 'N/A'} • {contract.monthly_gross ? `€ ${contract.monthly_gross},--/Monat` : 'N/A'}</div>
-                          <div>Laufzeit: {contract.start_date ? new Date(contract.start_date).toLocaleDateString('de-DE') : 'N/A'} - {contract.end_date ? new Date(contract.end_date).toLocaleDateString('de-DE') : 'N/A'}</div>
-                  </div>
-                  <button 
-                        className="w-full py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-medium rounded-lg transition-all duration-200"
-                    onClick={handleDienstvertragSelect}
+                  <Upload className="h-7 w-7 text-gray-500 mx-auto mb-2" />
+                  <p className="text-sm text-gray-700 mb-1">Datei hier ablegen oder auswählen</p>
+                  <p className="text-xs text-gray-500 mb-3">Erlaubt: PDF, DOC, DOCX</p>
+                  <button
+                    onClick={() => {
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.accept = '.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                      input.style.display = 'none';
+                      document.body.appendChild(input);
+                      input.onchange = async () => {
+                        const file = input.files?.[0];
+                        document.body.removeChild(input);
+                        if (!file) return;
+                        await handleAdminContractImport(file);
+                      };
+                      input.click();
+                    }}
+                    disabled={uploadingContractFile}
+                    className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg text-sm font-medium hover:from-green-600 hover:to-emerald-700 disabled:opacity-70"
                   >
-                    Archiv ansehen
+                    {uploadingContractFile ? (
+                      <span className="inline-flex items-center">
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        wird hochgeladen
+                      </span>
+                    ) : (
+                      'Datei auswählen'
+                    )}
                   </button>
                 </div>
-                    ))}
+              </div>
+
+              <div className="border-t border-gray-200 pt-6">
+                <h4 className="text-lg font-semibold text-gray-900 mb-4">Vertragshistorie</h4>
+                <div className="space-y-3">
+                  {(Array.isArray(promotorContracts) ? promotorContracts : []).length === 0 && (
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
+                      <span className="text-sm text-gray-600">Kein Dienstvertrag verfügbar</span>
                     </div>
-                );
-              })()}
-                  </div>
+                  )}
+
+                  {(Array.isArray(promotorContracts) ? promotorContracts : []).map((contract) => {
+                    const isActive = !!contract.is_active;
+                    const created = contract.created_at ? new Date(contract.created_at).toLocaleDateString('de-DE') : 'N/A';
+                    return (
+                      <div
+                        key={contract.id}
+                        className={`rounded-lg p-4 border ${
+                          isActive
+                            ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200'
+                            : 'bg-gray-50 border-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className={`text-sm font-semibold ${isActive ? 'text-green-700' : 'text-gray-700'}`}>
+                            {isActive ? 'Aktiver Dienstvertrag' : 'Vergangener Dienstvertrag'}
+                          </span>
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            isActive ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-700'
+                          }`}>
+                            {isActive ? 'Aktiv' : 'Archiv'}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-600 mb-3">
+                          <div>Datei: {contract.file_name || contract.file_path?.split('/').pop() || 'N/A'}</div>
+                          <div>Hinterlegt am: {created}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
+                              isActive
+                                ? 'text-white bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700'
+                                : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                            }`}
+                            onClick={() => handleDienstvertragSelect(contract.id)}
+                          >
+                            {isActive ? 'Aktiver Dienstvertrag' : 'Archiv ansehen'}
+                          </button>
+                          <button
+                            className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                            onClick={() => handleDienstvertragSelect(contract.id)}
+                            title="Vorschau öffnen"
+                          >
+                            <Eye className="h-4 w-4 text-gray-700" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </div>
@@ -4278,178 +4394,344 @@ Dein Nespresso Team`;
                   </button>
                 <h3 className="text-xl font-bold">Dienstvertrag</h3>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center gap-2">
+                  {(contractPreviewExt === 'doc' || contractPreviewExt === 'docx') && (
+                    <>
+                      <button
+                        onClick={refreshContractPreview}
+                        className="px-2.5 py-1.5 text-xs bg-white/15 hover:bg-white/25 rounded-lg transition-colors"
+                      >
+                        Neu laden
+                      </button>
+                      {contractPreviewUrl && (
+                        <button
+                          onClick={() => window.open(contractPreviewUrl, '_blank')}
+                          className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                          title="In neuem Tab öffnen"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </button>
+                      )}
+                    </>
+                  )}
                   <button 
-                    onClick={exportDienstvertragAsPDF}
-                    className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                    title="Als PDF exportieren"
-                  >
-                    <Download className="h-5 w-5" />
-                  </button>
-                <button 
-                  onClick={() => setShowDienstvertragContent(false)}
-                  className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-                </div>
-              </div>
-            </div>
-            
-            {/* Content */}
-            <div className="overflow-y-auto max-h-[calc(90vh-120px)] p-8 [&::-webkit-scrollbar]:hidden" style={{scrollbarWidth: 'none', msOverflowStyle: 'none'}}>
-              <div className="max-w-3xl mx-auto" id="dienstvertrag-content">
-                {loadingContractHTML ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-8 w-8 text-gray-400 animate-spin" />
-                  </div>
-                ) : (
-                  <div 
-                    className="prose prose-sm"
-                    dangerouslySetInnerHTML={{ __html: viewContractHTML }}
-                  />
-                )}
-                    </div>
-                    </div>
-                    </div>
-        </>
-      )}
-
-      {/* Contract Preview Modal */}
-      {showContractPreview && (
-        <>
-          <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4"
-            onClick={() => setShowContractPreview(false)}
-          ></div>
-          <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
-              {/* Header */}
-              <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <button 
-                      onClick={() => setShowContractPreview(false)}
-                      className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                    >
-                      <ArrowLeft className="h-5 w-5" />
-                    </button>
-                    <h3 className="text-xl font-bold">Vertrag Vorschau</h3>
-                  </div>
-                  <button 
-                    onClick={() => setShowContractPreview(false)}
+                    onClick={() => setShowDienstvertragContent(false)}
                     className="p-2 hover:bg-white/20 rounded-lg transition-colors"
                   >
                     <X className="h-5 w-5" />
                   </button>
                 </div>
               </div>
-              
-              {/* Content - Editable HTML */}
-              <div className="overflow-y-auto max-h-[calc(90vh-200px)] p-8 [&::-webkit-scrollbar]:hidden" style={{scrollbarWidth: 'none', msOverflowStyle: 'none'}}>
-                <div 
-                  ref={editableContractRef}
-                  className="max-w-3xl mx-auto prose prose-sm"
-                  contentEditable
-                  suppressContentEditableWarning
-                  style={{
-                    outline: 'none',
-                    minHeight: '500px'
-                  }}
-                />
-              </div>
-              
-              {/* Footer with confirmation buttons */}
-              <div className="bg-gray-50 p-6 border-t">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-600">
-                    Bitte prüfen Sie den Vertrag und bestätigen Sie das Senden.
-                  </p>
-                  <div className="flex space-x-3">
-                    <button
-                      onClick={() => setShowContractPreview(false)}
-                      className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-                    >
-                      Abbrechen
-                    </button>
-                    <button
-                      onClick={async () => {
-                        if (sendingContract) return;
-                        setSendingContract(true);
-                        const promotorId = selectedPromotorForContract ? String(selectedPromotorForContract) : null;
-                        if (!promotorId) return;
-                        
-                        // Get final HTML from the editable div
-                        const finalHTML = editableContractRef.current?.innerHTML || '';
-                        if (!finalHTML) {
-                          setToastMsg('Fehler: Kein Vertragsinhalt gefunden');
-                          setSendingContract(false);
-                          return;
-                        }
-                        
-                        try {
-                          // Step 1: Create contract record in contracts table
-                          const contractRes = await fetch('/api/admin/contracts', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              user_id: promotorId,
-                              hours_per_week: contractForm.hoursPerWeek,
-                              monthly_gross: contractForm.monthlyGross,
-                              start_date: contractForm.startDate,
-                              end_date: contractForm.endDate || null,
-                              is_temporary: contractForm.isTemporary,
-                              employment_type: contractForm.employmentType,
-                              is_active: false,
-                            })
-                          });
-                          const contractData = await contractRes.json().catch(() => ({}));
-                          if (!contractRes.ok) throw new Error(contractData?.error || 'Fehler beim Erstellen des Vertrags');
-                          
-                          // Step 2: Save edited HTML to sent_dienstvertrag table
-                          const sentRes = await fetch('/api/admin/contracts/send-dienstvertrag', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              contract_id: contractData.contract.id,
-                              user_id: promotorId,
-                              html_content: finalHTML
-                            })
-                          });
-                          if (!sentRes.ok) {
-                            const err = await sentRes.json().catch(() => ({}));
-                            throw new Error(err?.error || 'Fehler beim Speichern des Vertragsinhalts');
-                          }
-                          
-                          await refreshPromotorContracts(promotorId);
-                          setToastMsg('Vertrag erfolgreich erstellt und versendet!');
-                          setShowContractPreview(false);
-                          setEditableContractHTML('');
-                          setSendingContract(false);
-                        } catch (e: any) {
-                          console.error(e);
-                          setToastMsg(e.message || 'Fehler beim Erstellen des Vertrags');
-                          setSendingContract(false);
-                        }
-                      }}
-                      className="px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-medium transition-all duration-200"
-                      disabled={sendingContract}
-                    >
-                      {sendingContract ? (
-                        <span className="inline-flex items-center">
-                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                          wird gesendet
-                        </span>
-                      ) : (
-                        'Vertrag senden'
-                      )}
-                    </button>
-                  </div>
+            </div>
+            
+            {/* Content */}
+            <div className="overflow-y-auto max-h-[calc(90vh-120px)] p-8 [&::-webkit-scrollbar]:hidden" style={{scrollbarWidth: 'none', msOverflowStyle: 'none'}}>
+              {loadingContractPreview ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 text-gray-400 animate-spin" />
                 </div>
-              </div>
+              ) : contractPreviewUrl ? (
+                <iframe
+                  src={contractPreviewExt === 'pdf'
+                    ? contractPreviewUrl
+                    : `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(contractPreviewUrl)}`}
+                  className="w-full h-[70vh] rounded-lg border border-gray-200"
+                  title="Dienstvertrag Vorschau"
+                  onError={() => setContractPreviewError(true)}
+                />
+              ) : (
+                <div className="text-sm text-gray-600 text-center py-12">Keine Vorschau verfügbar</div>
+              )}
+              {contractPreviewError && (
+                <div className="mt-3 text-center text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  Die Vorschau konnte nicht zuverlässig geladen werden. Bitte "Neu laden" versuchen oder im neuen Tab öffnen.
+                </div>
+              )}
             </div>
           </div>
         </>
+      )}
+
+      {/* Zugänge Excel Import Modal */}
+      {showAccessImportModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+          <div
+            className={`bg-white rounded-xl shadow-2xl w-full ${
+              accessImportStage === 'upload' ? 'max-w-lg' : 'max-w-6xl'
+            } max-h-[90vh] overflow-hidden`}
+          >
+            <div className="bg-gradient-to-r from-gray-900 to-gray-800 text-white p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-semibold">Zugänge Import</h3>
+                  <p className="text-xs text-white/80 mt-1">Excel-Mapping für Hübner, Demotool, TMA und Boost App</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowAccessImportModal(false);
+                    resetAccessImportState();
+                  }}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)] [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              {accessImportStage === 'upload' && (
+                <div
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    const file = e.dataTransfer.files?.[0];
+                    if (!file) return;
+                    if (!/\.(xlsx|xls)$/i.test(file.name)) {
+                      alert('Bitte eine .xlsx oder .xls Datei auswählen.');
+                      return;
+                    }
+                    await prepareAccessImportPreview(file);
+                  }}
+                >
+                  <div className="space-y-3">
+                    <div className="mx-auto w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                      <Upload className="w-6 h-6 text-gray-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Excel-Datei hier ablegen oder</p>
+                      <button
+                        onClick={() => {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = '.xlsx,.xls';
+                          input.style.display = 'none';
+                          document.body.appendChild(input);
+                          input.onchange = async () => {
+                            const file = input.files?.[0];
+                            document.body.removeChild(input);
+                            if (!file) return;
+                            await prepareAccessImportPreview(file);
+                          };
+                          input.click();
+                        }}
+                        className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        Datei auswählen
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400">Unterstützte Formate: .xlsx, .xls</p>
+                  </div>
+                </div>
+              )}
+
+              {accessImportStage === 'preview_mapping' && (
+                <div className="space-y-4">
+                  <div className="text-xs text-gray-500">
+                    Datei: <span className="font-medium text-gray-700">{accessImportSourceFileName || '-'}</span>
+                  </div>
+
+                  <div className="border border-gray-200 rounded-lg">
+                    <div className="px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-700">
+                      Vorschau (horizontal + vertikal scrollbar)
+                    </div>
+                    <div className="max-h-[320px] overflow-auto">
+                      {(() => {
+                        const previewMaxCols = accessImportSheetRows.reduce((max, row) => {
+                          const rowLen = Array.isArray(row) ? row.length : 0;
+                          return Math.max(max, rowLen);
+                        }, 0);
+                        return (
+                          <table className="min-w-max text-xs">
+                            <thead className="sticky top-0 z-10">
+                              <tr className="bg-gray-50 border-b border-gray-200">
+                                <th className="sticky left-0 bg-gray-50 border-r border-gray-200 px-2 py-1 text-gray-500 w-10 text-left">#</th>
+                                {Array.from({ length: previewMaxCols }).map((_, colIndex) => (
+                                  <th
+                                    key={`zugang-preview-col-${colIndex}`}
+                                    className="px-2 py-1 text-[11px] font-semibold text-gray-600 border-r border-gray-200 whitespace-nowrap text-left"
+                                  >
+                                    {columnIndexToLetter(colIndex)}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {accessImportSheetRows.map((row, rowIndex) => (
+                                <tr key={`zugang-preview-row-${rowIndex}`} className="border-b border-gray-100 last:border-b-0">
+                                  <td className="sticky left-0 bg-white border-r border-gray-200 px-2 py-1 text-gray-400 w-10">{rowIndex + 1}</td>
+                                  {Array.from({ length: previewMaxCols }).map((_, cellIndex) => (
+                                    <td key={`zugang-preview-cell-${rowIndex}-${cellIndex}`} className="px-2 py-1 whitespace-nowrap text-gray-700 border-r border-gray-100">
+                                      {String((Array.isArray(row) ? row[cellIndex] : '') ?? '')}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { key: 'fullNameCol', label: 'Vollname' },
+                      { key: 'huebnerEmailCol', label: 'Hübner E-Mail' },
+                      { key: 'huebnerPasswordCol', label: 'Hübner Passwort' },
+                      { key: 'demotoolEmailCol', label: 'Demotool E-Mail' },
+                      { key: 'demotoolPasswordCol', label: 'Demotool Passwort' },
+                      { key: 'tmaEmailCol', label: 'TMA E-Mail' },
+                      { key: 'tmaPasswordCol', label: 'TMA Passwort' },
+                      { key: 'boostAppEmailCol', label: 'Boost App E-Mail' },
+                      { key: 'boostAppPasswordCol', label: 'Boost App Passwort' },
+                    ].map((field) => (
+                      <div key={field.key} className="space-y-1">
+                        <label className="text-xs font-medium text-gray-700">{field.label}</label>
+                        <input
+                          value={(accessImportMapping as any)[field.key] || ''}
+                          onChange={(e) =>
+                            {
+                              setAccessImportResult(null);
+                              setAccessImportMapping((prev) => ({
+                                ...prev,
+                                [field.key]: normalizeColumnLetter(e.target.value),
+                              }));
+                            }
+                          }
+                          placeholder="A"
+                          className="w-full h-9 rounded-md border border-gray-200 px-2 text-sm"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={accessImportSkipFirstRow}
+                      onChange={(e) => {
+                        setAccessImportResult(null);
+                        setAccessImportSkipFirstRow(e.target.checked);
+                      }}
+                      className="h-4 w-4"
+                    />
+                    Erste Zeile überspringen (Header)
+                  </label>
+
+                  {accessImportResult && (
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                      <div className="font-semibold mb-1">Letztes Import-Ergebnis</div>
+                      <div>Aktualisierte Promotoren: {accessImportResult.updated}</div>
+                      <div>Aktualisierte Zeilen: {Number(accessImportResult.updatedRows ?? 0)}</div>
+                      <div>Übersprungen: {accessImportResult.skipped}</div>
+                      <div>Nicht zugeordnet: {accessImportResult.unresolved}</div>
+                    </div>
+                  )}
+
+                  {accessImportRowErrors.length > 0 && (
+                    <div className="max-h-28 overflow-auto rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      <div className="font-semibold mb-1">Hinweise aus letzter Vorschau:</div>
+                      <div className="space-y-1">
+                        {accessImportRowErrors.slice(0, 8).map((err) => (
+                          <div key={`${err.rowKey}-${err.message}`}>Zeile {err.rowNumber}: {err.message}</div>
+                        ))}
+                        {accessImportRowErrors.length > 8 && (
+                          <div>+{accessImportRowErrors.length - 8} weitere</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {accessImportStage === 'resolve_promotors' && (
+                <div className="space-y-4">
+                  <div className="text-sm font-medium text-gray-800">
+                    Promotor-Zuordnung prüfen ({accessImportUnresolvedPromotors.length})
+                  </div>
+                  <div className="max-h-[360px] overflow-auto space-y-3 pr-1">
+                    {accessImportUnresolvedPromotors.map((item) => (
+                      <div key={item.rowKey} className="rounded-lg border border-gray-200 p-3">
+                        <div className="text-xs text-gray-500 mb-2">Zeile {item.rowNumber}</div>
+                        <div className="text-sm text-gray-800 mb-1">
+                          Importierter Name: <span className="font-semibold">{item.importedName}</span>
+                        </div>
+                        <div className="text-xs text-gray-500 mb-2">Grund: {item.reason || 'unresolved'}</div>
+                        <select
+                          value={accessImportResolutionSelections[item.rowKey] || '__none__'}
+                          onChange={(e) =>
+                            setAccessImportResolutionSelections((prev) => ({
+                              ...prev,
+                              [item.rowKey]: e.target.value,
+                            }))
+                          }
+                          className="w-full h-9 rounded-md border border-gray-200 px-2 text-sm"
+                        >
+                          <option value="__none__">Kein Promotor zuweisen</option>
+                          {promotors.map((p: any) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  onClick={() => {
+                    if (accessImportStage === 'resolve_promotors') {
+                      setAccessImportStage('preview_mapping');
+                      return;
+                    }
+                    if (accessImportStage === 'preview_mapping') {
+                      if (accessImportResult) {
+                        setShowAccessImportModal(false);
+                        resetAccessImportState();
+                        return;
+                      }
+                      resetAccessImportState();
+                      return;
+                    }
+                    setShowAccessImportModal(false);
+                    resetAccessImportState();
+                  }}
+                  className="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  {accessImportStage === 'resolve_promotors'
+                    ? 'Zurück'
+                    : accessImportStage === 'preview_mapping'
+                      ? (accessImportResult ? 'Schließen' : 'Zurück')
+                      : 'Abbrechen'}
+                </button>
+
+                {accessImportStage === 'preview_mapping' && (
+                  <button
+                    onClick={handleAccessImportPreviewAndImport}
+                    disabled={accessImportBusy || accessImportSheetRows.length === 0}
+                    className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    {accessImportBusy ? 'Wird geprüft...' : 'Importieren'}
+                  </button>
+                )}
+
+                {accessImportStage === 'resolve_promotors' && (
+                  <button
+                    onClick={handleFinalizeResolvedAccessImport}
+                    disabled={accessImportBusy}
+                    className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    {accessImportBusy ? 'Import läuft...' : 'Import finalisieren'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Status Confirmation Modal */}

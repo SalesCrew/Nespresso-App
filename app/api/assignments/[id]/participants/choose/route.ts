@@ -7,7 +7,11 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     const body = await _req.json().catch(() => ({}))
     const user_id = String(body.user_id || '')
     const role = String(body.role || 'lead')
+    const allowedRoles = new Set(['lead', 'buddy', 'trainer'])
     if (!user_id) return NextResponse.json({ error: 'user_id required' }, { status: 400 })
+    if (!allowedRoles.has(role)) {
+      return NextResponse.json({ error: 'invalid role' }, { status: 400 })
+    }
 
     // Upsert participant
     const { error: upErr } = await svc.from('assignment_participants').upsert({ assignment_id: params.id, user_id, role, chosen_by_admin: true, chosen_at: new Date().toISOString() })

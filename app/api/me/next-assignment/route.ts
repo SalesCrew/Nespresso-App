@@ -56,6 +56,7 @@ export async function GET() {
       .select('id, title, location_text, postal_code, city, region, start_ts, end_ts, status, special_status, matched_market_id')
       .in('id', assignmentIds)
       .in('status', ['assigned', 'buddy_tag'])
+      .neq('type', 'schulung')
       .lte('start_ts', nowIso) // Started before or at current time
       .gte('end_ts', nowIso)   // Ends after or at current time
       .order('start_ts', { ascending: true })
@@ -87,6 +88,7 @@ export async function GET() {
       .select('id, title, location_text, postal_code, city, region, start_ts, end_ts, status, special_status, matched_market_id')
       .in('id', assignmentIds)
       .in('status', ['assigned', 'buddy_tag'])
+      .neq('type', 'schulung')
       .gt('start_ts', nowIso) // Starts after current time
       .order('start_ts', { ascending: true })
       .limit(1)
