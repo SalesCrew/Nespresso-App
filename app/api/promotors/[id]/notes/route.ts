@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 
 // GET: Fetch note for a promotor
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const server = createSupabaseServerClient();
+  const server = await createSupabaseServerClientAsync();
   const { data: auth } = await server.auth.getUser();
   
   if (!auth.user) {
@@ -15,7 +15,7 @@ export async function GET(
   }
 
   const svc = createSupabaseServiceClient();
-  const promotorUserId = params.id;
+  const { id: promotorUserId } = await params;
 
   try {
     // Get the most recent note for this promotor
@@ -39,9 +39,9 @@ export async function GET(
 // POST: Create or update note for a promotor
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const server = createSupabaseServerClient();
+  const server = await createSupabaseServerClientAsync();
   const { data: auth } = await server.auth.getUser();
   
   if (!auth.user) {
@@ -49,7 +49,7 @@ export async function POST(
   }
 
   const svc = createSupabaseServiceClient();
-  const promotorUserId = params.id;
+  const { id: promotorUserId } = await params;
   const { note_text } = await req.json();
 
   try {

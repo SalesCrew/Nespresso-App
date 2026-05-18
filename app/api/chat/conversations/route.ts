@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 
 // GET: Fetch user's conversations with participants, last message, and unread count
 export async function GET(request: NextRequest) {
   try {
     console.log('[/api/chat/conversations] Starting request');
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClientAsync();
     console.log('[/api/chat/conversations] Supabase client created');
     
     // Get authenticated user
@@ -198,7 +198,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     // Check authentication only (admin pages are protected at route level)
-    const server = createSupabaseServerClient();
+    const server = await createSupabaseServerClientAsync();
     const { data: auth } = await server.auth.getUser();
     
     if (!auth.user) {

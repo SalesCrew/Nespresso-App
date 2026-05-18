@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 
 const PRICE = {
@@ -9,7 +9,7 @@ const PRICE = {
 
 export async function GET() {
   try {
-    const server = createSupabaseServerClient();
+    const server = await createSupabaseServerClientAsync();
     const { data: { user } } = await server.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

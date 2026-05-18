@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server'
 
 export async function GET() {
   try {
-    const server = createSupabaseServerClient()
+    const server = await createSupabaseServerClientAsync()
     const { data: { user } } = await server.auth.getUser()
     
     if (!user) {
@@ -34,7 +34,7 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   try {
-    const server = createSupabaseServerClient()
+    const server = await createSupabaseServerClientAsync()
     const { data: { user } } = await server.auth.getUser()
     
     if (!user) {

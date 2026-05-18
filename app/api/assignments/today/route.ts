@@ -1,10 +1,12 @@
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { NextResponse } from 'next/server';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const server = createSupabaseServerClient();
+    const url = new URL(request.url);
+    const includeSchulung = url.searchParams.get('include_schulung') === '1';
+    const server = await createSupabaseServerClientAsync();
     const service = createSupabaseServiceClient();
     
     // Check if user is authenticated
@@ -81,10 +83,75 @@ export async function GET() {
       }, { status: 500 });
     }
 
-    const visibleAssignments = (assignments || []).filter((row: any) => String(row?.type || '').toLowerCase() !== 'schulung');
-    console.log(`Fetched ${assignments?.length || 0} assignments for today`);
+    // Keep old default behavior (exclude Schulungen) unless explicitly requested.
+    let visibleAssignments = assignments || [];
+    if (!includeSchulung) {
+      visibleAssignments = visibleAssignments.filter((row: any) => String(row?.type || '').toLowerCase() !== 'schulung');
+    }
+    const assignmentIds = visibleAssignments
+      .map((row: any) => String(row?.assignment_id || row?.id || ''))
+      .filter(Boolean);
 
-    return NextResponse.json({ assignments: visibleAssignments });
+    // Enrich with assignment type (for Schulung-specific rendering) and participant names.
+    // This stays additive so existing consumers keep working unchanged.
+    const typeByAssignmentId = new Map<string, string>();
+    const participantNamesByAssignmentId = new Map<string, string[]>();
+
+    if (assignmentIds.length > 0) {
+      const { data: assignmentTypeRows } = await service
+        .from('assignments')
+        .select('id, type')
+        .in('id', assignmentIds);
+      (assignmentTypeRows || []).forEach((r: any) => {
+        typeByAssignmentId.set(String(r.id), String(r.type || '').toLowerCase());
+      });
+
+      const { data: participantRows } = await service
+        .from('assignment_participants')
+        .select('assignment_id, user_id, role')
+        .in('assignment_id', assignmentIds);
+
+      const participantUserIds = [...new Set((participantRows || []).map((r: any) => String(r.user_id || '')).filter(Boolean))];
+      const { data: profileRows } = participantUserIds.length > 0
+        ? await service
+          .from('user_profiles')
+          .select('user_id, display_name')
+          .in('user_id', participantUserIds)
+        : ({ data: [] } as any);
+
+      const displayNameByUserId = new Map<string, string>();
+      (profileRows || []).forEach((p: any) => {
+        displayNameByUserId.set(String(p.user_id), String(p.display_name || '').trim());
+      });
+
+      const roleWeight: Record<string, number> = { lead: 0, buddy: 1, trainer: 2 };
+      const rowsSorted = [...(participantRows || [])].sort((a: any, b: any) => {
+        const aw = roleWeight[String(a?.role || '').toLowerCase()] ?? 99;
+        const bw = roleWeight[String(b?.role || '').toLowerCase()] ?? 99;
+        return aw - bw;
+      });
+
+      rowsSorted.forEach((r: any) => {
+        const assignmentId = String(r.assignment_id || '');
+        const displayName = displayNameByUserId.get(String(r.user_id || '')) || '';
+        if (!assignmentId || !displayName) return;
+        const current = participantNamesByAssignmentId.get(assignmentId) || [];
+        if (!current.includes(displayName)) current.push(displayName);
+        participantNamesByAssignmentId.set(assignmentId, current);
+      });
+    }
+
+    const enrichedAssignments = visibleAssignments.map((row: any) => {
+      const assignmentId = String(row?.assignment_id || row?.id || '');
+      return {
+        ...row,
+        type: String(row?.type || typeByAssignmentId.get(assignmentId) || '').toLowerCase(),
+        participant_names: participantNamesByAssignmentId.get(assignmentId) || [],
+      };
+    });
+
+    console.log(`Fetched ${assignments?.length || 0} assignments for today`);
+    return NextResponse.json({ assignments: enrichedAssignments });
   } catch (error) {
     console.error('Unexpected error in /api/assignments/today:', error);
     return NextResponse.json({ 
@@ -97,7 +164,7 @@ export async function GET() {
 // Update assignment tracking (start/stop times, status)
 export async function PATCH(request: Request) {
   try {
-    const server = createSupabaseServerClient();
+    const server = await createSupabaseServerClientAsync();
     const service = createSupabaseServiceClient();
     
     // Check authentication

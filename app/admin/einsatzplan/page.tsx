@@ -101,6 +101,9 @@ type InternUnresolvedPromotor = {
   candidatePromotors?: Array<{ user_id: string; name: string }>;
 };
 
+const INTERN_PREVIEW_ROW_HEIGHT = 28;
+const INTERN_PREVIEW_OVERSCAN = 20;
+
 export default function EinsatzplanPage() {
   // Custom scrollbar and skeleton styles
   const customScrollbarStyle = `
@@ -192,18 +195,22 @@ export default function EinsatzplanPage() {
   const [importType, setImportType] = useState<'roh' | 'intern'>('roh');
   const [showExcelFormatInfo, setShowExcelFormatInfo] = useState(false);
   const [internImportStage, setInternImportStage] = useState<InternImportStage>('upload');
-  const [internSheetRows, setInternSheetRows] = useState<any[][]>([]);
+  const internSheetRowsRef = useRef<any[][]>([]);
+  const [internSheetTotalRows, setInternSheetTotalRows] = useState(0);
+  const [internPreviewMaxCols, setInternPreviewMaxCols] = useState(0);
+  const [internPreviewScrollTop, setInternPreviewScrollTop] = useState(0);
   const [internSourceFileName, setInternSourceFileName] = useState('');
   const [internMapping, setInternMapping] = useState<InternColumnMapping>({
-    addressCol: 'A',
-    plzCol: 'B',
-    dateCol: 'C',
-    startCol: 'D',
-    endCol: 'E',
-    promotorCol: 'F',
+    addressCol: 'F',
+    plzCol: 'G',
+    dateCol: 'B',
+    startCol: 'C',
+    endCol: 'D',
+    promotorCol: 'J',
   });
   const [internSkipFirstRow, setInternSkipFirstRow] = useState(true);
   const [internImportBusy, setInternImportBusy] = useState(false);
+  const [internSyncBusy, setInternSyncBusy] = useState(false);
   const [internRowErrors, setInternRowErrors] = useState<Array<{ rowKey: string; rowNumber: number; message: string }>>([]);
   const [internUnresolvedPromotors, setInternUnresolvedPromotors] = useState<InternUnresolvedPromotor[]>([]);
   const [internResolutionSelections, setInternResolutionSelections] = useState<Record<string, string>>({});
@@ -2047,15 +2054,18 @@ export default function EinsatzplanPage() {
 
   const resetInternImportState = useCallback(() => {
     setInternImportStage('upload');
-    setInternSheetRows([]);
+    internSheetRowsRef.current = [];
+    setInternSheetTotalRows(0);
+    setInternPreviewMaxCols(0);
+    setInternPreviewScrollTop(0);
     setInternSourceFileName('');
     setInternMapping({
-      addressCol: 'A',
-      plzCol: 'B',
-      dateCol: 'C',
-      startCol: 'D',
-      endCol: 'E',
-      promotorCol: 'F',
+      addressCol: 'F',
+      plzCol: 'G',
+      dateCol: 'B',
+      startCol: 'C',
+      endCol: 'D',
+      promotorCol: 'J',
     });
     setInternSkipFirstRow(true);
     setInternImportBusy(false);
@@ -2078,6 +2088,7 @@ export default function EinsatzplanPage() {
   };
 
   const prepareInternExcelPreview = (file: File) => {
+    setInternImportBusy(true);
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -2086,7 +2097,29 @@ export default function EinsatzplanPage() {
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const rows2d: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true, defval: '' });
-        setInternSheetRows(Array.isArray(rows2d) ? rows2d : []);
+        const normalizedRows = (Array.isArray(rows2d) ? rows2d : []).map((row) => {
+          const arr = Array.isArray(row) ? [...row] : [];
+          let lastNonEmpty = arr.length - 1;
+          while (lastNonEmpty >= 0) {
+            const cell = arr[lastNonEmpty];
+            const isEmpty =
+              cell === null ||
+              cell === undefined ||
+              (typeof cell === 'string' && cell.trim() === '');
+            if (!isEmpty) break;
+            lastNonEmpty -= 1;
+          }
+          return arr.slice(0, lastNonEmpty + 1);
+        });
+        internSheetRowsRef.current = normalizedRows;
+        setInternSheetTotalRows(normalizedRows.length);
+        setInternPreviewMaxCols(
+          normalizedRows.reduce((max, row) => {
+            const rowLen = Array.isArray(row) ? row.length : 0;
+            return Math.max(max, rowLen);
+          }, 0)
+        );
+        setInternPreviewScrollTop(0);
         setInternSourceFileName(file.name);
         setInternRowErrors([]);
         setInternUnresolvedPromotors([]);
@@ -2095,7 +2128,13 @@ export default function EinsatzplanPage() {
       } catch (error: any) {
         console.error('Error preparing EP intern preview:', error);
         alert(error?.message || 'Fehler beim Lesen der EP intern Excel-Datei');
+      } finally {
+        setInternImportBusy(false);
       }
+    };
+    reader.onerror = () => {
+      setInternImportBusy(false);
+      alert('Fehler beim Lesen der EP intern Excel-Datei');
     };
     reader.readAsArrayBuffer(file);
   };
@@ -2150,7 +2189,7 @@ export default function EinsatzplanPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         mode: 'ep_intern_commit',
-        sheetRows: internSheetRows,
+        sheetRows: internSheetRowsRef.current,
         mapping: buildMappingForApi(),
         skipFirstRow: internSkipFirstRow,
         resolutionOverrides: resolutionOverrides || {},
@@ -2165,7 +2204,7 @@ export default function EinsatzplanPage() {
 
   const handleInternPreviewAndImport = async () => {
     if (!validateInternMapping()) return;
-    if (!internSheetRows.length) {
+    if (!internSheetTotalRows) {
       alert('Bitte zuerst eine EP intern Datei auswählen.');
       return;
     }
@@ -2177,7 +2216,7 @@ export default function EinsatzplanPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: 'ep_intern_preview',
-          sheetRows: internSheetRows,
+          sheetRows: internSheetRowsRef.current,
           mapping: buildMappingForApi(),
           skipFirstRow: internSkipFirstRow,
         }),
@@ -2231,6 +2270,30 @@ export default function EinsatzplanPage() {
       alert(error?.message || 'Fehler beim finalen EP intern Import');
     } finally {
       setInternImportBusy(false);
+    }
+  };
+
+  const handleSyncImportedPromotors = async () => {
+    try {
+      setInternSyncBusy(true);
+      const res = await fetch('/api/assignments/sync-import-promotors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const payload = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        throw new Error(payload?.error || `Sync fehlgeschlagen (${res.status})`);
+      }
+
+      await loadAssignments(true);
+      alert(
+        `Sync abgeschlossen: ${payload.matched || 0} verknüpft, ${payload.unresolved || 0} nicht eindeutig, ${payload.skippedWithLead || 0} übersprungen (bereits verplant).`
+      );
+    } catch (error: any) {
+      console.error('Error syncing imported promotors:', error);
+      alert(error?.message || 'Fehler beim Synchronisieren der importierten Promotoren');
+    } finally {
+      setInternSyncBusy(false);
     }
   };
 
@@ -2909,13 +2972,23 @@ export default function EinsatzplanPage() {
               </button>
               
               {activeView === 'einsatzplan' && (
-                <button
-                  onClick={() => setShowImportModal(true)}
-                  className="px-4 py-2 text-sm text-white border border-gray-200 rounded-lg transition-colors"
-                  style={{background: 'linear-gradient(135deg, #22C55E, #105F2D)', opacity: 0.85}}
-                >
+                <>
+                  <button
+                    onClick={handleSyncImportedPromotors}
+                    disabled={internSyncBusy}
+                    className="px-4 py-2 text-sm text-white border border-gray-200 rounded-lg transition-colors disabled:opacity-50"
+                    style={{background: 'linear-gradient(135deg, #3B82F6, #1D4ED8)', opacity: 0.85}}
+                  >
+                    {internSyncBusy ? 'Sync läuft...' : 'Sync Promotoren'}
+                  </button>
+                  <button
+                    onClick={() => setShowImportModal(true)}
+                    className="px-4 py-2 text-sm text-white border border-gray-200 rounded-lg transition-colors"
+                    style={{background: 'linear-gradient(135deg, #22C55E, #105F2D)', opacity: 0.85}}
+                  >
 Import EP
-                </button>
+                  </button>
+                </>
               )}
 
               {activeView === 'maerkte' && (
@@ -6501,17 +6574,30 @@ Import EP
                 <div className="space-y-4">
                   <div className="text-xs text-gray-500">
                     Datei: <span className="font-medium text-gray-700">{internSourceFileName || '-'}</span>
+                    {internSheetTotalRows > 0 && (
+                      <span className="ml-2 text-gray-400">({internSheetTotalRows} Zeilen)</span>
+                    )}
                   </div>
                   <div className="border border-gray-200 rounded-lg">
                     <div className="px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-700">
                       Vorschau (horizontal + vertikal scrollbar)
                     </div>
-                    <div className="max-h-[300px] overflow-auto">
+                    <div
+                      className="max-h-[300px] overflow-auto"
+                      onScroll={(e) => setInternPreviewScrollTop(e.currentTarget.scrollTop)}
+                    >
                       {(() => {
-                        const previewMaxCols = internSheetRows.reduce((max, row) => {
-                          const rowLen = Array.isArray(row) ? row.length : 0;
-                          return Math.max(max, rowLen);
-                        }, 0);
+                        const totalRows = internSheetTotalRows;
+                        const previewMaxCols = internPreviewMaxCols;
+                        const visibleStart = Math.max(
+                          0,
+                          Math.floor(internPreviewScrollTop / INTERN_PREVIEW_ROW_HEIGHT) - INTERN_PREVIEW_OVERSCAN
+                        );
+                        const visibleCount = Math.ceil(300 / INTERN_PREVIEW_ROW_HEIGHT) + INTERN_PREVIEW_OVERSCAN * 2;
+                        const visibleEnd = Math.min(totalRows, visibleStart + visibleCount);
+                        const visibleRows = internSheetRowsRef.current.slice(visibleStart, visibleEnd);
+                        const topSpacerHeight = visibleStart * INTERN_PREVIEW_ROW_HEIGHT;
+                        const bottomSpacerHeight = Math.max(0, (totalRows - visibleEnd) * INTERN_PREVIEW_ROW_HEIGHT);
                         return (
                       <table className="min-w-max text-xs">
                         <thead className="sticky top-0 z-10">
@@ -6528,8 +6614,23 @@ Import EP
                           </tr>
                         </thead>
                         <tbody>
-                          {internSheetRows.map((row, rowIndex) => (
-                            <tr key={`preview-row-${rowIndex}`} className="border-b border-gray-100 last:border-b-0">
+                          {topSpacerHeight > 0 && (
+                            <tr>
+                              <td
+                                colSpan={previewMaxCols + 1}
+                                style={{ height: `${topSpacerHeight}px` }}
+                                className="p-0 border-none"
+                              />
+                            </tr>
+                          )}
+                          {visibleRows.map((row, visibleIndex) => {
+                            const rowIndex = visibleStart + visibleIndex;
+                            return (
+                            <tr
+                              key={`preview-row-${rowIndex}`}
+                              className="border-b border-gray-100 last:border-b-0"
+                              style={{ height: `${INTERN_PREVIEW_ROW_HEIGHT}px` }}
+                            >
                               <td className="sticky left-0 bg-white border-r border-gray-200 px-2 py-1 text-gray-400 w-10">
                                 {rowIndex + 1}
                               </td>
@@ -6539,7 +6640,16 @@ Import EP
                                 </td>
                               ))}
                             </tr>
-                          ))}
+                          )})}
+                          {bottomSpacerHeight > 0 && (
+                            <tr>
+                              <td
+                                colSpan={previewMaxCols + 1}
+                                style={{ height: `${bottomSpacerHeight}px` }}
+                                className="p-0 border-none"
+                              />
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                         );
@@ -6659,7 +6769,7 @@ Import EP
                 {activeView === 'einsatzplan' && importType === 'intern' && internImportStage === 'preview_mapping' && (
                   <button
                     onClick={handleInternPreviewAndImport}
-                    disabled={internImportBusy || internSheetRows.length === 0}
+                    disabled={internImportBusy || internSheetTotalRows === 0}
                     className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                   >
                     {internImportBusy ? 'Wird geprüft...' : 'Importieren'}

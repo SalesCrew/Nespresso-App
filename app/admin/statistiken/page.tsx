@@ -30,6 +30,58 @@ interface HistoryCardData extends CardData {
   read?: boolean;
 }
 
+const KPI_DRAFT_STORAGE_KEY = "admin.statistiken.kpiDraft.v1";
+const KPI_DRAFT_STORAGE_VERSION = 1;
+const KPI_DRAFT_PERSIST_DEBOUNCE_MS = 400;
+const KPI_DRAFT_MAX_BYTES = 2_000_000;
+const KPI_DRAFT_FALLBACK_TEXT_MAX_CHARS = 12_000;
+
+interface KpiDraftSnapshot {
+  version: number;
+  savedAt: number;
+  cardData: CardData[];
+  matchedPromoters: Record<string, string | null>;
+  matchedPromoterIds: Record<string, string | null>;
+  magicTouchCategories: Record<string, string>;
+  generatedStates: Record<string, boolean>;
+  editedTexts: Record<string, string>;
+  editingStates: Record<string, boolean>;
+  validationStates: Record<string, boolean>;
+}
+
+const isRecordObject = (value: unknown): value is Record<string, unknown> => {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+};
+
+const pickRecordByCardIds = <T,>(source: Record<string, T>, cardIdSet: Set<string>): Record<string, T> => {
+  const next: Record<string, T> = {};
+  for (const [key, value] of Object.entries(source || {})) {
+    if (cardIdSet.has(key)) {
+      next[key] = value;
+    }
+  }
+  return next;
+};
+
+const sanitizeDraftCardData = (value: unknown): CardData[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!isRecordObject(item)) return null;
+      const id = typeof item.id === "string" ? item.id.trim() : "";
+      if (!id) return null;
+      return {
+        id,
+        name: typeof item.name === "string" ? item.name : "",
+        email: typeof item.email === "string" ? item.email : "",
+        mcet: Number.isFinite(Number(item.mcet)) ? Number(item.mcet) : 0,
+        tma: Number.isFinite(Number(item.tma)) ? Number(item.tma) : 0,
+        vlShare: Number.isFinite(Number(item.vlShare)) ? Number(item.vlShare) : 0,
+      } satisfies CardData;
+    })
+    .filter((item): item is CardData => Boolean(item));
+};
+
 export default function StatistikenPage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -87,6 +139,9 @@ export default function StatistikenPage() {
   const [praemienMatcherPos, setPraemienMatcherPos] = useState<{top: number; left: number} | null>(null);
   const praemienModalRef = useRef<HTMLDivElement>(null);
   const praemienFileInputRef = useRef<HTMLInputElement>(null);
+  const didHydrateKpiDraftRef = useRef(false);
+  const skipKpiDraftPersistRef = useRef(true);
+  const kpiDraftPersistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const computePraemieTotals = (u: { gutscheine?: number; tma?: number; vertuo?: number; vertuo_pop?: number; aeroccino?: number; vorteilsbox?: number }) => {
     const g = Number(u.gutscheine || 0);
@@ -125,6 +180,213 @@ export default function StatistikenPage() {
     if (selectedPromoterFilter === "all") return historyCards;
     return historyCards.filter(c => c.name === selectedPromoterFilter);
   }, [historyCards, selectedPromoterFilter]);
+
+  const removeKpiDraftStateByIds = (cardIds: string[]) => {
+    if (cardIds.length === 0) return;
+    const toRemove = new Set(cardIds);
+    const pruneRecord = <T,>(record: Record<string, T>): Record<string, T> => {
+      const next = { ...record };
+      for (const cardId of cardIds) {
+        delete next[cardId];
+      }
+      return next;
+    };
+
+    setValidationStates((prev) => pruneRecord(prev));
+    setGeneratedStates((prev) => pruneRecord(prev));
+    setGeneratingStates((prev) => pruneRecord(prev));
+    setEditedTexts((prev) => pruneRecord(prev));
+    setEditingStates((prev) => pruneRecord(prev));
+    setMagicTouchCategories((prev) => pruneRecord(prev));
+    setMatchedPromoters((prev) => pruneRecord(prev));
+    setMatchedPromoterIds((prev) => pruneRecord(prev));
+    setShowPromoterDropdown((prev) => pruneRecord(prev));
+    setPromoterSearch((prev) => pruneRecord(prev));
+    setCopiedText((prev) => pruneRecord(prev));
+    setRecentlyScheduled((prev) => pruneRecord(prev));
+    setOpenDropdown((prev) => (prev && toRemove.has(prev) ? null : prev));
+  };
+
+  const resetKpiDraftRuntimeState = () => {
+    setValidationStates({});
+    setGeneratedStates({});
+    setGeneratingStates({});
+    setEditedTexts({});
+    setEditingStates({});
+    setMagicTouchCategories({});
+    setMatchedPromoters({});
+    setMatchedPromoterIds({});
+    setShowPromoterDropdown({});
+    setPromoterSearch({});
+    setCopiedText({});
+    setRecentlyScheduled({});
+    setOpenDropdown(null);
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const raw = sessionStorage.getItem(KPI_DRAFT_STORAGE_KEY);
+      if (!raw) return;
+
+      const parsed: unknown = JSON.parse(raw);
+      if (!isRecordObject(parsed) || parsed.version !== KPI_DRAFT_STORAGE_VERSION) {
+        sessionStorage.removeItem(KPI_DRAFT_STORAGE_KEY);
+        return;
+      }
+
+      const restoredCardData = sanitizeDraftCardData(parsed.cardData);
+      const cardIdSet = new Set(restoredCardData.map((card) => card.id));
+      const sanitizeRecord = <T,>(
+        source: unknown,
+        normalize: (value: unknown) => T | undefined
+      ): Record<string, T> => {
+        if (!isRecordObject(source)) return {};
+        const next: Record<string, T> = {};
+        for (const [key, value] of Object.entries(source)) {
+          if (!cardIdSet.has(key)) continue;
+          const normalized = normalize(value);
+          if (normalized !== undefined) {
+            next[key] = normalized;
+          }
+        }
+        return next;
+      };
+
+      setCardData(restoredCardData);
+      setMatchedPromoters(
+        sanitizeRecord<string | null>(parsed.matchedPromoters, (value) => {
+          if (typeof value === "string") return value;
+          if (value === null) return null;
+          return undefined;
+        })
+      );
+      setMatchedPromoterIds(
+        sanitizeRecord<string | null>(parsed.matchedPromoterIds, (value) => {
+          if (typeof value === "string") return value;
+          if (value === null) return null;
+          return undefined;
+        })
+      );
+      setMagicTouchCategories(
+        sanitizeRecord<string>(parsed.magicTouchCategories, (value) =>
+          typeof value === "string" ? value : undefined
+        )
+      );
+      setGeneratedStates(
+        sanitizeRecord<boolean>(parsed.generatedStates, (value) =>
+          typeof value === "boolean" ? value : undefined
+        )
+      );
+      setEditedTexts(
+        sanitizeRecord<string>(parsed.editedTexts, (value) =>
+          typeof value === "string" ? value : undefined
+        )
+      );
+      setEditingStates(
+        sanitizeRecord<boolean>(parsed.editingStates, (value) =>
+          typeof value === "boolean" ? value : undefined
+        )
+      );
+      setValidationStates(
+        sanitizeRecord<boolean>(parsed.validationStates, (value) =>
+          typeof value === "boolean" ? value : undefined
+        )
+      );
+    } catch (error) {
+      console.error("Failed to restore KPI draft from sessionStorage:", error);
+      sessionStorage.removeItem(KPI_DRAFT_STORAGE_KEY);
+    } finally {
+      didHydrateKpiDraftRef.current = true;
+      setTimeout(() => {
+        skipKpiDraftPersistRef.current = false;
+      }, 0);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!didHydrateKpiDraftRef.current || skipKpiDraftPersistRef.current) return;
+
+    if (kpiDraftPersistTimeoutRef.current) {
+      clearTimeout(kpiDraftPersistTimeoutRef.current);
+    }
+
+    kpiDraftPersistTimeoutRef.current = setTimeout(() => {
+      const cardIdSet = new Set(cardData.map((card) => card.id));
+      const pickedEditedTexts = pickRecordByCardIds(editedTexts, cardIdSet);
+      const boundedEditedTexts = Object.fromEntries(
+        Object.entries(pickedEditedTexts).map(([cardId, text]) => [
+          cardId,
+          String(text || "").slice(0, KPI_DRAFT_FALLBACK_TEXT_MAX_CHARS),
+        ])
+      ) as Record<string, string>;
+      const snapshot: KpiDraftSnapshot = {
+        version: KPI_DRAFT_STORAGE_VERSION,
+        savedAt: Date.now(),
+        cardData,
+        matchedPromoters: pickRecordByCardIds(matchedPromoters, cardIdSet),
+        matchedPromoterIds: pickRecordByCardIds(matchedPromoterIds, cardIdSet),
+        magicTouchCategories: pickRecordByCardIds(magicTouchCategories, cardIdSet),
+        generatedStates: pickRecordByCardIds(generatedStates, cardIdSet),
+        editedTexts: boundedEditedTexts,
+        editingStates: pickRecordByCardIds(editingStates, cardIdSet),
+        validationStates: pickRecordByCardIds(validationStates, cardIdSet),
+      };
+
+      const hasCards = snapshot.cardData.length > 0;
+      const hasAuxState =
+        Object.keys(snapshot.matchedPromoters).length > 0 ||
+        Object.keys(snapshot.matchedPromoterIds).length > 0 ||
+        Object.keys(snapshot.magicTouchCategories).length > 0 ||
+        Object.keys(snapshot.generatedStates).length > 0 ||
+        Object.keys(snapshot.editedTexts).length > 0 ||
+        Object.keys(snapshot.editingStates).length > 0 ||
+        Object.keys(snapshot.validationStates).length > 0;
+
+      if (!hasCards && !hasAuxState) {
+        sessionStorage.removeItem(KPI_DRAFT_STORAGE_KEY);
+        return;
+      }
+
+      try {
+        const payload = JSON.stringify(snapshot);
+        if (payload.length <= KPI_DRAFT_MAX_BYTES) {
+          sessionStorage.setItem(KPI_DRAFT_STORAGE_KEY, payload);
+          return;
+        }
+
+        const compactSnapshot: KpiDraftSnapshot = { ...snapshot, editedTexts: {} };
+        const compactPayload = JSON.stringify(compactSnapshot);
+        if (compactPayload.length <= KPI_DRAFT_MAX_BYTES) {
+          sessionStorage.setItem(KPI_DRAFT_STORAGE_KEY, compactPayload);
+          console.warn("KPI draft persisted without generated texts due to storage size limit.");
+          return;
+        }
+
+        sessionStorage.removeItem(KPI_DRAFT_STORAGE_KEY);
+        console.warn("KPI draft too large for sessionStorage and was cleared.");
+      } catch (error) {
+        console.error("Failed to persist KPI draft in sessionStorage:", error);
+      }
+    }, KPI_DRAFT_PERSIST_DEBOUNCE_MS);
+
+    return () => {
+      if (kpiDraftPersistTimeoutRef.current) {
+        clearTimeout(kpiDraftPersistTimeoutRef.current);
+      }
+    };
+  }, [
+    cardData,
+    matchedPromoters,
+    matchedPromoterIds,
+    magicTouchCategories,
+    generatedStates,
+    editedTexts,
+    editingStates,
+    validationStates,
+  ]);
 
   // Fetch promotors and history from database on mount
   useEffect(() => {
@@ -352,6 +614,8 @@ export default function StatistikenPage() {
         }
         
         if (newCardData.length > 0) {
+          // New import should start a fresh draft batch and never inherit stale per-card states.
+          resetKpiDraftRuntimeState();
           setCardData(newCardData);
           
           // Auto-match promotors using fuzzy matching
@@ -630,50 +894,7 @@ export default function StatistikenPage() {
     // Remove from current cards
     const validatedCardIds = validatedCards.map(card => card.id);
     setCardData(prev => prev.filter(card => !validatedCardIds.includes(card.id)));
-    
-    // Clean up states for moved cards
-    validatedCardIds.forEach(cardId => {
-      setValidationStates(prev => {
-        const newState = { ...prev };
-        delete newState[cardId];
-        return newState;
-      });
-      setGeneratedStates(prev => {
-        const newState = { ...prev };
-        delete newState[cardId];
-        return newState;
-      });
-      setGeneratingStates(prev => {
-        const newState = { ...prev };
-        delete newState[cardId];
-        return newState;
-      });
-      setEditedTexts(prev => {
-        const newState = { ...prev };
-        delete newState[cardId];
-        return newState;
-      });
-      setEditingStates(prev => {
-        const newState = { ...prev };
-        delete newState[cardId];
-        return newState;
-      });
-      setMagicTouchCategories(prev => {
-        const newState = { ...prev };
-        delete newState[cardId];
-        return newState;
-      });
-      setMatchedPromoters(prev => {
-        const newState = { ...prev };
-        delete newState[cardId];
-        return newState;
-      });
-      setMatchedPromoterIds(prev => {
-        const newState = { ...prev };
-        delete newState[cardId];
-        return newState;
-    });
-    });
+    removeKpiDraftStateByIds(validatedCardIds);
     } catch (e) {
       console.error('Error saving feedback to database:', e);
       alert('Fehler beim Speichern der Feedback-Daten. Bitte versuchen Sie es erneut.');
@@ -870,27 +1091,7 @@ Liebe Grüße, dein Nespresso Team`;
     // Also remove from scheduled calls and call history if present
     setScheduledCalls(prev => prev.filter(c => c.id !== cardId));
     setCallHistory(prev => prev.filter(c => c.id !== cardId));
-    // Clean up any related states
-    setGeneratedStates(prev => {
-      const newState = { ...prev };
-      delete newState[cardId];
-      return newState;
-    });
-    setGeneratingStates(prev => {
-      const newState = { ...prev };
-      delete newState[cardId];
-      return newState;
-    });
-    setEditedTexts(prev => {
-      const newState = { ...prev };
-      delete newState[cardId];
-      return newState;
-    });
-    setEditingStates(prev => {
-      const newState = { ...prev };
-      delete newState[cardId];
-      return newState;
-    });
+    removeKpiDraftStateByIds([cardId]);
   };
 
   // Handle promoter matching functionality

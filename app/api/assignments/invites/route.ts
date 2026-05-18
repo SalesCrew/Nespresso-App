@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 // GET current user's assignment invitations (e.g., status=invited|accepted)
@@ -10,7 +10,7 @@ export async function GET(req: Request) {
     const invitationIds = url.searchParams.get('invitation_ids')
 
     // Use server client for auth check
-    const server = createSupabaseServerClient()
+    const server = await createSupabaseServerClientAsync()
     const { data: auth, error: authError } = await server.auth.getUser()
     
     if (authError || !auth?.user) {

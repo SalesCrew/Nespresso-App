@@ -425,6 +425,8 @@ export async function POST(req: Request) {
         end_ts: r.end_ts,
         type: 'promotion',
         status: r.lead_user_id ? 'assigned' : 'open',
+        // Only keep raw import name for rows that could not be matched to a system promotor.
+        import_promotor_name_raw: r.lead_user_id ? null : (r.promotor_name_raw || null),
         metadata: {
           import_row_key: r.rowKey,
           import_promotor_name_raw: r.promotor_name_raw,
@@ -443,10 +445,25 @@ export async function POST(req: Request) {
         })
       }
 
-      const { data: insertedRows, error: insertErr } = await svc
+      let { data: insertedRows, error: insertErr } = await svc
         .from('assignments')
         .insert(insertPayload)
         .select('id, metadata')
+
+      // Safety: allow deployment before DB migration by retrying without the new column.
+      if (insertErr && /import_promotor_name_raw/i.test(String(insertErr.message || ''))) {
+        const fallbackPayload = insertPayload.map((row) => {
+          const { import_promotor_name_raw, ...rest } = row as any
+          return rest
+        })
+        const retry = await svc
+          .from('assignments')
+          .insert(fallbackPayload)
+          .select('id, metadata')
+        insertedRows = retry.data
+        insertErr = retry.error
+      }
+
       if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 })
 
       const assignmentIdByRowKey = new Map<string, string>()

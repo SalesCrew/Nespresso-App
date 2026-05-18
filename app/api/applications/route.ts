@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { requireAdmin } from '@/lib/supabase/queries';
 import { z } from 'zod';
@@ -36,7 +36,7 @@ const applicationSchema = z.object({
 
 export async function GET() {
   // Temporary: allow any authenticated user to list, even if no profile is provisioned yet
-  const server = createSupabaseServerClient();
+  const server = await createSupabaseServerClientAsync();
   const { data: auth } = await server.auth.getUser();
   if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const svc = createSupabaseServiceClient();
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const server = createSupabaseServerClient();
+  const server = await createSupabaseServerClientAsync();
   const { data: auth } = await server.auth.getUser();
   if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const svc = createSupabaseServiceClient();
@@ -106,6 +106,23 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'invalid payload' }, { status: 400 });
   }
   const { error } = await svc.from('applications').update({ status }).eq('id', id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(req: NextRequest) {
+  const server = await createSupabaseServerClientAsync();
+  const { data: auth } = await server.auth.getUser();
+  if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  const svc = createSupabaseServiceClient();
+  const body = await req.json().catch(() => ({} as any));
+  const id = body?.id;
+  if (!id) {
+    return NextResponse.json({ error: 'invalid payload' }, { status: 400 });
+  }
+
+  const { error } = await svc.from('applications').delete().eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

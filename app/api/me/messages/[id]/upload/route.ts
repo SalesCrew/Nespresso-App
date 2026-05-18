@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const server = createSupabaseServerClient();
+    const server = await createSupabaseServerClientAsync();
     const { data: auth } = await server.auth.getUser();
     
     if (!auth.user) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     }
 
-    const messageId = params.id;
+    const { id: messageId } = await params;
     const body = await req.json().catch(() => ({}));
     const { files } = body || {};
 
@@ -67,16 +67,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 }
 
 // Confirm upload completion and save to database
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const server = createSupabaseServerClient();
+    const server = await createSupabaseServerClientAsync();
     const { data: auth } = await server.auth.getUser();
     
     if (!auth.user) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     }
 
-    const messageId = params.id;
+    const { id: messageId } = await params;
     const body = await req.json().catch(() => ({}));
     const { uploadedFiles } = body || {};
 

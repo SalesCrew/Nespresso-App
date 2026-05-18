@@ -4,10 +4,10 @@ import { createSupabaseServiceClient } from '@/lib/supabase/service';
 // GET: fetch outside-break records for an assignment (admin view)
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const assignmentId = params.id;
+    const { id: assignmentId } = await params;
     if (!assignmentId) {
       return NextResponse.json({ items: [] }, { status: 200 });
     }

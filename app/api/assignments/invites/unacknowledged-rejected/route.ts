@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 // GET rejected assignments that haven't been acknowledged
 export async function GET(req: Request) {
   try {
     // Use server client for auth check
-    const server = createSupabaseServerClient()
+    const server = await createSupabaseServerClientAsync()
     const { data: auth, error: authError } = await server.auth.getUser()
     
     if (authError || !auth?.user) {

@@ -193,6 +193,34 @@ type AccessImportResult = {
   skipped: number;
   unresolved: number;
 };
+type AnmeldestatusStage = 'upload' | 'review';
+type AnmeldestatusTab = 'angemeldet' | 'kein_account';
+type AnmeldestatusPromotorCandidate = {
+  user_id: string;
+  name: string;
+  normalized: string;
+  tokens: string[];
+  firstToken: string;
+  lastToken: string;
+};
+type AnmeldestatusImportRow = {
+  rowKey: string;
+  rowNumber: number;
+  importedName: string;
+  reason: string | null;
+  candidatePromotors: Array<{ user_id: string; name: string }>;
+};
+type AnmeldestatusStoredEntry = {
+  imported_name: string;
+  imported_name_normalized: string;
+  matched_user_id: string | null;
+  matched_user_name?: string | null;
+  match_reason: string | null;
+  source_file_name?: string | null;
+  source_row_number?: number | null;
+  last_imported_at?: string | null;
+  updated_at?: string | null;
+};
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [regionFilter, setRegionFilter] = useState("all");
@@ -333,6 +361,18 @@ type AccessImportResult = {
   const [accessImportUnresolvedPromotors, setAccessImportUnresolvedPromotors] = useState<AccessImportUnresolvedPromotor[]>([]);
   const [accessImportResolutionSelections, setAccessImportResolutionSelections] = useState<Record<string, string>>({});
   const [accessImportResult, setAccessImportResult] = useState<AccessImportResult | null>(null);
+
+  // Anmeldestatus import (header action)
+  const [showAnmeldestatusModal, setShowAnmeldestatusModal] = useState(false);
+  const [anmeldestatusStage, setAnmeldestatusStage] = useState<AnmeldestatusStage>('upload');
+  const [anmeldestatusActiveTab, setAnmeldestatusActiveTab] = useState<AnmeldestatusTab>('angemeldet');
+  const [anmeldestatusBusy, setAnmeldestatusBusy] = useState(false);
+  const [anmeldestatusSourceFileName, setAnmeldestatusSourceFileName] = useState('');
+  const [anmeldestatusSheetRows, setAnmeldestatusSheetRows] = useState<any[][]>([]);
+  const [anmeldestatusRows, setAnmeldestatusRows] = useState<AnmeldestatusImportRow[]>([]);
+  const [anmeldestatusSelections, setAnmeldestatusSelections] = useState<Record<string, string>>({});
+  const [anmeldestatusManualOverrides, setAnmeldestatusManualOverrides] = useState<Record<string, boolean>>({});
+  const [anmeldestatusSavingByRowKey, setAnmeldestatusSavingByRowKey] = useState<Record<string, boolean>>({});
   
   // Edit states for promotor details
   const [editingBankData, setEditingBankData] = useState<Record<string, boolean>>({});
@@ -546,8 +586,32 @@ Dein Nespresso Team`;
         setPromotorStammdaten(prev => ({ ...prev, [newPromotor.id]: matchedSubmission }));
       }
       await loadSubmissions();
+      await loadPromotors();
+      try {
+        await loadAnmeldestatusEntriesFromBackend(true);
+      } catch {}
     } catch (e: any) {
       setApproveError(e.message || 'Fehler');
+    } finally {
+      setSubmitting(false);
+      setTimeout(() => setToastMsg(null), 2500);
+    }
+  };
+
+  const declineSubmission = async (entry: any) => {
+    try {
+      setSubmitting(true);
+      const res = await fetch('/api/applications', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: entry?.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Fehler beim Ablehnen');
+      await loadSubmissions();
+      setToastMsg('Bewerbung gelöscht');
+    } catch (e: any) {
+      setToastMsg(e?.message || 'Fehler beim Ablehnen');
     } finally {
       setSubmitting(false);
       setTimeout(() => setToastMsg(null), 2500);
@@ -1341,6 +1405,13 @@ Dein Nespresso Team`;
     return matchesSearch && matchesRegion && notApproved;
   });
 
+  const anmeldestatusMatchedRows = anmeldestatusRows.filter(
+    (row) => (anmeldestatusSelections[row.rowKey] || '__none__') !== '__none__',
+  );
+  const anmeldestatusUnmatchedRows = anmeldestatusRows.filter(
+    (row) => (anmeldestatusSelections[row.rowKey] || '__none__') === '__none__',
+  );
+
   // Format submitted date
   const formatSubmittedDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -1486,6 +1557,301 @@ Dein Nespresso Team`;
     }
     return letter;
   };
+
+  const resetAnmeldestatusState = () => {
+    setAnmeldestatusStage('upload');
+    setAnmeldestatusActiveTab('angemeldet');
+    setAnmeldestatusBusy(false);
+    setAnmeldestatusSourceFileName('');
+    setAnmeldestatusSheetRows([]);
+    setAnmeldestatusRows([]);
+    setAnmeldestatusSelections({});
+    setAnmeldestatusManualOverrides({});
+    setAnmeldestatusSavingByRowKey({});
+  };
+
+  const normalizeNameForMatch = (input: string): string => {
+    return String(input || '')
+      .replace(/ß/gi, 'ss')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const tokenSetKey = (tokens: string[]): string => {
+    return [...new Set(tokens)].sort().join('|');
+  };
+
+  const buildAnmeldestatusPromotorCandidates = useCallback((): AnmeldestatusPromotorCandidate[] => {
+    return (Array.isArray(promotors) ? promotors : [])
+      .map((p: any) => {
+        const name = String(p?.name || '').trim();
+        const normalized = normalizeNameForMatch(name);
+        const tokens = normalized.split(' ').filter(Boolean);
+        return {
+          user_id: String(p?.id ?? ''),
+          name,
+          normalized,
+          tokens,
+          firstToken: tokens[0] || '',
+          lastToken: tokens[tokens.length - 1] || '',
+        };
+      })
+      .filter((p) => !!p.user_id && !!p.name);
+  }, [promotors]);
+
+  const resolveAnmeldestatusMatch = (
+    importedNameRaw: string,
+    candidates: AnmeldestatusPromotorCandidate[],
+  ): { leadUserId: string | null; reason: string | null; candidates: AnmeldestatusPromotorCandidate[] } => {
+    const importedName = String(importedNameRaw || '').trim();
+    if (!importedName) {
+      return { leadUserId: null, reason: null, candidates: [] };
+    }
+
+    const normalizedImported = normalizeNameForMatch(importedName);
+    const importedTokens = normalizedImported.split(' ').filter(Boolean);
+    if (!normalizedImported || importedTokens.length === 0) {
+      return { leadUserId: null, reason: 'unreadable_name', candidates: [] };
+    }
+
+    const exactFull = candidates.filter((p) => p.normalized === normalizedImported);
+    if (exactFull.length === 1) return { leadUserId: exactFull[0].user_id, reason: 'exact_full', candidates: exactFull };
+    if (exactFull.length > 1) return { leadUserId: null, reason: 'exact_full_ambiguous', candidates: exactFull };
+
+    const importedSetKey = tokenSetKey(importedTokens);
+    const exactTokenSet = candidates.filter((p) => tokenSetKey(p.tokens) === importedSetKey);
+    if (exactTokenSet.length === 1) return { leadUserId: exactTokenSet[0].user_id, reason: 'token_set_exact', candidates: exactTokenSet };
+    if (exactTokenSet.length > 1) return { leadUserId: null, reason: 'token_set_ambiguous', candidates: exactTokenSet };
+
+    if (importedTokens.length === 1) {
+      const t = importedTokens[0];
+      const singleToken = candidates.filter((p) => p.firstToken === t || p.lastToken === t);
+      if (singleToken.length === 1) return { leadUserId: singleToken[0].user_id, reason: 'single_token_unique', candidates: singleToken };
+      if (singleToken.length > 1) return { leadUserId: null, reason: 'single_token_ambiguous', candidates: singleToken };
+    }
+
+    const prefixContains = candidates.filter((p) =>
+      importedTokens.every((it) => p.tokens.some((pt) => pt.startsWith(it) || it.startsWith(pt))),
+    );
+    if (prefixContains.length === 1 && importedTokens.length >= 2) {
+      return { leadUserId: prefixContains[0].user_id, reason: 'prefix_contains_unique', candidates: prefixContains };
+    }
+    if (prefixContains.length > 0) {
+      return { leadUserId: null, reason: 'prefix_contains_ambiguous', candidates: prefixContains };
+    }
+
+    return { leadUserId: null, reason: 'no_match', candidates: [] };
+  };
+
+  const rebuildAnmeldestatusRows = useCallback(
+    (
+      sheetRows: any[][],
+      prevSelections: Record<string, string> = {},
+      prevManualOverrides: Record<string, boolean> = {},
+    ) => {
+      const rows = Array.isArray(sheetRows) ? sheetRows : [];
+      const promotorCandidates = buildAnmeldestatusPromotorCandidates();
+      const nextRows: AnmeldestatusImportRow[] = [];
+      const nextSelections: Record<string, string> = {};
+
+      let startRow = 0;
+      const firstCell = String((rows[0] && rows[0][0]) ?? '').trim().toLowerCase();
+      if (firstCell.includes('mitarbeiter') && firstCell.includes('name')) {
+        startRow = 1;
+      }
+
+      for (let r = startRow; r < rows.length; r++) {
+        const row = Array.isArray(rows[r]) ? rows[r] : [];
+        const importedName = String(row[0] ?? '').trim();
+        if (!importedName) continue;
+
+        const rowKey = `row_${r}`;
+        const match = resolveAnmeldestatusMatch(importedName, promotorCandidates);
+        const matchCandidates = Array.isArray(match.candidates) ? match.candidates.slice(0, 10) : [];
+
+        nextRows.push({
+          rowKey,
+          rowNumber: r + 1,
+          importedName,
+          reason: match.reason || null,
+          candidatePromotors: matchCandidates.map((c) => ({ user_id: c.user_id, name: c.name })),
+        });
+
+        const previous = prevSelections[rowKey];
+        const previousExists = previous && previous !== '__none__'
+          ? promotorCandidates.some((p) => p.user_id === previous)
+          : false;
+
+        if (prevManualOverrides[rowKey]) {
+          nextSelections[rowKey] = previousExists ? String(previous) : '__none__';
+          continue;
+        }
+
+        if (previousExists) {
+          nextSelections[rowKey] = String(previous);
+        } else if (match.leadUserId) {
+          nextSelections[rowKey] = match.leadUserId;
+        } else {
+          nextSelections[rowKey] = '__none__';
+        }
+      }
+
+      setAnmeldestatusRows(nextRows);
+      setAnmeldestatusSelections(nextSelections);
+      if (nextRows.length > 0) {
+        const hasAutoMatched = nextRows.some((row) => (nextSelections[row.rowKey] || '__none__') !== '__none__');
+        setAnmeldestatusActiveTab(hasAutoMatched ? 'angemeldet' : 'kein_account');
+      }
+      return { rows: nextRows, selections: nextSelections };
+    },
+    [buildAnmeldestatusPromotorCandidates],
+  );
+
+  const hydrateAnmeldestatusFromStoredEntries = useCallback(
+    (entries: AnmeldestatusStoredEntry[], opts?: { keepCurrentStage?: boolean }) => {
+      const items = Array.isArray(entries) ? entries : [];
+      const promotorCandidates = buildAnmeldestatusPromotorCandidates();
+      const rows: AnmeldestatusImportRow[] = [];
+      const selections: Record<string, string> = {};
+      const overrides: Record<string, boolean> = {};
+
+      items.forEach((entry, index) => {
+        const importedName = String(entry?.imported_name || '').trim();
+        if (!importedName) return;
+        const rowKey = `saved_${String(entry.imported_name_normalized || index)}`;
+        const rowNumber = Number(entry?.source_row_number || 0) || index + 1;
+        const match = resolveAnmeldestatusMatch(importedName, promotorCandidates);
+        rows.push({
+          rowKey,
+          rowNumber,
+          importedName,
+          reason: String(entry?.match_reason || match.reason || '') || null,
+          candidatePromotors: (match.candidates || []).slice(0, 10).map((c) => ({ user_id: c.user_id, name: c.name })),
+        });
+        const selected = String(entry?.matched_user_id || '').trim();
+        selections[rowKey] = selected || '__none__';
+        overrides[rowKey] = true;
+      });
+
+      setAnmeldestatusRows(rows);
+      setAnmeldestatusSelections(selections);
+      setAnmeldestatusManualOverrides(overrides);
+      setAnmeldestatusSheetRows([]);
+      setAnmeldestatusSourceFileName('');
+
+      if (rows.length > 0) {
+        const hasMatched = rows.some((row) => (selections[row.rowKey] || '__none__') !== '__none__');
+        setAnmeldestatusActiveTab(hasMatched ? 'angemeldet' : 'kein_account');
+        if (!opts?.keepCurrentStage) setAnmeldestatusStage('review');
+      } else if (!opts?.keepCurrentStage) {
+        setAnmeldestatusStage('upload');
+      }
+    },
+    [buildAnmeldestatusPromotorCandidates],
+  );
+
+  const loadAnmeldestatusEntriesFromBackend = useCallback(async (withRematch: boolean) => {
+    try {
+      setAnmeldestatusBusy(true);
+      const endpoint = '/api/admin/team/anmeldestatus';
+      const response = withRematch
+        ? await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'rematch_unmatched' }),
+          })
+        : await fetch(endpoint, { cache: 'no-store' });
+      const data = await response.json().catch(() => ({} as any));
+      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+      const entries = Array.isArray(data?.entries) ? (data.entries as AnmeldestatusStoredEntry[]) : [];
+      hydrateAnmeldestatusFromStoredEntries(entries);
+    } catch (error: any) {
+      console.error('Anmeldestatus Laden fehlgeschlagen:', error);
+    } finally {
+      setAnmeldestatusBusy(false);
+    }
+  }, [hydrateAnmeldestatusFromStoredEntries]);
+
+  const syncAnmeldestatusImportToBackend = useCallback(async (
+    rows: AnmeldestatusImportRow[],
+    selections: Record<string, string>,
+    sourceFileName: string,
+  ) => {
+    const payloadRows = (Array.isArray(rows) ? rows : []).map((row) => ({
+      importedName: row.importedName,
+      rowNumber: row.rowNumber,
+      sourceFileName: sourceFileName || null,
+      selectedUserId: (selections[row.rowKey] && selections[row.rowKey] !== '__none__') ? selections[row.rowKey] : null,
+      matchReason: row.reason || null,
+    }));
+    if (payloadRows.length === 0) return;
+
+    const response = await fetch('/api/admin/team/anmeldestatus', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'sync_import', rows: payloadRows }),
+    });
+    const data = await response.json().catch(() => ({} as any));
+    if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+  }, []);
+
+  const persistAnmeldestatusSelectionToBackend = useCallback(async (rowKey: string, importedName: string, selectedUserId: string) => {
+    try {
+      setAnmeldestatusSavingByRowKey((prev) => ({ ...prev, [rowKey]: true }));
+      const response = await fetch('/api/admin/team/anmeldestatus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'set_selection',
+          importedName,
+          selectedUserId: selectedUserId && selectedUserId !== '__none__' ? selectedUserId : null,
+        }),
+      });
+      const data = await response.json().catch(() => ({} as any));
+      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+    } catch (error: any) {
+      setToastMsg(error?.message || 'Anmeldestatus konnte nicht gespeichert werden');
+      setTimeout(() => setToastMsg(null), 3000);
+    } finally {
+      setAnmeldestatusSavingByRowKey((prev) => ({ ...prev, [rowKey]: false }));
+    }
+  }, []);
+
+  const prepareAnmeldestatusPreview = async (file: File) => {
+    try {
+      setAnmeldestatusBusy(true);
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      if (!firstSheetName) {
+        alert('Keine Tabelle in der Datei gefunden.');
+        return;
+      }
+      const worksheet = workbook.Sheets[firstSheetName];
+      const rows2d = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true, defval: '' }) as any[][];
+      setAnmeldestatusSourceFileName(file.name || firstSheetName);
+      setAnmeldestatusSheetRows(rows2d);
+      setAnmeldestatusManualOverrides({});
+      const rebuilt = rebuildAnmeldestatusRows(rows2d, {}, {});
+      await syncAnmeldestatusImportToBackend(rebuilt.rows, rebuilt.selections, file.name || firstSheetName);
+      setAnmeldestatusStage('review');
+    } catch (error) {
+      console.error('Fehler beim Lesen der Anmeldestatus-Datei:', error);
+      alert((error as any)?.message || 'Anmeldestatus-Import fehlgeschlagen.');
+    } finally {
+      setAnmeldestatusBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (anmeldestatusStage !== 'review') return;
+    if (anmeldestatusSheetRows.length === 0) return;
+    rebuildAnmeldestatusRows(anmeldestatusSheetRows, anmeldestatusSelections, anmeldestatusManualOverrides);
+  }, [promotors]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const prepareAccessImportPreview = async (file: File) => {
     try {
@@ -2234,17 +2600,31 @@ Dein Nespresso Team`;
               <p className="text-gray-500 text-sm">{showStammdatenblatt ? 'Stammdaten-Verwaltung' : 'Team Management'}</p>
             </div>
             <div className="flex items-center space-x-3">
+              <button
+                onClick={() => {
+                  resetAnmeldestatusState();
+                  loadPromotors();
+                  loadAnmeldestatusEntriesFromBackend(true);
+                  setShowAnmeldestatusModal(true);
+                }}
+                className="flex items-center space-x-2 px-3 py-2 text-sm border rounded-lg transition-all duration-200 bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+                <span>Anmeldestatus</span>
+              </button>
               {!showStammdatenblatt && (
-                <button
-                  onClick={() => {
-                    resetAccessImportState();
-                    setShowAccessImportModal(true);
-                  }}
-                  className="flex items-center space-x-2 px-3 py-2 text-sm border rounded-lg transition-all duration-200 bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  <span>Import Zugänge</span>
-                </button>
+                <>
+                  <button
+                    onClick={() => {
+                      resetAccessImportState();
+                      setShowAccessImportModal(true);
+                    }}
+                    className="flex items-center space-x-2 px-3 py-2 text-sm border rounded-lg transition-all duration-200 bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    <span>Import Zugänge</span>
+                  </button>
+                </>
               )}
               <button
                 onClick={() => setShowStammdatenblatt(false)}
@@ -2609,7 +2989,12 @@ Dein Nespresso Team`;
                         >
                           Annehmen
                         </Button>
-                        <Button size="sm" variant="outline" className="flex-1 text-red-600 hover:text-red-700 text-xs">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 text-red-600 hover:text-red-700 text-xs"
+                          onClick={() => declineSubmission(submission)}
+                        >
                           Ablehnen
                         </Button>
                       </div>
@@ -4450,6 +4835,239 @@ Dein Nespresso Team`;
             </div>
           </div>
         </>
+      )}
+
+      {/* Anmeldestatus Import Modal */}
+      {showAnmeldestatusModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+          <div className={`bg-white rounded-xl shadow-2xl w-full ${anmeldestatusStage === 'upload' ? 'max-w-lg' : 'max-w-5xl'} max-h-[96vh] overflow-hidden`}>
+            <div className="bg-gradient-to-r from-gray-900 to-gray-800 text-white p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold">Anmeldestatus Import</h3>
+                  <p className="text-xs text-white/80 mt-1">Mitarbeiter liste: Spalte A = Mitarbeiter name</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowAnmeldestatusModal(false);
+                    resetAnmeldestatusState();
+                  }}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 overflow-y-auto max-h-[calc(96vh-130px)] [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              {anmeldestatusStage === 'upload' && (
+                <div
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    const file = e.dataTransfer.files?.[0];
+                    if (!file) return;
+                    if (!/\.(xlsx|xls)$/i.test(file.name)) {
+                      alert('Bitte eine .xlsx oder .xls Datei auswählen.');
+                      return;
+                    }
+                    await prepareAnmeldestatusPreview(file);
+                  }}
+                >
+                  <div className="space-y-3">
+                    <div className="mx-auto w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                      <Upload className="w-6 h-6 text-gray-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Excel-Datei hier ablegen oder</p>
+                      <button
+                        onClick={() => {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = '.xlsx,.xls';
+                          input.style.display = 'none';
+                          document.body.appendChild(input);
+                          input.onchange = async () => {
+                            const file = input.files?.[0];
+                            document.body.removeChild(input);
+                            if (!file) return;
+                            await prepareAnmeldestatusPreview(file);
+                          };
+                          input.click();
+                        }}
+                        className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        Datei auswählen
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400">Unterstützte Formate: .xlsx, .xls</p>
+                    {anmeldestatusBusy && (
+                      <p className="text-xs text-gray-500">Datei wird gelesen...</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {anmeldestatusStage === 'review' && (
+                <div className="space-y-4">
+                  <div className="text-xs text-gray-500">
+                    Datei: <span className="font-medium text-gray-700">{anmeldestatusSourceFileName || '-'}</span>
+                  </div>
+
+                  {anmeldestatusSheetRows.length > 0 ? (
+                    <div className="border border-gray-200 rounded-lg">
+                      <div className="px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-700">
+                        Vorschau (horizontal + vertikal scrollbar)
+                      </div>
+                      <div className="max-h-[300px] overflow-auto">
+                        {(() => {
+                          const previewMaxCols = anmeldestatusSheetRows.reduce((max, row) => {
+                            const rowLen = Array.isArray(row) ? row.length : 0;
+                            return Math.max(max, rowLen);
+                          }, 0);
+                          return (
+                            <table className="min-w-max text-xs">
+                              <thead className="sticky top-0 z-10">
+                                <tr className="bg-gray-50 border-b border-gray-200">
+                                  <th className="sticky left-0 bg-gray-50 border-r border-gray-200 px-2 py-1 text-gray-500 w-10 text-left">#</th>
+                                  {Array.from({ length: previewMaxCols }).map((_, colIndex) => (
+                                    <th
+                                      key={`anmeldestatus-preview-col-${colIndex}`}
+                                      className="px-2 py-1 text-[11px] font-semibold text-gray-600 border-r border-gray-200 whitespace-nowrap text-left"
+                                    >
+                                      {columnIndexToLetter(colIndex)}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {anmeldestatusSheetRows.map((row, rowIndex) => (
+                                  <tr key={`anmeldestatus-preview-row-${rowIndex}`} className="border-b border-gray-100 last:border-b-0">
+                                    <td className="sticky left-0 bg-white border-r border-gray-200 px-2 py-1 text-gray-400 w-10">{rowIndex + 1}</td>
+                                    {Array.from({ length: previewMaxCols }).map((_, cellIndex) => (
+                                      <td key={`anmeldestatus-preview-cell-${rowIndex}-${cellIndex}`} className="px-2 py-1 whitespace-nowrap text-gray-700 border-r border-gray-100">
+                                        {String((Array.isArray(row) ? row[cellIndex] : '') ?? '')}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                      Gespeicherte Anmeldestatus-Liste (keine neue Datei geladen).
+                    </div>
+                  )}
+
+                  <div className="rounded-lg border border-gray-200">
+                    <div className="border-b border-gray-100 p-2 flex items-center gap-2">
+                      <button
+                        onClick={() => setAnmeldestatusActiveTab('angemeldet')}
+                        className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+                          anmeldestatusActiveTab === 'angemeldet'
+                            ? 'bg-blue-50 border-blue-200 text-blue-700'
+                            : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        Angemeldet ({anmeldestatusMatchedRows.length})
+                      </button>
+                      <button
+                        onClick={() => setAnmeldestatusActiveTab('kein_account')}
+                        className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+                          anmeldestatusActiveTab === 'kein_account'
+                            ? 'bg-amber-50 border-amber-200 text-amber-700'
+                            : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        Kein account ({anmeldestatusUnmatchedRows.length})
+                      </button>
+                    </div>
+
+                    <div className="max-h-[280px] overflow-auto p-3 space-y-3">
+                      {(anmeldestatusActiveTab === 'angemeldet' ? anmeldestatusMatchedRows : anmeldestatusUnmatchedRows).map((row) => (
+                        <div key={row.rowKey} className="rounded-lg border border-gray-200 p-3">
+                          <div className="text-xs text-gray-500 mb-1">Zeile {row.rowNumber}</div>
+                          <div className="text-sm text-gray-800 mb-2">
+                            Importierter Name: <span className="font-semibold">{row.importedName}</span>
+                          </div>
+                          <select
+                            value={anmeldestatusSelections[row.rowKey] || '__none__'}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setAnmeldestatusSelections((prev) => ({ ...prev, [row.rowKey]: value }));
+                              setAnmeldestatusManualOverrides((prev) => ({ ...prev, [row.rowKey]: true }));
+                              persistAnmeldestatusSelectionToBackend(row.rowKey, row.importedName, value);
+                            }}
+                            disabled={!!anmeldestatusSavingByRowKey[row.rowKey]}
+                            className="w-full h-9 rounded-md border border-gray-200 px-2 text-sm"
+                          >
+                            <option value="__none__">Kein Promotor zuweisen</option>
+                            {(() => {
+                              const candidateById = new Map<string, string>();
+                              (Array.isArray(row.candidatePromotors) ? row.candidatePromotors : []).forEach((c) => {
+                                candidateById.set(String(c.user_id), String(c.name));
+                              });
+                              const all = [...promotors]
+                                .map((p: any) => ({ user_id: String(p.id), name: String(p.name || '') }))
+                                .filter((p) => p.user_id && p.name)
+                                .sort((a, b) => a.name.localeCompare(b.name, 'de'));
+                              const rest = all.filter((p) => !candidateById.has(p.user_id));
+                              const ordered = [
+                                ...Array.from(candidateById.entries()).map(([user_id, name]) => ({ user_id, name })),
+                                ...rest,
+                              ];
+                              return ordered.map((option) => (
+                                <option key={`${row.rowKey}-${option.user_id}`} value={option.user_id}>
+                                  {option.name}
+                                </option>
+                              ));
+                            })()}
+                          </select>
+                        </div>
+                      ))}
+
+                      {(anmeldestatusActiveTab === 'angemeldet' ? anmeldestatusMatchedRows : anmeldestatusUnmatchedRows).length === 0 && (
+                        <div className="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">
+                          {anmeldestatusActiveTab === 'angemeldet'
+                            ? 'Keine angemeldeten Namen gefunden.'
+                            : 'Alle importierten Namen sind aktuell zugeordnet.'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 mt-5">
+                {anmeldestatusStage === 'review' && (
+                  <button
+                    onClick={() => {
+                      setAnmeldestatusStage('upload');
+                      setAnmeldestatusActiveTab('angemeldet');
+                    }}
+                    className="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Neue Datei
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setShowAnmeldestatusModal(false);
+                    resetAnmeldestatusState();
+                  }}
+                  className="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Schließen
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Zugänge Excel Import Modal */}

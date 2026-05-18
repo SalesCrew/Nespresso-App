@@ -1,9 +1,9 @@
-import { createSupabaseServerClient } from "./server";
+import { createSupabaseServerClientAsync } from "./server";
 
 export type UserRole = 'admin_of_admins' | 'admin_staff' | 'promotor';
 
 export async function getCurrentUserAndProfile() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClientAsync();
   const { data: auth } = await supabase.auth.getUser();
   const user = auth.user;
   if (!user) return { user: null, profile: null };

@@ -1,24 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { recomputeOnboarding } from '@/lib/onboarding/recompute';
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const server = createSupabaseServerClient();
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const server = await createSupabaseServerClientAsync();
   const { data: auth } = await server.auth.getUser();
   if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const svc = createSupabaseServiceClient();
-  const userId = params.id;
+  const { id: userId } = await params;
   const steps = await recomputeOnboarding(svc as any, userId);
   return NextResponse.json({ steps });
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const server = createSupabaseServerClient();
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const server = await createSupabaseServerClientAsync();
   const { data: auth } = await server.auth.getUser();
   if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const svc = createSupabaseServiceClient();
-  const userId = params.id;
+  const { id: userId } = await params;
   const body = await req.json().catch(() => ({} as any));
   const { step_key, status, payload } = body || {};
   if (!step_key || !['pending','in_progress','done'].includes(status)) {

@@ -1124,7 +1124,7 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
   const loadTodaysAssignments = async () => {
     try {
       setTodaysEinsaetzeLoading(true);
-      const response = await fetch('/api/assignments/today');
+      const response = await fetch('/api/assignments/today?include_schulung=1');
       const data = await response.json();
       
       if (response.ok && data.assignments) {
@@ -1151,12 +1151,17 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
         // Transform the data to match the expected format
         const transformedData = data.assignments.map((a: any) => ({
           id: a.assignment_id,
+          type: String(a.type || '').toLowerCase(),
+          isSchulung: String(a.type || '').toLowerCase() === 'schulung' || String(a.title || '').trim().toLowerCase() === 'schulung',
           market: a.title || 'N/A',
           address: a.location_text || '',
           plz: a.postal_code || '',
           city: a.city || '',
           promotor: a.promotor_name || 'N/A',
           buddyName: a.buddy_name,
+          participantNames: Array.isArray(a.participant_names)
+            ? a.participant_names.map((name: any) => String(name || '').trim()).filter(Boolean)
+            : [],
           planStart: a.planned_start ? a.planned_start.substring(11, 16) : '09:30',
           planEnd: a.planned_end ? a.planned_end.substring(11, 16) : '18:30',
           actualStart: a.actual_start_time ? a.actual_start_time.substring(11, 16) : null,
@@ -1202,6 +1207,41 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
     return time || '--:--';
   };
 
+  const getDisplayLocationLabel = (einsatz: any) => {
+    const location = [einsatz.address, einsatz.market, `${einsatz.plz || ''} ${einsatz.city || ''}`.trim()]
+      .map((value) => String(value || '').trim())
+      .find(Boolean);
+    return location || 'Schulung';
+  };
+
+  const getNameInitials = (name: string) => {
+    const parts = String(name || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (parts.length === 0) return '';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
+  };
+
+  const getSchulungParticipantNames = (einsatz: any): string[] => {
+    const apiNames: string[] = Array.isArray(einsatz.participantNames)
+      ? einsatz.participantNames.map((value: any) => String(value || '').trim()).filter(Boolean)
+      : [];
+    if (apiNames.length > 0) return Array.from(new Set<string>(apiNames));
+
+    const fallback: string[] = [einsatz.promotor, einsatz.buddyName]
+      .map((value) => String(value || '').trim())
+      .filter((value) => value && value !== 'N/A');
+    return Array.from(new Set<string>(fallback));
+  };
+
+  const getSchulungParticipantInitials = (einsatz: any): string[] => {
+    return getSchulungParticipantNames(einsatz)
+      .map((name: string) => getNameInitials(name))
+      .filter(Boolean);
+  };
+
   // Format an ISO timestamp (e.g., 2025-10-28T09:30:00Z) as HH:MM without applying local timezone offset.
   // This mirrors the Einsatzplan formatting to ensure times are displayed consistently.
   const formatIsoTimeNoTZ = (iso: string | null | undefined) => {
@@ -1226,6 +1266,11 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
       return 'green';
     }
     
+    // Trainings should not be marked as "verspätet" in the dashboard card.
+    if (einsatz.isSchulung && einsatz.status === 'verspätet') {
+      return 'gray';
+    }
+
     // Orange for verspätet
     if (einsatz.status === 'verspätet') {
         return 'orange';
@@ -1250,7 +1295,7 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
   const getCompletionStats = () => {
     const started = filteredEinsaetze.filter(e => e.status === 'gestartet' || e.status === 'beendet' || e.actualStart).length;
     const cancelled = filteredEinsaetze.filter(e => ['krankenstand', 'urlaub', 'zeitausgleich', 'notfall'].includes(e.status)).length;
-    const notStarted = filteredEinsaetze.filter(e => ['pending', 'verspätet'].includes(e.status)).length;
+    const notStarted = filteredEinsaetze.filter(e => e.status === 'pending' || (e.status === 'verspätet' && !e.isSchulung)).length;
     const completed = started + cancelled;
     const total = filteredEinsaetze.length;
     const completionPercentage = total > 0 ? (completed / total) * 100 : 0;
@@ -1268,8 +1313,8 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
     // Check for started
     if (locationEinsaetze.some(e => e.status === 'gestartet' || e.status === 'beendet' || e.actualStart)) return 'green';
     
-    // Check for verspätet
-    if (locationEinsaetze.some(e => e.status === 'verspätet')) return 'orange';
+    // Check for verspätet (excluding Schulungen)
+    if (locationEinsaetze.some(e => e.status === 'verspätet' && !e.isSchulung)) return 'orange';
     
     return 'gray';
   };
@@ -1767,6 +1812,8 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
                     <div className="space-y-2">
                       {filteredEinsaetze.map((einsatz) => {
                         const statusColor = getStatusColor(einsatz);
+                        const schulungLocationLabel = einsatz.isSchulung ? getDisplayLocationLabel(einsatz) : '';
+                        const schulungInitials = einsatz.isSchulung ? getSchulungParticipantInitials(einsatz) : [];
                         return (
                           <div 
                             key={einsatz.id} 
@@ -1792,20 +1839,50 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
                             <div className="flex items-center justify-between">
                               <div className="grid grid-cols-5 gap-4 flex-1 items-center">
                                 <div className="min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <h4 className="text-sm font-medium text-gray-900">
-                                      {einsatz.buddyName ? `${einsatz.promotor} & ${einsatz.buddyName}` : einsatz.promotor}
-                                    </h4>
-                                  </div>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openInGoogleMaps(einsatz.address, einsatz.city);
-                                    }}
-                                    className="text-xs text-gray-500 text-left cursor-pointer hover:text-blue-600"
-                                  >
-                                    {einsatz.address}
-                                  </button>
+                                  {einsatz.isSchulung ? (
+                                    <>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openInGoogleMaps(einsatz.address, einsatz.city);
+                                        }}
+                                        className="text-sm font-medium text-gray-900 text-left cursor-pointer hover:text-blue-600"
+                                      >
+                                        {schulungLocationLabel}
+                                      </button>
+                                      <div className="mt-1 flex flex-wrap gap-1">
+                                        {schulungInitials.length > 0 ? (
+                                          schulungInitials.map((initials, index) => (
+                                            <span
+                                              key={`${einsatz.id}-schulung-initial-${index}`}
+                                              className="inline-flex items-center justify-center rounded bg-orange-100 text-orange-700 text-[10px] font-medium px-1.5 py-0.5 min-w-[22px]"
+                                            >
+                                              {initials}
+                                            </span>
+                                          ))
+                                        ) : (
+                                          <span className="text-[10px] text-gray-400">—</span>
+                                        )}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="flex items-center gap-2">
+                                        <h4 className="text-sm font-medium text-gray-900">
+                                          {einsatz.buddyName ? `${einsatz.promotor} & ${einsatz.buddyName}` : einsatz.promotor}
+                                        </h4>
+                                      </div>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openInGoogleMaps(einsatz.address, einsatz.city);
+                                        }}
+                                        className="text-xs text-gray-500 text-left cursor-pointer hover:text-blue-600"
+                                      >
+                                        {einsatz.address}
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                                 <div className="text-xs text-gray-600 text-center">
                                   <span>{einsatz.plz} {einsatz.city}</span>
@@ -1861,6 +1938,8 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
                     <div className="grid grid-cols-5 gap-2 h-fit">
                       {filteredEinsaetze.map((einsatz) => {
                         const statusColor = getStatusColor(einsatz);
+                        const schulungLocationLabel = einsatz.isSchulung ? getDisplayLocationLabel(einsatz) : '';
+                        const schulungInitials = einsatz.isSchulung ? getSchulungParticipantInitials(einsatz) : [];
                         return (
                           <div 
                             key={einsatz.id} 
@@ -1881,7 +1960,9 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
                             <div className="space-y-2">
                               <div className="flex items-center justify-between">
                                 <h4 className="text-xs font-medium text-gray-900 truncate">
-                                  {einsatz.buddyName ? `${einsatz.promotor} & ${einsatz.buddyName}` : einsatz.promotor}
+                                  {einsatz.isSchulung
+                                    ? schulungLocationLabel
+                                    : (einsatz.buddyName ? `${einsatz.promotor} & ${einsatz.buddyName}` : einsatz.promotor)}
                                 </h4>
                                 <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
                                   statusColor === 'green' ? 'bg-green-400' :
@@ -1890,12 +1971,29 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
                                   'bg-gray-300'
                                 }`}></div>
                               </div>
-                              <button
-                                onClick={() => openInGoogleMaps(einsatz.address, einsatz.city)}
-                                className="text-xs text-gray-500 text-left cursor-pointer hover:text-blue-600 block truncate w-full"
-                              >
-                                {einsatz.address}
-                              </button>
+                              {einsatz.isSchulung ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {schulungInitials.length > 0 ? (
+                                    schulungInitials.map((initials, index) => (
+                                      <span
+                                        key={`${einsatz.id}-schulung-card-initial-${index}`}
+                                        className="inline-flex items-center justify-center rounded bg-orange-100 text-orange-700 text-[10px] font-medium px-1.5 py-0.5 min-w-[22px]"
+                                      >
+                                        {initials}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-[10px] text-gray-400">—</span>
+                                  )}
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => openInGoogleMaps(einsatz.address, einsatz.city)}
+                                  className="text-xs text-gray-500 text-left cursor-pointer hover:text-blue-600 block truncate w-full"
+                                >
+                                  {einsatz.address}
+                                </button>
+                              )}
                               <div className="text-xs text-gray-600 truncate">
                                 {einsatz.plz} {einsatz.city}
                               </div>
@@ -4372,6 +4470,29 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
                     <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
                       <p className="text-sm text-gray-900">{selectedAssignmentDetail.buddyName}</p>
                       <p className="text-xs text-gray-500">Buddy für diesen Einsatz</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Schulung Participants */}
+                {selectedAssignmentDetail.isSchulung && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium text-gray-900">Teilnehmende</h4>
+                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                      <div className="flex flex-wrap gap-2">
+                        {getSchulungParticipantNames(selectedAssignmentDetail).length > 0 ? (
+                          getSchulungParticipantNames(selectedAssignmentDetail).map((name) => (
+                            <span
+                              key={`participant-${selectedAssignmentDetail.id}-${name}`}
+                              className="inline-flex items-center px-2.5 py-1 rounded-md bg-white border border-orange-200 text-xs text-gray-700"
+                            >
+                              {name}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-gray-500">Keine Teilnehmenden verfügbar</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}

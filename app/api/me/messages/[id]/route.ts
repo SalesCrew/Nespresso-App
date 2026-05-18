@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const server = createSupabaseServerClient();
+    const server = await createSupabaseServerClientAsync();
     const { data: { user }, error: authError } = await server.auth.getUser();
 
     if (authError || !user) {
@@ -18,6 +18,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
 
+    const { id: messageId } = await params;
     const svc = createSupabaseServiceClient();
 
     const updates: Record<string, any> = {};
@@ -35,7 +36,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const { error } = await svc
       .from('message_recipients')
       .update(updates)
-      .eq('message_id', params.id)
+      .eq('message_id', messageId)
       .eq('recipient_user_id', user.id);
 
     if (error) {

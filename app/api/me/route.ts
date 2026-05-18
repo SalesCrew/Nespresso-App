@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 
 export async function GET() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClientAsync();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ user: null }, { status: 401 });
 

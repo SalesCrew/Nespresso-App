@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 export async function GET() {
   try {
-    const supabase = createSupabaseServerClient()
+    const supabase = await createSupabaseServerClientAsync()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     
     console.log('[next-assignment] Auth check:', { userId: user?.id, authError })

@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 // GET accepted invitations that haven't been acknowledged yet
 export async function GET(req: Request) {
   try {
-    const server = createSupabaseServerClient()
+    const server = await createSupabaseServerClientAsync()
     const { data: auth } = await server.auth.getUser()
     
     if (!auth?.user) {

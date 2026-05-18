@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 
 // POST: record an out-of-window break timestamp for a specific assignment
 export async function POST(req: Request) {
   try {
-    const server = createSupabaseServerClient();
+    const server = await createSupabaseServerClientAsync();
     const { data: { user } } = await server.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -38,7 +38,7 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const assignmentId = searchParams.get('id');
-    const server = createSupabaseServerClient();
+    const server = await createSupabaseServerClientAsync();
     const { data: { user } } = await server.auth.getUser();
     if (!user) return NextResponse.json({ items: [] }, { status: 200 });
     if (!assignmentId) return NextResponse.json({ items: [] }, { status: 200 });

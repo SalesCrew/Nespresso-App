@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 
 // GET: Fetch all admins for chat (promotor only - route protection at page level)
@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
     console.log('[/api/chat/admins] Starting request');
     
     // Check authentication only
-    const server = createSupabaseServerClient();
+    const server = await createSupabaseServerClientAsync();
     const { data: auth } = await server.auth.getUser();
     
     console.log('[/api/chat/admins] User authenticated:', auth.user?.id);

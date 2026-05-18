@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 // GET current user's process
 export async function GET() {
   try {
-    const server = createSupabaseServerClient()
+    const server = await createSupabaseServerClientAsync()
     const { data: auth, error: authError } = await server.auth.getUser()
     
     if (authError || !auth?.user) {
@@ -41,7 +41,7 @@ export async function GET() {
 // POST create or update process
 export async function POST(req: Request) {
   try {
-    const server = createSupabaseServerClient()
+    const server = await createSupabaseServerClientAsync()
     const { data: auth, error: authError } = await server.auth.getUser()
     
     if (authError || !auth?.user) {
@@ -87,7 +87,7 @@ export async function POST(req: Request) {
 // DELETE complete current process
 export async function DELETE() {
   try {
-    const server = createSupabaseServerClient()
+    const server = await createSupabaseServerClientAsync()
     const { data: auth, error: authError } = await server.auth.getUser()
     
     if (authError || !auth?.user) {
