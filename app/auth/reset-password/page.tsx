@@ -144,7 +144,7 @@ function ResetPasswordPageInner() {
                 <p className="text-sm text-red-600">{errorMsg || "Der Link ist ungültig."}</p>
                 <Button
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                  onClick={() => router.push(`/auth/forgot-password?returnTo=${encodeURIComponent(returnTo)}`)}
+                  onClick={() => router.push(`/auth/passwort-vergessen?returnTo=${encodeURIComponent(returnTo)}`)}
                 >
                   Neuen Link anfordern
                 </Button>

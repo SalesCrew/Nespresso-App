@@ -14,6 +14,8 @@ export default function PromotorLoginPage() {
     password: ""
   });
   const [showPw, setShowPw] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -29,6 +31,33 @@ export default function PromotorLoginPage() {
     }
     // Default: promotor dashboard
     router.push('/promotors/dashboard');
+  };
+
+  const handleForgotPassword = async () => {
+    try {
+      setResetError(null);
+      const email = String(formData.email || "").trim();
+      const returnTo = "/auth/promotors/login";
+      if (!email) {
+        router.push(`/auth/passwort-vergessen?returnTo=${encodeURIComponent(returnTo)}`);
+        return;
+      }
+
+      setResetBusy(true);
+      const supabase = createSupabaseBrowserClient();
+      const origin = window.location.origin;
+      const redirectTo = `${origin}/auth/reset-password?returnTo=${encodeURIComponent(returnTo)}`;
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+      if (error) throw error;
+
+      router.push(
+        `/auth/passwort-vergessen?returnTo=${encodeURIComponent(returnTo)}&sent=1&email=${encodeURIComponent(email)}`
+      );
+    } catch (error: any) {
+      setResetError(error?.message || "Wiederherstellungslink konnte nicht gesendet werden.");
+    } finally {
+      setResetBusy(false);
+    }
   };
 
   return (
@@ -113,11 +142,13 @@ export default function PromotorLoginPage() {
 
               <button
                 type="button"
-                onClick={() => router.push('/auth/forgot-password?returnTo=/auth/promotors/login')}
+                onClick={handleForgotPassword}
+                disabled={resetBusy}
                 className="w-full text-center text-xs text-blue-600 hover:text-blue-700 underline underline-offset-2"
               >
-                Passwort vergessen?
+                {resetBusy ? "Sende Link..." : "Passwort vergessen?"}
               </button>
+              {resetError && <p className="text-xs text-red-600 text-center">{resetError}</p>}
             </form>
 
             <div className="mt-6 text-center">
