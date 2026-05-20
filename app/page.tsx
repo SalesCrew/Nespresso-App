@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,23 @@ export default function LandingPage() {
   const [hoveredFeature, setHoveredFeature] = useState<string | null>(null);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash || "";
+    const params = new URLSearchParams(window.location.search || "");
+    const queryType = String(params.get("type") || "").toLowerCase();
+    const hasRecoveryHash = /access_token=|type=recovery/i.test(hash);
+    const hasRecoveryQuery = queryType === "recovery" || params.has("token_hash") || params.has("code");
+    if (!hasRecoveryHash && !hasRecoveryQuery) return;
+
+    if (!params.has("returnTo")) {
+      params.set("returnTo", "/auth/promotors/login");
+    }
+    const query = params.toString();
+    const destination = `/auth/reset-password${query ? `?${query}` : ""}${hash}`;
+    router.replace(destination);
+  }, [router]);
 
   const handleRoleSelect = (role: 'promotors' | 'salescrew') => {
     setSelectedRole(role);

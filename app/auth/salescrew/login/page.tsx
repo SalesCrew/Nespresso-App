@@ -108,6 +108,14 @@ export default function SalesCrewLoginPage() {
               >
                 Admin Anmeldung
               </Button>
+
+              <button
+                type="button"
+                onClick={() => router.push('/auth/forgot-password?returnTo=/auth/salescrew/login')}
+                className="w-full text-center text-xs text-green-700 hover:text-green-800 underline underline-offset-2"
+              >
+                Passwort vergessen?
+              </button>
             </form>
 
             <div className="mt-6 text-center">

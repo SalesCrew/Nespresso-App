@@ -110,6 +110,14 @@ export default function PromotorLoginPage() {
               >
                 Anmelden
               </Button>
+
+              <button
+                type="button"
+                onClick={() => router.push('/auth/forgot-password?returnTo=/auth/promotors/login')}
+                className="w-full text-center text-xs text-blue-600 hover:text-blue-700 underline underline-offset-2"
+              >
+                Passwort vergessen?
+              </button>
             </form>
 
             <div className="mt-6 text-center">
