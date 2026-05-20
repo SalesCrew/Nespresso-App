@@ -2,7 +2,7 @@
 
 import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSupabaseRecoveryBrowserClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,7 @@ function ForgotPasswordPageInner() {
       const normalizedEmail = String(email || "").trim();
       if (!normalizedEmail) throw new Error("Bitte E-Mail eingeben.");
 
-      const supabase = createSupabaseBrowserClient();
+      const supabase = createSupabaseRecoveryBrowserClient();
       const origin = window.location.origin;
       const redirectTo = `${origin}/auth/reset-password?returnTo=${encodeURIComponent(returnTo)}`;
       const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, { redirectTo });

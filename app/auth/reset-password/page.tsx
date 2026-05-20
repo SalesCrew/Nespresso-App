@@ -47,7 +47,13 @@ function ResetPasswordPageInner() {
 
         if (recoveryCode) {
           const { error } = await supabase.auth.exchangeCodeForSession(recoveryCode);
-          if (error) throw error;
+          if (error) {
+            const msg = String(error.message || "");
+            if (/pkce code verifier not found/i.test(msg)) {
+              throw new Error("Dieser Recovery-Link stammt aus einem browsergebundenen PKCE-Flow. Bitte im gleichen Browser öffnen oder einen neuen Link über \"Passwort vergessen\" anfordern.");
+            }
+            throw error;
+          }
         }
 
         const { data, error } = await supabase.auth.getSession();

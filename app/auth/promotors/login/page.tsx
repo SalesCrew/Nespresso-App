@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createSupabaseBrowserClient, createSupabaseRecoveryBrowserClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +44,7 @@ export default function PromotorLoginPage() {
       }
 
       setResetBusy(true);
-      const supabase = createSupabaseBrowserClient();
+      const supabase = createSupabaseRecoveryBrowserClient();
       const origin = window.location.origin;
       const redirectTo = `${origin}/auth/reset-password?returnTo=${encodeURIComponent(returnTo)}`;
       const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
