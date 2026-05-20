@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +16,7 @@ function sanitizeReturnTo(raw: string | null): string {
   return value.startsWith("/") ? value : "/auth/promotors/login";
 }
 
-export default function ResetPasswordPage() {
+function ResetPasswordPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnToRaw = searchParams.get("returnTo");
@@ -222,6 +222,26 @@ export default function ResetPasswordPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+          <div className="container mx-auto px-4 py-12 max-w-md">
+            <Card className="border-0 shadow-2xl bg-white/90 backdrop-blur-sm">
+              <CardContent className="py-10 text-center text-sm text-gray-600">
+                Lade Passwort-Reset...
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      }
+    >
+      <ResetPasswordPageInner />
+    </Suspense>
   );
 }
 
