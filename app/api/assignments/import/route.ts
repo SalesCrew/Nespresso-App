@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
-import { normalizeForMatch } from '@/lib/matchers/marketMatcher'
+import { computeBestMarket, normalizeForMatch } from '@/lib/matchers/marketMatcher'
 
 export const runtime = 'nodejs'
 
-type EpInternMode = 'ep_intern_preview' | 'ep_intern_commit'
+type EpInternMode = 'ep_intern_preview' | 'ep_intern_commit' | 'ep_intern_update_preview' | 'ep_intern_update_commit'
 type EpInternMapping = {
   addressCol: string
   plzCol: string
@@ -35,6 +35,24 @@ type ParsedImportRow = {
   lead_user_id: string | null
   match_reason: string | null
 }
+
+type ExistingAssignmentForUpdate = {
+  id: string
+  location_text: string | null
+  postal_code: string | null
+  city: string | null
+  region: string | null
+  start_ts: string
+  end_ts: string
+  type: string | null
+  status: string | null
+  matched_market_id: string | null
+  lead_user_id: string | null
+}
+
+const ASSIGNMENT_PAGE_SIZE = 1000
+const IN_CLAUSE_CHUNK_SIZE = 500
+const UPDATE_TIME_TOLERANCE_MINUTES = 15
 
 function normalizePersonName(input: string): string {
   return normalizeForMatch(String(input || '').replace(/ß/gi, 'ss'))
@@ -373,6 +391,508 @@ function parseEpInternRows(args: {
   return { parsedRows, unresolvedPromotors, rowErrors }
 }
 
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  return out
+}
+
+function dayKeyFromIso(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return String(iso).slice(0, 10)
+  return d.toISOString().slice(0, 10)
+}
+
+function minutesFromIso(iso: string | null | undefined): number | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.getUTCHours() * 60 + d.getUTCMinutes()
+}
+
+function timesMatchWithinTolerance(existing: ExistingAssignmentForUpdate, imported: ParsedImportRow): boolean {
+  const existingStart = minutesFromIso(existing.start_ts)
+  const existingEnd = minutesFromIso(existing.end_ts)
+  const importedStart = minutesFromIso(imported.start_ts)
+  const importedEnd = minutesFromIso(imported.end_ts)
+  if (existingStart == null || existingEnd == null || importedStart == null || importedEnd == null) {
+    return String(existing.start_ts || '') === String(imported.start_ts || '') && String(existing.end_ts || '') === String(imported.end_ts || '')
+  }
+  return (
+    Math.abs(existingStart - importedStart) <= UPDATE_TIME_TOLERANCE_MINUTES &&
+    Math.abs(existingEnd - importedEnd) <= UPDATE_TIME_TOLERANCE_MINUTES
+  )
+}
+
+function compactMatchKey(value: string): string {
+  return normalizeForMatch(value).replace(/\s+/g, '')
+}
+
+function assignmentLocationFingerprint(parts: { location_text?: string | null; postal_code?: string | null; city?: string | null }): string {
+  return compactMatchKey(
+    [
+      String(parts.location_text || '').trim(),
+      String(parts.postal_code || '').trim(),
+    ]
+      .filter(Boolean)
+      .join(' ')
+  )
+}
+
+function parsedRowLocationFingerprint(row: ParsedImportRow): string {
+  return assignmentLocationFingerprint({
+    location_text: row.address,
+    postal_code: row.plz,
+    city: null,
+  })
+}
+
+function importRowDuplicateKey(row: ParsedImportRow): string {
+  return [
+    dayKeyFromIso(row.start_ts),
+    minutesFromIso(row.start_ts) ?? 'x',
+    minutesFromIso(row.end_ts) ?? 'x',
+    row.lead_user_id || 'no-promotor',
+    parsedRowLocationFingerprint(row),
+  ].join('|')
+}
+
+function buildEpInternInsertRow(row: ParsedImportRow, matchedMarketId?: string | null) {
+  return {
+    title: 'Promotion',
+    description: null,
+    location_text: row.address,
+    postal_code: row.plz,
+    city: null,
+    region: row.region || null,
+    start_ts: row.start_ts,
+    end_ts: row.end_ts,
+    type: 'promotion',
+    status: row.lead_user_id ? 'assigned' : 'open',
+    matched_market_id: matchedMarketId || null,
+    // Only keep raw import name for rows that could not be matched to a system promotor.
+    import_promotor_name_raw: row.lead_user_id ? null : (row.promotor_name_raw || null),
+    metadata: {
+      import_row_key: row.rowKey,
+      import_promotor_name_raw: row.promotor_name_raw,
+      import_match_reason: row.match_reason,
+    },
+  }
+}
+
+async function loadExistingAssignmentsForUpdate(
+  svc: ReturnType<typeof createSupabaseServiceClient>,
+  parsedRows: ParsedImportRow[]
+): Promise<ExistingAssignmentForUpdate[]> {
+  const days = parsedRows.map((r) => dayKeyFromIso(r.start_ts)).filter(Boolean).sort()
+  if (days.length === 0) return []
+
+  const from = `${days[0]}T00:00:00.000Z`
+  const to = `${days[days.length - 1]}T23:59:59.999Z`
+  const assignments: any[] = []
+  let offset = 0
+
+  for (;;) {
+    const { data, error } = await svc
+      .from('assignments')
+      .select('id, location_text, postal_code, city, region, start_ts, end_ts, type, status, matched_market_id')
+      .gte('start_ts', from)
+      .lte('start_ts', to)
+      .order('start_ts', { ascending: true })
+      .range(offset, offset + ASSIGNMENT_PAGE_SIZE - 1)
+
+    if (error) throw new Error(error.message)
+    const pageRows = Array.isArray(data) ? data : []
+    assignments.push(...pageRows)
+    if (pageRows.length < ASSIGNMENT_PAGE_SIZE) break
+    offset += ASSIGNMENT_PAGE_SIZE
+  }
+
+  const leadByAssignmentId = new Map<string, string | null>()
+  const ids = assignments.map((a) => String(a.id)).filter(Boolean)
+  for (const chunk of chunkArray(ids, IN_CLAUSE_CHUNK_SIZE)) {
+    const { data, error } = await svc
+      .from('assignment_participants')
+      .select('assignment_id, user_id, role')
+      .in('assignment_id', chunk)
+      .eq('role', 'lead')
+
+    if (error) throw new Error(error.message)
+    for (const p of data || []) {
+      const assignmentId = String((p as any).assignment_id || '')
+      if (assignmentId && !leadByAssignmentId.has(assignmentId)) {
+        leadByAssignmentId.set(assignmentId, String((p as any).user_id || '') || null)
+      }
+    }
+  }
+
+  return assignments.map((a) => ({
+    id: String(a.id),
+    location_text: a.location_text ?? null,
+    postal_code: a.postal_code ?? null,
+    city: a.city ?? null,
+    region: a.region ?? null,
+    start_ts: String(a.start_ts || ''),
+    end_ts: String(a.end_ts || ''),
+    type: a.type ?? null,
+    status: a.status ?? null,
+    matched_market_id: a.matched_market_id ?? null,
+    lead_user_id: leadByAssignmentId.get(String(a.id)) ?? null,
+  }))
+}
+
+async function loadMarketsForImport(svc: ReturnType<typeof createSupabaseServiceClient>): Promise<any[]> {
+  const { data, error } = await svc
+    .from('markets')
+    .select('id, name, address, plz, city, acceptance_addresses')
+
+  if (error) return []
+  return Array.isArray(data) ? data : []
+}
+
+function resolveImportedMarketId(row: ParsedImportRow, markets: any[]): string | null {
+  if (!Array.isArray(markets) || markets.length === 0) return null
+  const plz = String(row.plz || '').trim()
+  const byPlz = plz ? markets.filter((m) => String((m as any).plz || '').trim() === plz) : []
+  if (byPlz.length === 1) return String(byPlz[0].id)
+
+  const candidates = byPlz.length ? byPlz : markets
+  const { market, score } = computeBestMarket(
+    {
+      id: row.rowKey,
+      location_text: row.address,
+      postal_code: row.plz,
+      city: null,
+    },
+    candidates.map((m) => ({
+      id: m.id,
+      name: m.name,
+      address: m.address,
+      plz: m.plz,
+      city: m.city,
+      acceptance_addresses: m.acceptance_addresses,
+    }))
+  )
+
+  return market && score >= 70 ? String(market.id) : null
+}
+
+type UpdateMatchScore = {
+  assignment: ExistingAssignmentForUpdate
+  score: number
+  reason: string
+}
+
+function sameInstant(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return String(a || '') === String(b || '')
+  const ad = new Date(a)
+  const bd = new Date(b)
+  if (Number.isNaN(ad.getTime()) || Number.isNaN(bd.getTime())) return String(a) === String(b)
+  return ad.getTime() === bd.getTime()
+}
+
+function scoreUpdateCandidate(imported: ParsedImportRow, candidate: ExistingAssignmentForUpdate): UpdateMatchScore | null {
+  const locationSame = assignmentLocationFingerprint(candidate) === parsedRowLocationFingerprint(imported)
+  const timeClose = timesMatchWithinTolerance(candidate, imported)
+  const timeExact = sameInstant(candidate.start_ts, imported.start_ts) && sameInstant(candidate.end_ts, imported.end_ts)
+  const promotorSame = !!imported.lead_user_id && candidate.lead_user_id === imported.lead_user_id
+
+  const evidenceCount = [locationSame, timeClose, promotorSame].filter(Boolean).length
+  if (evidenceCount < 2) return null
+  if (!imported.lead_user_id && !(locationSame && timeClose)) return null
+
+  let score = 0
+  const reasonParts: string[] = []
+  if (locationSame) {
+    score += 70
+    reasonParts.push('market')
+  }
+  if (timeClose) {
+    score += 50
+    reasonParts.push(timeExact ? 'time_exact' : 'time_close')
+  }
+  if (promotorSame) {
+    score += 45
+    reasonParts.push('promotor')
+  }
+  if (timeExact) score += 5
+  if (imported.lead_user_id && !candidate.lead_user_id && locationSame && timeClose) score += 10
+
+  return {
+    assignment: candidate,
+    score,
+    reason: reasonParts.join('_'),
+  }
+}
+
+function findUpdateMatch(
+  imported: ParsedImportRow,
+  candidatesForDay: ExistingAssignmentForUpdate[],
+  usedAssignmentIds: Set<string>
+):
+  | { assignment: ExistingAssignmentForUpdate; reason: string; score: number }
+  | { ambiguous: true; reason: string; candidates: ExistingAssignmentForUpdate[] }
+  | null {
+  const available = candidatesForDay.filter((a) => !usedAssignmentIds.has(a.id))
+  const scored = available
+    .map((candidate) => scoreUpdateCandidate(imported, candidate))
+    .filter(Boolean) as UpdateMatchScore[]
+
+  if (scored.length === 0) {
+    const usedMatches = candidatesForDay
+      .filter((a) => usedAssignmentIds.has(a.id))
+      .map((candidate) => scoreUpdateCandidate(imported, candidate))
+      .filter(Boolean) as UpdateMatchScore[]
+
+    if (usedMatches.length > 0) {
+      return {
+        ambiguous: true,
+        reason: 'duplicate_import_row_matches_used_assignment',
+        candidates: usedMatches.map((m) => m.assignment),
+      }
+    }
+    return null
+  }
+
+  scored.sort((a, b) => b.score - a.score || String(a.assignment.id).localeCompare(String(b.assignment.id)))
+  const best = scored[0]
+  const tiedBest = scored.filter((candidate) => candidate.score === best.score)
+  if (tiedBest.length > 1) {
+    return {
+      ambiguous: true,
+      reason: `multiple_update_candidates_${best.reason || 'same_score'}`,
+      candidates: tiedBest.map((m) => m.assignment),
+    }
+  }
+
+  return { assignment: best.assignment, reason: best.reason, score: best.score }
+}
+
+async function setLeadParticipant(
+  svc: ReturnType<typeof createSupabaseServiceClient>,
+  assignmentId: string,
+  userId: string
+) {
+  const { error: upsertErr } = await svc
+    .from('assignment_participants')
+    .upsert({
+      assignment_id: assignmentId,
+      user_id: userId,
+      role: 'lead',
+      chosen_by_admin: true,
+      chosen_at: new Date().toISOString(),
+    })
+
+  if (upsertErr) throw new Error(upsertErr.message)
+
+  const { error: deleteErr } = await svc
+    .from('assignment_participants')
+    .delete()
+    .eq('assignment_id', assignmentId)
+    .eq('role', 'lead')
+    .neq('user_id', userId)
+
+  if (deleteErr) throw new Error(deleteErr.message)
+}
+
+async function insertParsedAssignmentRows(
+  svc: ReturnType<typeof createSupabaseServiceClient>,
+  rows: ParsedImportRow[],
+  markets?: any[]
+) {
+  const insertPayload = rows.map((r) => buildEpInternInsertRow(r, markets ? resolveImportedMarketId(r, markets) : undefined))
+
+  if (insertPayload.length === 0) {
+    return { insertedRows: [] as any[], participantRows: [] as any[] }
+  }
+
+  let { data: insertedRows, error: insertErr } = await svc
+    .from('assignments')
+    .insert(insertPayload)
+    .select('id, metadata')
+
+  // Safety: allow deployment before DB migrations by retrying without newer columns.
+  if (insertErr && /(import_promotor_name_raw|matched_market_id)/i.test(String(insertErr.message || ''))) {
+    const fallbackPayload = insertPayload.map((row) => {
+      const { import_promotor_name_raw, matched_market_id, ...rest } = row as any
+      return rest
+    })
+    const retry = await svc
+      .from('assignments')
+      .insert(fallbackPayload)
+      .select('id, metadata')
+    insertedRows = retry.data
+    insertErr = retry.error
+  }
+
+  if (insertErr) throw new Error(insertErr.message)
+
+  const assignmentIdByRowKey = new Map<string, string>()
+  for (const row of insertedRows || []) {
+    const rowKey = String((row as any)?.metadata?.import_row_key || '')
+    if (rowKey) assignmentIdByRowKey.set(rowKey, String((row as any).id))
+  }
+
+  const participantRows = rows
+    .filter((r) => !!r.lead_user_id)
+    .map((r) => {
+      const assignmentId = assignmentIdByRowKey.get(r.rowKey)
+      if (!assignmentId) return null
+      return {
+        assignment_id: assignmentId,
+        user_id: r.lead_user_id!,
+        role: 'lead',
+        chosen_by_admin: true,
+        chosen_at: new Date().toISOString(),
+      }
+    })
+    .filter(Boolean) as Array<any>
+
+  if (participantRows.length > 0) {
+    const { error: participantErr } = await svc
+      .from('assignment_participants')
+      .upsert(participantRows)
+    if (participantErr) throw new Error(participantErr.message)
+  }
+
+  return { insertedRows: insertedRows || [], participantRows }
+}
+
+async function runEpInternUpdateImport(
+  svc: ReturnType<typeof createSupabaseServiceClient>,
+  parsed: ReturnType<typeof parseEpInternRows>
+) {
+  const existingRows = await loadExistingAssignmentsForUpdate(svc, parsed.parsedRows)
+  const markets = await loadMarketsForImport(svc)
+  const existingByDay = new Map<string, ExistingAssignmentForUpdate[]>()
+  for (const row of existingRows) {
+    const day = dayKeyFromIso(row.start_ts)
+    if (!day) continue
+    const bucket = existingByDay.get(day) || []
+    bucket.push(row)
+    existingByDay.set(day, bucket)
+  }
+
+  const usedAssignmentIds = new Set<string>()
+  const seenImportKeys = new Set<string>()
+  const rowsToInsert: ParsedImportRow[] = []
+  const skippedRows: Array<{ rowKey: string; rowNumber: number; message: string }> = []
+  let updated = 0
+  let unchanged = 0
+  let ambiguous = 0
+  let duplicateInput = 0
+  let marketUpdated = 0
+  let timeUpdated = 0
+  let promotorUpdated = 0
+
+  for (const row of parsed.parsedRows) {
+    const duplicateKey = importRowDuplicateKey(row)
+    if (seenImportKeys.has(duplicateKey)) {
+      duplicateInput += 1
+      skippedRows.push({ rowKey: row.rowKey, rowNumber: row.rowNumber, message: 'Doppelte Import-Zeile erkannt; keine zweite Anlage erzeugt.' })
+      continue
+    }
+    seenImportKeys.add(duplicateKey)
+
+    const candidatesForDay = existingByDay.get(dayKeyFromIso(row.start_ts)) || []
+    const match = findUpdateMatch(row, candidatesForDay, usedAssignmentIds)
+
+    if (match && 'ambiguous' in match) {
+      ambiguous += 1
+      skippedRows.push({
+        rowKey: row.rowKey,
+        rowNumber: row.rowNumber,
+        message: `Nicht eindeutig (${match.reason}); keine Anlage erzeugt oder geÃ¤ndert.`,
+      })
+      continue
+    }
+
+    if (match && 'assignment' in match) {
+      usedAssignmentIds.add(match.assignment.id)
+      const assignmentUpdates: Record<string, any> = {}
+      const locationChanged = assignmentLocationFingerprint(match.assignment) !== parsedRowLocationFingerprint(row)
+      const postalChanged = String(match.assignment.postal_code || '').trim() !== String(row.plz || '').trim()
+      const regionChanged = String(match.assignment.region || '').trim() !== String(row.region || '').trim()
+      const timeChanged = !sameInstant(match.assignment.start_ts, row.start_ts) || !sameInstant(match.assignment.end_ts, row.end_ts)
+      const promotorChanged = !!row.lead_user_id && match.assignment.lead_user_id !== row.lead_user_id
+      const matchedMarketId = resolveImportedMarketId(row, markets)
+
+      if (locationChanged || postalChanged) {
+        assignmentUpdates.location_text = row.address
+        assignmentUpdates.postal_code = row.plz
+        assignmentUpdates.city = null
+        assignmentUpdates.matched_market_id = matchedMarketId
+      } else if (matchedMarketId && matchedMarketId !== match.assignment.matched_market_id) {
+        assignmentUpdates.matched_market_id = matchedMarketId
+      }
+
+      if (regionChanged) {
+        assignmentUpdates.region = row.region || null
+      }
+
+      if (timeChanged) {
+        assignmentUpdates.start_ts = row.start_ts
+        assignmentUpdates.end_ts = row.end_ts
+      }
+
+      if (promotorChanged) {
+        if (!match.assignment.status || match.assignment.status === 'open') {
+          assignmentUpdates.status = 'assigned'
+        }
+        assignmentUpdates.import_promotor_name_raw = null
+      }
+
+      const hasAssignmentUpdates = Object.keys(assignmentUpdates).length > 0
+      if (!hasAssignmentUpdates && !promotorChanged) {
+        unchanged += 1
+        continue
+      }
+
+      if (hasAssignmentUpdates) {
+        const { error } = await svc
+          .from('assignments')
+          .update(assignmentUpdates)
+          .eq('id', match.assignment.id)
+
+        if (error) throw new Error(error.message)
+      }
+
+      if (promotorChanged && row.lead_user_id) {
+        await setLeadParticipant(svc, match.assignment.id, row.lead_user_id)
+      }
+
+      if (locationChanged || postalChanged || assignmentUpdates.matched_market_id !== undefined) marketUpdated += 1
+      if (timeChanged) timeUpdated += 1
+      if (promotorChanged) promotorUpdated += 1
+      updated += 1
+      continue
+    }
+
+    rowsToInsert.push(row)
+  }
+
+  const { insertedRows, participantRows } = await insertParsedAssignmentRows(svc, rowsToInsert, markets)
+  const insertedCount = insertedRows.length
+  const assignedCount = participantRows.length
+
+  return {
+    inserted: insertedCount,
+    assigned: assignedCount,
+    open: Math.max(0, insertedCount - assignedCount),
+    updated,
+    unchanged,
+    ambiguous,
+    duplicateInput,
+    marketUpdated,
+    timeUpdated,
+    promotorUpdated,
+    skipped: parsed.rowErrors.length + skippedRows.length,
+    rowErrors: [...parsed.rowErrors, ...skippedRows],
+    unresolvedPromotors: parsed.unresolvedPromotors,
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const svc = createSupabaseServiceClient()
@@ -380,7 +900,12 @@ export async function POST(req: Request) {
     if (!body) return NextResponse.json({ error: 'invalid request body' }, { status: 400 })
 
     const mode = String(body.mode || '') as EpInternMode | ''
-    if (mode === 'ep_intern_preview' || mode === 'ep_intern_commit') {
+    if (
+      mode === 'ep_intern_preview' ||
+      mode === 'ep_intern_commit' ||
+      mode === 'ep_intern_update_preview' ||
+      mode === 'ep_intern_update_commit'
+    ) {
       const sheetRows = Array.isArray(body.sheetRows) ? body.sheetRows : null
       const mapping = body.mapping as EpInternMapping | undefined
       const skipFirstRow = Boolean(body.skipFirstRow)
@@ -401,7 +926,7 @@ export async function POST(req: Request) {
         resolutionOverrides,
       })
 
-      if (mode === 'ep_intern_preview') {
+      if (mode === 'ep_intern_preview' || mode === 'ep_intern_update_preview') {
         return NextResponse.json({
           parsedRows: parsed.parsedRows,
           unresolvedPromotors: parsed.unresolvedPromotors,
@@ -414,87 +939,13 @@ export async function POST(req: Request) {
         })
       }
 
-      const insertPayload = parsed.parsedRows.map((r) => ({
-        title: 'Promotion',
-        description: null,
-        location_text: r.address,
-        postal_code: r.plz,
-        city: null,
-        region: r.region || null,
-        start_ts: r.start_ts,
-        end_ts: r.end_ts,
-        type: 'promotion',
-        status: r.lead_user_id ? 'assigned' : 'open',
-        // Only keep raw import name for rows that could not be matched to a system promotor.
-        import_promotor_name_raw: r.lead_user_id ? null : (r.promotor_name_raw || null),
-        metadata: {
-          import_row_key: r.rowKey,
-          import_promotor_name_raw: r.promotor_name_raw,
-          import_match_reason: r.match_reason,
-        },
-      }))
-
-      if (insertPayload.length === 0) {
-        return NextResponse.json({
-          inserted: 0,
-          assigned: 0,
-          open: 0,
-          skipped: parsed.rowErrors.length,
-          rowErrors: parsed.rowErrors,
-          unresolvedPromotors: parsed.unresolvedPromotors,
-        })
+      if (mode === 'ep_intern_update_commit') {
+        const result = await runEpInternUpdateImport(svc, parsed)
+        return NextResponse.json(result)
       }
 
-      let { data: insertedRows, error: insertErr } = await svc
-        .from('assignments')
-        .insert(insertPayload)
-        .select('id, metadata')
-
-      // Safety: allow deployment before DB migration by retrying without the new column.
-      if (insertErr && /import_promotor_name_raw/i.test(String(insertErr.message || ''))) {
-        const fallbackPayload = insertPayload.map((row) => {
-          const { import_promotor_name_raw, ...rest } = row as any
-          return rest
-        })
-        const retry = await svc
-          .from('assignments')
-          .insert(fallbackPayload)
-          .select('id, metadata')
-        insertedRows = retry.data
-        insertErr = retry.error
-      }
-
-      if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 })
-
-      const assignmentIdByRowKey = new Map<string, string>()
-      for (const row of insertedRows || []) {
-        const rowKey = String((row as any)?.metadata?.import_row_key || '')
-        if (rowKey) assignmentIdByRowKey.set(rowKey, String((row as any).id))
-      }
-
-      const participantRows = parsed.parsedRows
-        .filter((r) => !!r.lead_user_id)
-        .map((r) => {
-          const assignmentId = assignmentIdByRowKey.get(r.rowKey)
-          if (!assignmentId) return null
-          return {
-            assignment_id: assignmentId,
-            user_id: r.lead_user_id!,
-            role: 'lead',
-            chosen_by_admin: true,
-            chosen_at: new Date().toISOString(),
-          }
-        })
-        .filter(Boolean) as Array<any>
-
-      if (participantRows.length > 0) {
-        const { error: participantErr } = await svc
-          .from('assignment_participants')
-          .upsert(participantRows)
-        if (participantErr) return NextResponse.json({ error: participantErr.message }, { status: 500 })
-      }
-
-      const insertedCount = insertedRows?.length ?? 0
+      const { insertedRows, participantRows } = await insertParsedAssignmentRows(svc, parsed.parsedRows)
+      const insertedCount = insertedRows.length
       const assignedCount = participantRows.length
 
       return NextResponse.json({

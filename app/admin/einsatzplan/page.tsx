@@ -81,6 +81,7 @@ const TypingText = ({ text, isTyping }: { text: string; isTyping: boolean }) => 
 };
 
 type InternImportStage = 'upload' | 'preview_mapping' | 'resolve_promotors';
+type EinsatzImportType = 'roh' | 'intern' | 'update';
 type InternColumnMapping = {
   addressCol: string;
   plzCol: string;
@@ -192,7 +193,7 @@ export default function EinsatzplanPage() {
   const [marketsList, setMarketsList] = useState<string[]>([]);
 
   const [showImportModal, setShowImportModal] = useState(false);
-  const [importType, setImportType] = useState<'roh' | 'intern'>('roh');
+  const [importType, setImportType] = useState<EinsatzImportType>('roh');
   const [showExcelFormatInfo, setShowExcelFormatInfo] = useState(false);
   const [internImportStage, setInternImportStage] = useState<InternImportStage>('upload');
   const internSheetRowsRef = useRef<any[][]>([]);
@@ -214,6 +215,7 @@ export default function EinsatzplanPage() {
   const [internRowErrors, setInternRowErrors] = useState<Array<{ rowKey: string; rowNumber: number; message: string }>>([]);
   const [internUnresolvedPromotors, setInternUnresolvedPromotors] = useState<InternUnresolvedPromotor[]>([]);
   const [internResolutionSelections, setInternResolutionSelections] = useState<Record<string, string>>({});
+  const isInternExcelImport = activeView === 'einsatzplan' && (importType === 'intern' || importType === 'update');
   const [einsatzplanData, setEinsatzplanData] = useState<any[]>([]);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedEinsatz, setSelectedEinsatz] = useState<any>(null);
@@ -2188,7 +2190,7 @@ export default function EinsatzplanPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        mode: 'ep_intern_commit',
+        mode: importType === 'update' ? 'ep_intern_update_commit' : 'ep_intern_commit',
         sheetRows: internSheetRowsRef.current,
         mapping: buildMappingForApi(),
         skipFirstRow: internSkipFirstRow,
@@ -2200,6 +2202,13 @@ export default function EinsatzplanPage() {
       throw new Error(`Import fehlgeschlagen: ${res.status} ${t}`);
     }
     return await res.json();
+  };
+
+  const formatInternCommitAlert = (commitData: any) => {
+    if (importType === 'update') {
+      return `Update abgeschlossen: ${commitData.updated || 0} aktualisiert (${commitData.marketUpdated || 0} Markt, ${commitData.timeUpdated || 0} Zeit, ${commitData.promotorUpdated || 0} Promotor), ${commitData.unchanged || 0} unverändert, ${commitData.inserted || 0} neu, ${commitData.ambiguous || 0} nicht eindeutig, ${commitData.skipped || 0} übersprungen.`;
+    }
+    return `Import abgeschlossen: ${commitData.inserted || 0} Einsätze (${commitData.assigned || 0} verplant, ${commitData.open || 0} offen).`;
   };
 
   const handleInternPreviewAndImport = async () => {
@@ -2215,7 +2224,7 @@ export default function EinsatzplanPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mode: 'ep_intern_preview',
+          mode: importType === 'update' ? 'ep_intern_update_preview' : 'ep_intern_preview',
           sheetRows: internSheetRowsRef.current,
           mapping: buildMappingForApi(),
           skipFirstRow: internSkipFirstRow,
@@ -2247,7 +2256,7 @@ export default function EinsatzplanPage() {
       setShowImportModal(false);
       resetInternImportState();
       await loadAssignments(true);
-      alert(`Import abgeschlossen: ${commitData.inserted || 0} Einsätze (${commitData.assigned || 0} verplant, ${commitData.open || 0} offen).`);
+      alert(formatInternCommitAlert(commitData));
     } catch (error: any) {
       console.error('Error importing EP intern:', error);
       alert(error?.message || 'Fehler beim Importieren der EP intern Datei');
@@ -2264,7 +2273,7 @@ export default function EinsatzplanPage() {
       setShowImportModal(false);
       resetInternImportState();
       await loadAssignments(true);
-      alert(`Import abgeschlossen: ${commitData.inserted || 0} Einsätze (${commitData.assigned || 0} verplant, ${commitData.open || 0} offen).`);
+      alert(formatInternCommitAlert(commitData));
     } catch (error: any) {
       console.error('Error finalizing EP intern import:', error);
       alert(error?.message || 'Fehler beim finalen EP intern Import');
@@ -2418,7 +2427,7 @@ export default function EinsatzplanPage() {
       } else {
       if (importType === 'roh') {
         processRohExcel(file);
-      } else if (importType === 'intern') {
+      } else if (importType === 'intern' || importType === 'update') {
         prepareInternExcelPreview(file);
       } else {
         console.log('Unknown import type:', importType);
@@ -2442,7 +2451,7 @@ export default function EinsatzplanPage() {
       } else {
       if (importType === 'roh') {
         processRohExcel(file);
-      } else if (importType === 'intern') {
+      } else if (importType === 'intern' || importType === 'update') {
         prepareInternExcelPreview(file);
       } else {
         console.log('Unknown import type:', importType);
@@ -2458,7 +2467,7 @@ export default function EinsatzplanPage() {
   }, [showImportModal, resetInternImportState]);
 
   useEffect(() => {
-    if (importType !== 'intern') {
+    if (importType !== 'intern' && importType !== 'update') {
       resetInternImportState();
     }
   }, [importType, resetInternImportState]);
@@ -6433,7 +6442,7 @@ Import EP
       {showImportModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className={`bg-white rounded-lg shadow-lg max-w-[95vw] ${
-            activeView === 'einsatzplan' && importType === 'intern' && internImportStage !== 'upload'
+            isInternExcelImport && internImportStage !== 'upload'
               ? 'w-[980px]'
               : 'w-96'
           }`}>
@@ -6453,7 +6462,7 @@ Import EP
               {/* Import Type Selection - only for Einsatzplan */}
               {activeView === 'einsatzplan' && (
                 <div className="mb-6">
-                  <div className="flex space-x-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => setImportType('roh')}
                       className={`px-3 py-2 rounded-lg text-sm transition-colors ${
@@ -6473,6 +6482,16 @@ Import EP
                       }`}
                     >
                       EP intern
+                    </button>
+                    <button
+                      onClick={() => setImportType('update')}
+                      className={`px-3 py-2 rounded-lg text-sm transition-colors ${
+                        importType === 'update'
+                          ? 'bg-gray-100 text-gray-700 border border-gray-200'
+                          : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      Update Excel
                     </button>
                   </div>
                 </div>
@@ -6533,7 +6552,7 @@ Import EP
                 </div>
               )}
 
-              {(activeView !== 'einsatzplan' || importType !== 'intern' || internImportStage === 'upload') && (
+              {(!isInternExcelImport || internImportStage === 'upload') && (
                 <div 
                   className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors"
                   onDragOver={handleDragOver}
@@ -6570,7 +6589,7 @@ Import EP
                 </div>
               )}
 
-              {activeView === 'einsatzplan' && importType === 'intern' && internImportStage === 'preview_mapping' && (
+              {isInternExcelImport && internImportStage === 'preview_mapping' && (
                 <div className="space-y-4">
                   <div className="text-xs text-gray-500">
                     Datei: <span className="font-medium text-gray-700">{internSourceFileName || '-'}</span>
@@ -6709,7 +6728,7 @@ Import EP
                 </div>
               )}
 
-              {activeView === 'einsatzplan' && importType === 'intern' && internImportStage === 'resolve_promotors' && (
+              {isInternExcelImport && internImportStage === 'resolve_promotors' && (
                 <div className="space-y-4">
                   <div className="text-sm font-medium text-gray-800">
                     Promotor-Zuordnung prüfen ({internUnresolvedPromotors.length})
@@ -6751,11 +6770,11 @@ Import EP
               <div className="flex justify-end space-x-3 mt-6">
                 <button
                   onClick={() => {
-                    if (activeView === 'einsatzplan' && importType === 'intern' && internImportStage === 'resolve_promotors') {
+                    if (isInternExcelImport && internImportStage === 'resolve_promotors') {
                       setInternImportStage('preview_mapping');
                       return;
                     }
-                    if (activeView === 'einsatzplan' && importType === 'intern' && internImportStage === 'preview_mapping') {
+                    if (isInternExcelImport && internImportStage === 'preview_mapping') {
                       resetInternImportState();
                       return;
                     }
@@ -6763,10 +6782,10 @@ Import EP
                   }}
                   className="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                 >
-                  {activeView === 'einsatzplan' && importType === 'intern' && internImportStage !== 'upload' ? 'Zurück' : 'Abbrechen'}
+                  {isInternExcelImport && internImportStage !== 'upload' ? 'Zurück' : 'Abbrechen'}
                 </button>
 
-                {activeView === 'einsatzplan' && importType === 'intern' && internImportStage === 'preview_mapping' && (
+                {isInternExcelImport && internImportStage === 'preview_mapping' && (
                   <button
                     onClick={handleInternPreviewAndImport}
                     disabled={internImportBusy || internSheetTotalRows === 0}
@@ -6776,7 +6795,7 @@ Import EP
                   </button>
                 )}
 
-                {activeView === 'einsatzplan' && importType === 'intern' && internImportStage === 'resolve_promotors' && (
+                {isInternExcelImport && internImportStage === 'resolve_promotors' && (
                   <button
                     onClick={handleFinalizeResolvedInternImport}
                     disabled={internImportBusy}
@@ -6786,7 +6805,7 @@ Import EP
                   </button>
                 )}
 
-                {(activeView !== 'einsatzplan' || importType !== 'intern' || internImportStage === 'upload') && (
+                {(!isInternExcelImport || internImportStage === 'upload') && (
                   <button
                     className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
                     disabled
@@ -8264,4 +8283,4 @@ Import EP
       <AdminEddieAssistant />
     </div>
   );
-} 
+}
