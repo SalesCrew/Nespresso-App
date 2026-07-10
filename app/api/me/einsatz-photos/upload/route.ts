@@ -2,6 +2,15 @@ import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { NextRequest, NextResponse } from 'next/server';
 
+const MAX_PHOTO_SIZE = 5 * 1024 * 1024;
+const ALLOWED_PHOTO_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
+const ALLOWED_PHOTO_FIELDS = new Map([
+  ['foto_maschine', 'foto_maschine_url'],
+  ['foto_kapsellade', 'foto_kapsellade_url'],
+  ['foto_pos_gesamt', 'foto_pos_gesamt_url'],
+  ['foto_extra', 'foto_extra_url'],
+]);
+
 export async function POST(req: NextRequest) {
   try {
     const server = await createSupabaseServerClientAsync();
@@ -14,12 +23,26 @@ export async function POST(req: NextRequest) {
     }
 
     const formData = await req.formData();
-    const file = formData.get('file') as File;
+    const file = formData.get('file');
     const photo_type = formData.get('photo_type') as string;
     const assignment_id = formData.get('assignment_id') as string;
 
-    if (!file || !photo_type || !assignment_id) {
+    if (!(file instanceof File) || !photo_type || !assignment_id) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    if (!ALLOWED_PHOTO_TYPES.has(file.type)) {
+      return NextResponse.json(
+        { error: 'Bitte nur JPG-, PNG- oder WebP-Bilder hochladen.' },
+        { status: 400 }
+      );
+    }
+
+    if (file.size > MAX_PHOTO_SIZE) {
+      return NextResponse.json(
+        { error: 'Das Foto darf maximal 5 MB gro\u00df sein.' },
+        { status: 400 }
+      );
     }
 
     // Verify user is assigned to this assignment
@@ -34,19 +57,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Not assigned to this assignment' }, { status: 403 });
     }
 
-    // Validate photo type (allow the 3 existing + new optional 'foto_extra')
-    const allowedTypes = new Set(['foto_maschine', 'foto_kapsellade', 'foto_pos_gesamt', 'foto_extra']);
-    if (!allowedTypes.has(photo_type)) {
+    const photoField = ALLOWED_PHOTO_FIELDS.get(photo_type);
+    if (!photoField) {
       return NextResponse.json({ error: 'Invalid photo_type' }, { status: 400 });
     }
 
     // Create file path
-    const fileExt = file.name.split('.').pop();
+    const fileExt = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
     const fileName = `${assignment_id}_${photo_type}_${Date.now()}.${fileExt}`;
     const filePath = `einsatz-photos/${fileName}`;
 
     // Upload to storage
-    const { data: uploadData, error: uploadError } = await service.storage
+    const { error: uploadError } = await service.storage
       .from('einsatz-photos')
       .upload(filePath, file, {
         cacheControl: '3600',
@@ -63,16 +85,27 @@ export async function POST(req: NextRequest) {
       .from('einsatz-photos')
       .getPublicUrl(filePath);
 
-    // Save photo reference to assignment_tracking table
-    const photoField = `${photo_type}_url`;
+    // Upsert ensures an uploaded photo always has a durable tracking reference,
+    // even if the start-time request did not create the tracking row.
     const { error: trackingError } = await service
       .from('assignment_tracking')
-      .update({ [photoField]: urlData.publicUrl })
-      .eq('assignment_id', assignment_id)
-      .eq('user_id', user.id);
+      .upsert(
+        {
+          assignment_id,
+          user_id: user.id,
+          [photoField]: urlData.publicUrl,
+        },
+        { onConflict: 'assignment_id,user_id' }
+      );
 
     if (trackingError) {
       console.error('Error saving photo URL to tracking:', trackingError);
+      const { error: cleanupError } = await service.storage
+        .from('einsatz-photos')
+        .remove([filePath]);
+      if (cleanupError) {
+        console.error('Error cleaning up unreferenced photo:', cleanupError);
+      }
       return NextResponse.json({ error: 'Failed to save photo reference' }, { status: 500 });
     }
 

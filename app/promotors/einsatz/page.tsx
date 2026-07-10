@@ -212,6 +212,7 @@ export default function EinsatzPage() {
     foto_extra: null
   });
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isCompletingEinsatz, setIsCompletingEinsatz] = useState(false);
 
   // NEW: Simplified process state management
   const [processState, setProcessState] = useState<{
@@ -464,6 +465,12 @@ const loadProcessState = async () => {
         const assignments = data.assignments || [];
         const tracking = assignments.find((a: any) => a.assignment_id === assignmentId);
         setTrackingData(tracking || null);
+        setUploadedPhotos({
+          foto_maschine: tracking?.foto_maschine_url || null,
+          foto_kapsellade: tracking?.foto_kapsellade_url || null,
+          foto_pos_gesamt: tracking?.foto_pos_gesamt_url || null,
+          foto_extra: tracking?.foto_extra_url || null,
+        });
         console.log('[loadAssignmentTracking] Found tracking for assignment:', tracking);
         
         // Set persistent status based on tracking data
@@ -1563,44 +1570,56 @@ const loadProcessState = async () => {
         method: 'POST',
         body: formData
       });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setUploadedPhotos(prev => ({
-          ...prev,
-          [photoType]: data.photo_url
-        }));
-        
-        if (photoUploadStep < 4) {
-          setPhotoUploadStep(prev => (prev + 1) as 1 | 2 | 3 | 4);
-        } else {
-          // All photos uploaded, complete the einsatz
-          setShowPhotoUploadModal(false);
-          await handleCompleteEinsatz(true); // Skip photo upload check
-        }
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Fehler beim Hochladen des Fotos.');
+      }
+
+      const nextPhotos = {
+        ...uploadedPhotos,
+        [photoType]: data.photo_url,
+      };
+      setUploadedPhotos(nextPhotos);
+
+      if (photoUploadStep < 4) {
+        setPhotoUploadStep(prev => (prev + 1) as 1 | 2 | 3 | 4);
       } else {
-        console.error('Failed to upload photo');
-        alert('Fehler beim Hochladen des Fotos. Bitte versuchen Sie es erneut.');
+        await handleCompleteEinsatz(true, nextPhotos);
       }
     } catch (error) {
       console.error('Error uploading photo:', error);
-      alert('Fehler beim Hochladen des Fotos. Bitte versuchen Sie es erneut.');
+      alert(error instanceof Error ? error.message : 'Fehler beim Hochladen des Fotos. Bitte versuchen Sie es erneut.');
     } finally {
       setIsUploadingPhoto(false);
     }
   };
 
-  const handleCompleteEinsatz = async (skipPhotoUpload = false) => {
-    // Check if all photos are uploaded (unless skipping photo upload)
-    const allRequiredUploaded = uploadedPhotos.foto_maschine && uploadedPhotos.foto_kapsellade && uploadedPhotos.foto_pos_gesamt;
-    
-    if (!skipPhotoUpload && !allRequiredUploaded) {
-      // Show photo upload modal first
-      setPhotoUploadStep(1);
+  const handlePhotoInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (file) void handlePhotoUpload(file);
+  };
+
+  const handleCompleteEinsatz = async (
+    skipPhotoUpload = false,
+    photos = uploadedPhotos
+  ): Promise<boolean> => {
+    const firstMissingPhotoStep = [
+      photos.foto_maschine,
+      photos.foto_kapsellade,
+      photos.foto_pos_gesamt,
+    ].findIndex((photo) => !photo);
+
+    if (!skipPhotoUpload && firstMissingPhotoStep !== -1) {
+      setPhotoUploadStep((firstMissingPhotoStep + 1) as 1 | 2 | 3);
       setShowPhotoUploadModal(true);
-      return;
+      return false;
     }
-    
+
+    if (!displayedAssignment?.id || isCompletingEinsatz) return false;
+    setIsCompletingEinsatz(true);
+
     try {
       // Get Austrian local time as ISO string WITHOUT timezone conversion
       const now = new Date();
@@ -1634,20 +1653,6 @@ const loadProcessState = async () => {
           console.log('ℹ️ [END] No early end reasoning to add');
         }
         
-        // Add photo URLs if available
-        if (uploadedPhotos.foto_maschine) {
-          updateData.foto_maschine_url = uploadedPhotos.foto_maschine;
-        }
-        if (uploadedPhotos.foto_kapsellade) {
-          updateData.foto_kapsellade_url = uploadedPhotos.foto_kapsellade;
-        }
-        if (uploadedPhotos.foto_pos_gesamt) {
-          updateData.foto_pos_gesamt_url = uploadedPhotos.foto_pos_gesamt;
-        }
-        if (uploadedPhotos.foto_extra) {
-          updateData.foto_extra_url = uploadedPhotos.foto_extra;
-        }
-        
         const response = await fetch('/api/assignments/today', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -1655,7 +1660,18 @@ const loadProcessState = async () => {
         });
         
         if (!response.ok) {
-          console.error('Failed to update end time');
+          const errorData = await response.json().catch(() => ({}));
+          if (errorData.code === 'REQUIRED_PHOTOS_MISSING') {
+            const missingSteps: Record<string, 1 | 2 | 3> = {
+              foto_maschine_url: 1,
+              foto_kapsellade_url: 2,
+              foto_pos_gesamt_url: 3,
+            };
+            const firstMissing = errorData.missing_photo_types?.[0];
+            setPhotoUploadStep(missingSteps[firstMissing] || 1);
+            setShowPhotoUploadModal(true);
+          }
+          throw new Error(errorData.error || 'Der Einsatz konnte nicht beendet werden.');
         } else {
           console.log('✅ Successfully updated end time for assignment:', displayedAssignment.id);
           // Clear early end reason after successful submission
@@ -1666,11 +1682,14 @@ const loadProcessState = async () => {
       
       setEinsatzStatus("completed");
       setLastCompletedAssignmentDate(assignmentEndDateRef.current ? new Date(assignmentEndDateRef.current) : new Date());
+      setShowPhotoUploadModal(false);
+      return true;
     } catch (error) {
       console.error('Error completing einsatz:', error);
-      // Still update UI even if API fails
-      setEinsatzStatus("completed");
-      setLastCompletedAssignmentDate(assignmentEndDateRef.current ? new Date(assignmentEndDateRef.current) : new Date());
+      alert(error instanceof Error ? error.message : 'Der Einsatz konnte nicht beendet werden.');
+      return false;
+    } finally {
+      setIsCompletingEinsatz(false);
     }
   };
 
@@ -3733,7 +3752,7 @@ const loadProcessState = async () => {
             <div className="relative bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 text-white p-6">
               <div className="text-center">
                 <div className="inline-flex items-center justify-center w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full mb-3">
-                  📸
+                  <Camera className="h-6 w-6" />
                 </div>
                 <h2 className="text-xl font-bold mb-1">{getPhotoTypeTitle(photoUploadStep)}</h2>
                 <p className="text-blue-100 text-sm">Schritt {photoUploadStep}/4</p>
@@ -3751,38 +3770,51 @@ const loadProcessState = async () => {
                   </p>
                 </div>
                 
-                {/* Photo Upload Area */}
-                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center">
+                {/* Photo source selection */}
+                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-4">
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
                     capture="environment"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        handlePhotoUpload(file);
-                      }
-                    }}
+                    onChange={handlePhotoInputChange}
                     className="hidden"
-                    id="photo-upload"
-                    disabled={isUploadingPhoto}
+                    id="photo-camera-upload"
+                    disabled={isUploadingPhoto || isCompletingEinsatz}
                   />
-                  <label 
-                    htmlFor="photo-upload" 
-                    className={`cursor-pointer ${isUploadingPhoto ? 'opacity-50' : ''}`}
-                  >
-                    {isUploadingPhoto ? (
-                      <div className="space-y-2">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-                        <p className="text-sm text-gray-600">Uploading...</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="text-4xl">📸</div>
-                        <p className="text-sm text-gray-600">Tippen zum Foto machen</p>
-                      </div>
-                    )}
-                  </label>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    onChange={handlePhotoInputChange}
+                    className="hidden"
+                    id="photo-gallery-upload"
+                    disabled={isUploadingPhoto || isCompletingEinsatz}
+                  />
+
+                  {isUploadingPhoto || isCompletingEinsatz ? (
+                    <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
+                      <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+                      <p className="text-sm text-gray-600 dark:text-gray-300">
+                        {isUploadingPhoto ? 'Foto wird hochgeladen...' : 'Einsatz wird abgeschlossen...'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3">
+                      <label
+                        htmlFor="photo-camera-upload"
+                        className="flex min-h-24 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-4 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                      >
+                        <Camera className="h-6 w-6" />
+                        Kamera
+                      </label>
+                      <label
+                        htmlFor="photo-gallery-upload"
+                        className="flex min-h-24 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+                      >
+                        <Image className="h-6 w-6" />
+                        Galerie
+                      </label>
+                    </div>
+                  )}
                 </div>
                 
                 {/* Progress Indicator */}
@@ -3805,7 +3837,7 @@ const loadProcessState = async () => {
                   <button
                     onClick={() => setPhotoUploadStep(prev => (prev - 1) as 1 | 2 | 3 | 4)}
                     className="w-full mt-4 p-2 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm text-gray-700 dark:text-gray-200"
-                    disabled={isUploadingPhoto}
+                    disabled={isUploadingPhoto || isCompletingEinsatz}
                   >
                     Zurück zum vorherigen Foto
                   </button>
@@ -3814,11 +3846,10 @@ const loadProcessState = async () => {
                 {photoUploadStep === 4 && (
                   <button
                     onClick={async () => {
-                      setShowPhotoUploadModal(false);
                       await handleCompleteEinsatz(true);
                     }}
                     className="w-full mt-2 p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm text-gray-700"
-                    disabled={isUploadingPhoto}
+                    disabled={isUploadingPhoto || isCompletingEinsatz}
                   >
                     Überspringen und Abschluss
                   </button>
@@ -4053,4 +4084,4 @@ const loadProcessState = async () => {
       )}
     </>
   );
-} 
+}

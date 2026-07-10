@@ -182,8 +182,9 @@ export async function PATCH(request: Request) {
 
     // If user_id is provided, check admin role. If not, use current user (promotor updating their own)
     const targetUserId = user_id || user.id;
+    const isAdminUpdate = Boolean(user_id && user_id !== user.id);
     
-    if (user_id && user_id !== user.id) {
+    if (isAdminUpdate) {
       // Admin updating someone else's tracking
       const { data: profile } = await service
         .from('user_profiles')
@@ -205,6 +206,47 @@ export async function PATCH(request: Request) {
       
       if (!participation) {
         return NextResponse.json({ error: 'Not assigned to this assignment' }, { status: 403 });
+      }
+    }
+
+    const { data: existing, error: existingError } = await service
+      .from('assignment_tracking')
+      .select('id, foto_maschine_url, foto_kapsellade_url, foto_pos_gesamt_url')
+      .eq('assignment_id', assignment_id)
+      .eq('user_id', targetUserId)
+      .maybeSingle();
+
+    if (existingError) {
+      console.error('Error loading tracking before update:', existingError);
+      return NextResponse.json(
+        { error: 'Failed to load tracking data', details: existingError.message },
+        { status: 500 }
+      );
+    }
+
+    const isPromotorCompletion = !isAdminUpdate && (
+      Boolean(actual_end_time) ||
+      action === 'stop' ||
+      (status === 'beendet' && action !== 'update_status')
+    );
+
+    if (isPromotorCompletion) {
+      const requiredPhotoFields = [
+        'foto_maschine_url',
+        'foto_kapsellade_url',
+        'foto_pos_gesamt_url',
+      ] as const;
+      const missingPhotoTypes = requiredPhotoFields.filter((field) => !existing?.[field]);
+
+      if (missingPhotoTypes.length > 0) {
+        return NextResponse.json(
+          {
+            error: 'Vor dem Beenden m\u00fcssen alle drei Pflichtfotos hochgeladen werden.',
+            code: 'REQUIRED_PHOTOS_MISSING',
+            missing_photo_types: missingPhotoTypes,
+          },
+          { status: 409 }
+        );
       }
     }
 
@@ -243,20 +285,22 @@ export async function PATCH(request: Request) {
       console.log('✅ [API] Adding minutes_early_end to update');
     }
     
+    // Promotor photo references can only be written by the verified upload route.
+    // Admin corrections may still provide URLs directly.
     // Handle photo URLs
-    if (foto_maschine_url) {
+    if (isAdminUpdate && foto_maschine_url) {
       updateData.foto_maschine_url = foto_maschine_url;
       console.log('✅ [API] Adding foto_maschine_url to update');
     }
-    if (foto_kapsellade_url) {
+    if (isAdminUpdate && foto_kapsellade_url) {
       updateData.foto_kapsellade_url = foto_kapsellade_url;
       console.log('✅ [API] Adding foto_kapsellade_url to update');
     }
-    if (foto_pos_gesamt_url) {
+    if (isAdminUpdate && foto_pos_gesamt_url) {
       updateData.foto_pos_gesamt_url = foto_pos_gesamt_url;
       console.log('✅ [API] Adding foto_pos_gesamt_url to update');
     }
-    if (foto_extra_url) {
+    if (isAdminUpdate && foto_extra_url) {
       updateData.foto_extra_url = foto_extra_url;
       console.log('✅ [API] Adding foto_extra_url to update');
     }
@@ -300,13 +344,6 @@ export async function PATCH(request: Request) {
     console.log('🔴 [API] Final updateData before database save:', updateData);
     
     // Update or create tracking record
-    const { data: existing } = await service
-      .from('assignment_tracking')
-      .select('id')
-      .eq('assignment_id', assignment_id)
-      .eq('user_id', targetUserId)
-      .single();
-
     let result;
     if (existing) {
       // Update existing record
