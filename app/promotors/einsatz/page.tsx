@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
+import { prepareEinsatzPhoto } from "@/lib/einsatz/preparePhoto"
+import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 import {
   Calendar,
   CheckCircle2,
@@ -1560,20 +1562,54 @@ const loadProcessState = async () => {
       const photoType = photoUploadStep === 1 ? 'foto_maschine' : 
                        photoUploadStep === 2 ? 'foto_kapsellade' :
                        photoUploadStep === 3 ? 'foto_pos_gesamt' : 'foto_extra';
-      
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('photo_type', photoType);
-      formData.append('assignment_id', displayedAssignment.id);
-      
-      const response = await fetch('/api/me/einsatz-photos/upload', {
+
+      const preparedPhoto = await prepareEinsatzPhoto(file);
+      const prepareResponse = await fetch('/api/me/einsatz-photos/upload', {
         method: 'POST',
-        body: formData
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignment_id: displayedAssignment.id,
+          photo_type: photoType,
+          content_type: preparedPhoto.type,
+          file_size: preparedPhoto.size,
+        }),
       });
 
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.error || 'Fehler beim Hochladen des Fotos.');
+      const preparedUpload = await prepareResponse.json().catch(() => ({}));
+      if (
+        !prepareResponse.ok
+        || typeof preparedUpload.path !== 'string'
+        || typeof preparedUpload.token !== 'string'
+      ) {
+        throw new Error(preparedUpload.error || 'Der Foto-Upload konnte nicht vorbereitet werden.');
+      }
+
+      const supabase = createSupabaseBrowserClient();
+      const { error: uploadError } = await supabase.storage
+        .from('einsatz-photos')
+        .uploadToSignedUrl(preparedUpload.path, preparedUpload.token, preparedPhoto, {
+          cacheControl: '3600',
+          contentType: preparedPhoto.type,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.error('Supabase Einsatz photo upload error:', uploadError);
+        throw new Error('Das Foto konnte nicht hochgeladen werden. Bitte versuchen Sie es erneut.');
+      }
+
+      const confirmResponse = await fetch('/api/me/einsatz-photos/upload', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignment_id: displayedAssignment.id,
+          photo_type: photoType,
+          path: preparedUpload.path,
+        }),
+      });
+      const data = await confirmResponse.json().catch(() => ({}));
+      if (!confirmResponse.ok || typeof data.photo_url !== 'string') {
+        throw new Error(data.error || 'Das Foto konnte nicht gespeichert werden.');
       }
 
       const nextPhotos = {
@@ -3774,7 +3810,7 @@ const loadProcessState = async () => {
                 <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-4">
                   <input
                     type="file"
-                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    accept="image/*"
                     capture="environment"
                     onChange={handlePhotoInputChange}
                     className="hidden"
@@ -3783,7 +3819,7 @@ const loadProcessState = async () => {
                   />
                   <input
                     type="file"
-                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    accept="image/*"
                     onChange={handlePhotoInputChange}
                     className="hidden"
                     id="photo-gallery-upload"
