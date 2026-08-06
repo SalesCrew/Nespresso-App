@@ -1436,33 +1436,49 @@ const loadProcessState = async () => {
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    const isDesktopPointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    if (!isDesktopPointer || e.button !== 0 || isSwiped) return;
+
     e.preventDefault();
-    setSwipeStartX(e.clientX);
+    const mouseStartX = e.clientX;
+    let currentSwipePosition = 0;
+    let didDrag = false;
+
     setIsSwipeAnimating(false);
     
     const handleMouseMove = (moveEvent: MouseEvent) => {
       if (isSwiped) return;
       
-      const currentX = moveEvent.clientX;
-      const deltaX = currentX - swipeStartX;
+      const deltaX = moveEvent.clientX - mouseStartX;
+      if (Math.abs(deltaX) > 4) didDrag = true;
       
       const containerWidth = swipeContainerRef.current?.offsetWidth || 0;
       const buttonWidth = 48;
       const maxSwipe = containerWidth - buttonWidth - 8;
       
-      const newPosition = Math.max(0, Math.min(deltaX, maxSwipe));
-      setSwipePosition(newPosition);
+      currentSwipePosition = Math.max(0, Math.min(deltaX, maxSwipe));
+      setSwipePosition(currentSwipePosition);
     };
     
     const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+
       if (isSwiped) return;
+
+      if (!didDrag) {
+        setSwipePosition(0);
+        setIsSwipeAnimating(false);
+        handleSwipeStart();
+        return;
+      }
       
       const containerWidth = swipeContainerRef.current?.offsetWidth || 0;
       const buttonWidth = 48;
       const maxSwipe = containerWidth - buttonWidth - 8;
       const threshold = maxSwipe * 0.8;
       
-      if (swipePosition >= threshold) {
+      if (currentSwipePosition >= threshold) {
         setSwipePosition(maxSwipe);
         setIsSwipeAnimating(true);
         setIsSwiped(true);
@@ -1476,9 +1492,6 @@ const loadProcessState = async () => {
           setIsSwipeAnimating(false);
         }, 300);
       }
-      
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
     };
     
     document.addEventListener('mousemove', handleMouseMove);
