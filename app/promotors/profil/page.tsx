@@ -164,6 +164,15 @@ export default function ProfilPage() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const photoInputRef = useRef<HTMLInputElement>(null)
   const [promotorContracts, setPromotorContracts] = useState<DienstvertragFileRow[]>([])
+
+  useEffect(() => {
+    if (window.location.hash !== '#dokumente') return
+
+    setIsDocumentsExpanded(true)
+    requestAnimationFrame(() => {
+      document.getElementById('dokumente')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }, [])
   const [editableProfile, setEditableProfile] = useState({
     email: "",
     phone: ""
@@ -1256,7 +1265,7 @@ export default function ProfilPage() {
           </div>
 
                       {/* Files & Documents */}
-          <Card className="border-none shadow-lg shadow-green-500/20 bg-white dark:bg-gray-900">
+          <Card id="dokumente" className="scroll-mt-6 border-none shadow-lg shadow-green-500/20 bg-white dark:bg-gray-900">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center">
                 <FileText className="h-5 w-5 mr-2 text-green-500" />

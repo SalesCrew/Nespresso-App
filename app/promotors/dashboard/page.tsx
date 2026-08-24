@@ -41,6 +41,7 @@ type TodoFilterRange = "heute" | "7tage" | "30tage"
 
 interface TodoItem {
   id: number;
+  kind?: "assignment" | "document" | "message" | "regular";
   title: string;
   priority: "high" | "medium" | "low";
   due: string;
@@ -78,6 +79,7 @@ export default function DashboardPage() {
   const [expandedTodos, setExpandedTodos] = useState(false);
   const [todoFilter, setTodoFilter] = useState<TodoFilterRange>("heute");
   const [showTodoHistory, setShowTodoHistory] = useState(false);
+  const [showDocumentUploadInfo, setShowDocumentUploadInfo] = useState(false);
   const [monthFilterOpen, setMonthFilterOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
@@ -425,7 +427,8 @@ export default function DashboardPage() {
       const isCompletedToday = hasActualEndTime && daysDiff === 0;
       
       const todo: TodoItem = {
-        id: assignment.id + 100000, // Ensure unique ID by adding offset
+        id: 100000 + currentTodos.length,
+        kind: "assignment",
         title: todoTitle,
         priority: "high", // Assignments always have highest priority
         due: dueText,
@@ -543,6 +546,7 @@ export default function DashboardPage() {
         if (isIncomplete || isCompletedToday) {
           const todo: TodoItem = {
             id: 200000 + documentTodos.length, // Unique ID range for documents (200000+)
+            kind: "document",
             title: `${doc.name} hochladen`,
             priority: "medium", // Document todos have medium priority
             due: "Erforderlich",
@@ -573,6 +577,7 @@ export default function DashboardPage() {
       if (isIncomplete || isCompletedToday) {
         const todo: TodoItem = {
           id: 300000 + index, // Unique ID range for messages (300000+)
+          kind: "message",
           title: message.sender_name ? `Nachricht von ${message.sender_name} lesen` : 'Wichtige Nachricht lesen',
           priority: "high", // Message todos have high priority
           due: "Erforderlich",
@@ -593,6 +598,7 @@ export default function DashboardPage() {
       if (isIncomplete || isCompletedToday) {
         const todo: TodoItem = {
           id: 300100 + index, // Unique ID range for confirmation messages (300100+)
+          kind: "message",
           title: message.sender_name ? `Nachricht von ${message.sender_name} bestätigen` : 'Nachricht bestätigen',
           priority: "high", // Message todos have high priority
           due: "Bestätigung erforderlich",
@@ -618,6 +624,7 @@ export default function DashboardPage() {
       
       return {
         ...todo,
+        kind: todo.kind || "regular",
         completed: isCompletedToday
       };
     }).filter(Boolean) as TodoItem[];
@@ -650,12 +657,12 @@ export default function DashboardPage() {
     }
     
     // Then by type priority: assignments (100000-199999) -> messages (300000+) -> documents (200000-299999) -> regular todos
-    const aIsAssignment = a.id >= 100000 && a.id < 200000;
-    const bIsAssignment = b.id >= 100000 && b.id < 200000;
-    const aIsMessage = a.id >= 300000;
-    const bIsMessage = b.id >= 300000;
-    const aIsDocument = a.id >= 200000 && a.id < 300000;
-    const bIsDocument = b.id >= 200000 && b.id < 300000;
+    const aIsAssignment = a.kind === "assignment";
+    const bIsAssignment = b.kind === "assignment";
+    const aIsMessage = a.kind === "message";
+    const bIsMessage = b.kind === "message";
+    const aIsDocument = a.kind === "document";
+    const bIsDocument = b.kind === "document";
     
     // Assignments come first
     if (aIsAssignment !== bIsAssignment) {
@@ -718,17 +725,22 @@ export default function DashboardPage() {
     */
   };
   
-  const handleOpenCalendar = (todo: TodoItem) => {
+  const handleOpenAssignment = () => {
     router.push("/promotors/einsatz");
+  };
+
+  const handleOpenDocumentUpload = () => {
+    setShowDocumentUploadInfo(false);
+    router.push("/promotors/profil#dokumente");
   };
 
   const renderTodoCollection = (items: TodoItem[]) => (
   <ul className="px-4 py-4 divide-y divide-purple-50">
       {items.map((todo) => {
         const priorityToken = PRIORITY_TOKENS[todo.priority] || PRIORITY_TOKENS.medium;
-        const isAssignment = todo.id >= 100000 && todo.id < 200000;
-        const isDocument = todo.id >= 200000 && todo.id < 300000;
-        const isMessage = todo.id >= 300000;
+        const isAssignment = todo.kind === "assignment";
+        const isDocument = todo.kind === "document";
+        const isMessage = todo.kind === "message";
         const indicatorClasses = `w-11 h-11 rounded-2xl border flex items-center justify-center transition-all duration-300 ${
           todo.completed
             ? "bg-gradient-to-br from-emerald-50 to-teal-50 border-emerald-200 text-emerald-600 shadow-sm dark:from-emerald-500/15 dark:to-teal-500/10 dark:border-emerald-500/40 dark:text-emerald-200"
@@ -812,19 +824,44 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-col items-end gap-2 ml-4">
-            <span
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${priorityToken.classes}`}
-            >
-              {priorityToken.label}
-            </span>
-            <button
-              type="button"
-              onClick={() => handleOpenCalendar(todo)}
-              className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-purple-200 hover:text-purple-500 dark:border-slate-700 dark:text-slate-200 dark:hover:border-purple-500/50"
-            >
-              <ArrowUpRight className="h-3.5 w-3.5" />
-              Zum Einsatz
-            </button>
+            <div className="flex items-center gap-2">
+              {isDocument && (
+                <button
+                  type="button"
+                  onClick={() => setShowDocumentUploadInfo(true)}
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-orange-200 bg-orange-50 text-orange-600 transition hover:border-orange-300 hover:bg-orange-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-200"
+                  aria-label="Hilfe zum Dokumenten-Upload"
+                  title="So funktioniert der Upload"
+                >
+                  <Info className="h-4 w-4" />
+                </button>
+              )}
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${priorityToken.classes}`}
+              >
+                {priorityToken.label}
+              </span>
+            </div>
+            {isAssignment && (
+              <button
+                type="button"
+                onClick={handleOpenAssignment}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-purple-200 hover:text-purple-500 dark:border-slate-700 dark:text-slate-200 dark:hover:border-purple-500/50"
+              >
+                <ArrowUpRight className="h-3.5 w-3.5" />
+                Zum Einsatz
+              </button>
+            )}
+            {isDocument && (
+              <button
+                type="button"
+                onClick={handleOpenDocumentUpload}
+                className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-medium text-orange-700 transition hover:border-orange-300 hover:bg-orange-100 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-200"
+              >
+                <ArrowUpRight className="h-3.5 w-3.5" />
+                Zum Upload
+              </button>
+            )}
           </div>
         </div>
           </li>
@@ -1319,6 +1356,69 @@ export default function DashboardPage() {
             </div>
           </div>
         </>
+      )}
+
+      {showDocumentUploadInfo && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 px-4 py-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="document-upload-info-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setShowDocumentUploadInfo(false);
+          }}
+        >
+          <div className="w-full max-w-md overflow-hidden rounded-lg bg-white shadow-2xl dark:bg-gray-900">
+            <div className="flex items-start justify-between border-b border-gray-100 px-5 py-4 dark:border-gray-800">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-orange-50 text-orange-600 dark:bg-orange-500/10 dark:text-orange-200">
+                  <Info className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 id="document-upload-info-title" className="text-base font-semibold text-gray-900 dark:text-white">
+                    Dokument hochladen
+                  </h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">So geht es Schritt für Schritt:</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDocumentUploadInfo(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                aria-label="Hinweis schließen"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <ol className="space-y-3 px-5 py-5 text-sm text-gray-700 dark:text-gray-200">
+              {[
+                "Tippe unten auf „Zum Upload“.",
+                "Auf deiner Profilseite öffnet sich der Bereich „Dokumente“.",
+                "Tippe beim fehlenden Dokument auf das Upload-Symbol.",
+                "Wähle ein gut lesbares Foto oder eine PDF-Datei aus.",
+                "Nach dem Hochladen wird das Dokument geprüft. Bei einer Ablehnung kannst du es erneut hochladen."
+              ].map((step, index) => (
+                <li key={step} className="flex items-start gap-3">
+                  <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-orange-100 text-xs font-bold text-orange-700 dark:bg-orange-500/15 dark:text-orange-200">
+                    {index + 1}
+                  </span>
+                  <span className="pt-0.5 leading-5">{step}</span>
+                </li>
+              ))}
+            </ol>
+
+            <div className="flex justify-end gap-2 border-t border-gray-100 px-5 py-4 dark:border-gray-800">
+              <Button variant="outline" onClick={() => setShowDocumentUploadInfo(false)}>
+                Schließen
+              </Button>
+              <Button className="bg-orange-600 text-white hover:bg-orange-700" onClick={handleOpenDocumentUpload}>
+                Zum Upload
+                <ArrowUpRight className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
 
