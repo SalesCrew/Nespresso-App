@@ -110,6 +110,12 @@ Die Migration loescht keine bestehenden operativen Einsatz-, Profil-,
 Dokument- oder Fotodaten. Sie aktiviert lediglich den dokumentierten
 15-Minuten-Cron fuer Eddie-Inhalte.
 
+Rollout-Stand 2026-08-28: Code-Deployment und Migration wurden in dieser
+Reihenfolge produktiv aktiviert und ausschliesslich ueber Metadaten geprueft.
+Der Supabase-Advisor-Hinweis fuer die ungenutzte exponierte
+`is_user_admin`-Hilfsfunktion wurde mit einer separaten Forward-Fix-Migration
+behoben.
+
 ## 7. Betriebsgeheimnisse und Provider
 
 - `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, `CRON_SECRET` und Kartenkeys

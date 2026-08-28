@@ -1,7 +1,7 @@
 # SalesCrew Nespresso App: DSGVO Austria Living Document
 
 Stand: 2026-08-28<br>
-Status: technische Haertung lokal umgesetzt; Produktionsrollout ausstehend<br>
+Status: technische Haertung produktiv ausgerollt; fachliche Freigaben offen<br>
 Owner: Sales Crew Verkaufsfoerderung GmbH (fachliche Freigaben offen)
 
 > Dieses Dokument ist eine technische Compliance-Arbeitsgrundlage und keine
@@ -301,5 +301,9 @@ Vor jedem produktiven Schema- oder Storage-Schritt:
   Low-Risiken reduziert; SheetJS wurde auf das offizielle `0.20.3`-Tarball
   aktualisiert. Neue Chat-Anhaenge verwenden keine gespeicherten Langzeitlinks
   mehr; Abrufe laufen mit Mitgliedschaftspruefung ueber 60-Sekunden-Links und
-  Legacy-Links werden bei der Ausgabe normalisiert. Produktivmigration bleibt bis zum aktiven
-  Code-Deployment gesperrt.
+  Legacy-Links werden bei der Ausgabe normalisiert.
+- 2026-08-28: Commit `d780168` als Vercel-Production-Deployment aktiviert;
+  Supabase-Migration `harden_dsgvo_access_boundaries` angewendet und ueber
+  Migrationseintrag, RLS, Grants, Policies, private Storage-Buckets,
+  `security_invoker`-Views, Funktionsrechte und Cron-Metadaten bestaetigt. Es
+  wurden keine produktiven Daten-Smoke-Tests ausgefuehrt.
