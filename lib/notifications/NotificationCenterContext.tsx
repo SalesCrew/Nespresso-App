@@ -68,12 +68,9 @@ export function NotificationCenterProvider({ children, maxVisible = 3 }: { child
   }, [remove]);
 
   const push = useCallback((notification: MessageNotification) => {
-    console.log('[NotificationCenter] Push called with:', notification);
     setNotifications(prev => {
-      console.log('[NotificationCenter] Current notifications:', prev);
       // Deduplicate by messageId
       if (prev.some(n => n.messageId === notification.messageId)) {
-        console.log('[NotificationCenter] Duplicate detected, skipping');
         return prev;
       }
 
@@ -105,7 +102,6 @@ export function NotificationCenterProvider({ children, maxVisible = 3 }: { child
         }
       }
 
-      console.log('[NotificationCenter] Updated notifications:', updated);
       return updated;
     });
 

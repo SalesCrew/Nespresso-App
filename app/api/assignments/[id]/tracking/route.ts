@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
+import { requireAdmin } from '@/lib/auth/routeGuards'
+import { recordDataAccess } from '@/lib/audit/dataAccess'
+import { signEinsatzPhotoFields } from '@/lib/storage/einsatzPhotos'
 
 export async function GET(
   req: Request,
@@ -12,21 +14,8 @@ export async function GET(
       return NextResponse.json({ error: 'Missing assignmentId' }, { status: 400 })
     }
 
-    const server = createSupabaseServerClient()
-    const { data: { user }, error: authError } = await server.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { data: profile } = await server
-      .from('user_profiles')
-      .select('role')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!profile || !['admin_of_admins', 'admin_staff'].includes(profile.role)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+    const auth = await requireAdmin()
+    if (!auth.ok) return auth.response
 
     const svc = createSupabaseServiceClient()
 
@@ -48,7 +37,7 @@ export async function GET(
         .eq('assignment_id', assignmentId)
         .eq('user_id', assignment.lead_user_id)
         .maybeSingle()
-      tracking = trackingRow ?? null
+      tracking = trackingRow ? await signEinsatzPhotoFields(svc, trackingRow) : null
     }
 
     const { data: checkins } = await svc
@@ -62,6 +51,15 @@ export async function GET(
       .select('reported_at, user_id, created_at')
       .eq('assignment_id', assignmentId)
       .order('reported_at', { ascending: true })
+
+    await recordDataAccess({
+      actorUserId: auth.user.id,
+      action: 'assignment_tracking_read',
+      resourceType: 'assignment_tracking',
+      resourceId: assignmentId,
+      subjectUserId: assignment.lead_user_id || null,
+      metadata: { includes_location: true, includes_photos: true },
+    })
 
     return NextResponse.json({
       assignment,

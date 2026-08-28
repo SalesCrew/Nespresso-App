@@ -5,14 +5,10 @@ import { createSupabaseServiceClient } from '@/lib/supabase/service';
 // GET: Fetch user's conversations with participants, last message, and unread count
 export async function GET(request: NextRequest) {
   try {
-    console.log('[/api/chat/conversations] Starting request');
     const supabase = await createSupabaseServerClientAsync();
-    console.log('[/api/chat/conversations] Supabase client created');
-    
+
     // Get authenticated user
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    console.log('[/api/chat/conversations] User:', user?.id, 'Auth error:', authError);
-    
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -110,7 +106,7 @@ export async function GET(request: NextRequest) {
       conversations?.map(async (conv) => {
         // Get participants for this conversation
         const convParticipants = allParticipants?.filter(p => p.conversation_id === conv.id) || [];
-        
+
         // Get participant details with profiles
         const participantDetails = convParticipants.map(p => {
           const profile = userProfiles?.find(up => up.user_id === p.user_id);
@@ -140,8 +136,8 @@ export async function GET(request: NextRequest) {
           .gt('created_at', clearedAt);
 
         // Get last message for this conversation (only messages after cleared_at)
-        const lastMessage = lastMessages?.find(m => 
-          m.conversation_id === conv.id && 
+        const lastMessage = lastMessages?.find(m =>
+          m.conversation_id === conv.id &&
           new Date(m.created_at) > new Date(clearedAt)
         );
         const lastMessageSender = userProfiles?.find(up => up.user_id === lastMessage?.sender_id);
@@ -200,7 +196,7 @@ export async function POST(request: NextRequest) {
     // Check authentication only (admin pages are protected at route level)
     const server = await createSupabaseServerClientAsync();
     const { data: auth } = await server.auth.getUser();
-    
+
     if (!auth.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -216,18 +212,50 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid conversation type' }, { status: 400 });
     }
 
-    if (type === 'group' && !name) {
+    if (type === 'group' && (!name || String(name).trim().length > 120)) {
       return NextResponse.json({ error: 'Group conversations require a name' }, { status: 400 });
+    }
+
+    if (description && String(description).length > 500) {
+      return NextResponse.json({ error: 'Description is too long' }, { status: 400 });
     }
 
     if (!participantIds || !Array.isArray(participantIds) || participantIds.length === 0) {
       return NextResponse.json({ error: 'At least one participant is required' }, { status: 400 });
     }
 
+    const normalizedParticipantIds = [...new Set(participantIds.map((id: unknown) => String(id)))];
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (normalizedParticipantIds.length > 100 || normalizedParticipantIds.some((id) => !uuidPattern.test(id))) {
+      return NextResponse.json({ error: 'Invalid participants' }, { status: 400 });
+    }
+
+    if (type === 'direct' && (normalizedParticipantIds.length !== 1 || normalizedParticipantIds[0] === auth.user.id)) {
+      return NextResponse.json({ error: 'Direct conversations require one other participant' }, { status: 400 });
+    }
+
+    const { data: actorProfile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('user_id', auth.user.id)
+      .maybeSingle();
+    const isAdmin = ['admin_staff', 'admin_of_admins'].includes(String(actorProfile?.role || ''));
+    if (type === 'group' && !isAdmin) {
+      return NextResponse.json({ error: 'Only admins can create group conversations' }, { status: 403 });
+    }
+
+    const { data: participantProfiles, error: participantProfilesError } = await supabase
+      .from('user_profiles')
+      .select('user_id')
+      .in('user_id', normalizedParticipantIds);
+    if (participantProfilesError || participantProfiles?.length !== normalizedParticipantIds.length) {
+      return NextResponse.json({ error: 'Unknown participant' }, { status: 400 });
+    }
+
     // For direct chats, check if conversation already exists
-    if (type === 'direct' && participantIds.length === 1) {
-      const otherUserId = participantIds[0];
-      
+    if (type === 'direct') {
+      const otherUserId = normalizedParticipantIds[0];
+
       // Find existing direct conversation between these two users
       const { data: existingParticipants } = await supabase
         .from('chat_participants')
@@ -255,9 +283,9 @@ export async function POST(request: NextRequest) {
             .single();
 
           if (existingConv) {
-            return NextResponse.json({ 
-              conversation: existingConv, 
-              existing: true 
+            return NextResponse.json({
+              conversation: existingConv,
+              existing: true
             });
           }
         }
@@ -269,11 +297,11 @@ export async function POST(request: NextRequest) {
       .from('chat_conversations')
       .insert({
         type,
-        name: type === 'group' ? name : null,
-        description: description || null,
+        name: type === 'group' ? String(name).trim() : null,
+        description: description ? String(description).trim() : null,
         is_read_only: type === 'group', // Groups are always read-only for promotors
         created_by: auth.user.id,
-        profile_picture_url: profilePictureUrl || null,
+        profile_picture_url: type === 'group' && profilePictureUrl ? String(profilePictureUrl).slice(0, 1000) : null,
       })
       .select()
       .single();
@@ -284,7 +312,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Add participants (creator + selected users)
-    const participantsToAdd = [auth.user.id, ...participantIds].filter(
+    const participantsToAdd = [auth.user.id, ...normalizedParticipantIds].filter(
       (id, index, self) => self.indexOf(id) === index // Remove duplicates
     );
 

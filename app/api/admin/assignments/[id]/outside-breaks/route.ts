@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireAdmin } from '@/lib/auth/routeGuards';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 
 // GET: fetch outside-break records for an assignment (admin view)
@@ -6,6 +7,9 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
+
   try {
     const { id: assignmentId } = await params;
     if (!assignmentId) {

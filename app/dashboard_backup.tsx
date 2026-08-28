@@ -426,7 +426,6 @@ export default function DashboardPage() {
   };
 
   const handleOnboardingComplete = (data: any) => {
-    console.log("Onboarding completed with data:", data);
     setShowOnboarding(false);
     // Show spotlight on To-Do list
     setShowTodoSpotlight(true);

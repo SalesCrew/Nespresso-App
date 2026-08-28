@@ -1,19 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { recomputeOnboarding } from '@/lib/onboarding/recompute';
+import { requireSelfOrAdmin } from '@/lib/auth/routeGuards';
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const server = createSupabaseServerClient();
-  const { data: auth } = await server.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  if (auth.user.id !== params.id) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const auth = await requireSelfOrAdmin(params.id);
+  if (!auth.ok) return auth.response;
 
   const body = await req.json().catch(() => ({} as any));
   // Support two shapes: { path } OR { contract_id, file_path }
   const path = body?.path || body?.file_path;
   const contractId = body?.contract_id as string | undefined;
   if (!path) return NextResponse.json({ error: 'invalid payload' }, { status: 400 });
+  if (typeof path !== 'string' || !path.startsWith(`${params.id}/submissions/`) || path.includes('..')) {
+    return NextResponse.json({ error: 'invalid path' }, { status: 400 });
+  }
 
   const svc = createSupabaseServiceClient();
   if (contractId) {

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireAdmin } from '@/lib/auth/routeGuards'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { computeBestMarket, normalizeForMatch } from '@/lib/matchers/marketMatcher'
 
@@ -894,6 +895,9 @@ async function runEpInternUpdateImport(
 }
 
 export async function POST(req: Request) {
+  const auth = await requireAdmin()
+  if (!auth.ok) return auth.response
+
   try {
     const svc = createSupabaseServiceClient()
     const body = await req.json().catch(() => null)

@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
+import { requireAdmin } from '@/lib/auth/routeGuards'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 // List promotors who applied for a given assignment
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  const auth = await requireAdmin()
+  if (!auth.ok) return auth.response
+
   try {
-    console.log('Fetching applications for assignment:', params.id);
     const svc = createSupabaseServiceClient()
     const { data: invites, error: invErr } = await svc
       .from('assignment_invitations')
@@ -12,7 +15,6 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       .eq('assignment_id', params.id)
       .eq('status', 'applied')
       .order('responded_at', { ascending: true })
-    console.log('Found invitations:', invites);
     if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
 
     const userIds = [...new Set((invites || []).map((i: any) => i.user_id))]

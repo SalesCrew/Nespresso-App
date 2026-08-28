@@ -757,8 +757,6 @@ export const useChatIntegration = (options: UseChatIntegrationOptions = {}) => {
     if (!socket) return;
 
     const handleNewMessage = (message: Message) => {
-      console.log('[Socket.IO] New message received:', message);
-      console.log('[Socket.IO] Message type:', message.message_type, 'File URL:', message.file_url);
       
       // Add message to the conversation
       setMessages(prev => ({
@@ -894,7 +892,6 @@ export const useChatIntegration = (options: UseChatIntegrationOptions = {}) => {
       topReaction: { emoji: string; count: number } | null;
       totalReactions: number;
     }) => {
-      console.log('[Socket.IO] Reaction updated:', data);
       
       setMessages(prev => ({
         ...prev,

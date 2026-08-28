@@ -282,7 +282,6 @@ export default function EinsatzPage() {
     if (res.ok) {
       const data = await res.json();
       const tags = data.buddy_tags || [];
-      console.log('Loaded buddy tags:', tags);
       setBuddyTags(tags);
     } else {
       console.error('Failed to load buddy tags:', res.status);
@@ -296,7 +295,6 @@ export default function EinsatzPage() {
 
 const loadProcessState = async () => {
     try {
-      console.log('Loading process state...');
       const res = await fetch('/api/assignments/invites/process-state', {
         cache: 'no-store',
         credentials: 'include'
@@ -311,7 +309,6 @@ const loadProcessState = async () => {
       }
       
       const data = await res.json();
-      console.log('Process state loaded:', data);
       
       setProcessState({
         stage: data.stage || 'idle',
@@ -323,14 +320,12 @@ const loadProcessState = async () => {
         selectedIds: []
       });
       
-      console.log('Process state set from API response');
       // Don't update old compatibility state - we're using the new UI only
     } catch (error) {
       console.error('Error loading process state:', error);
       
       // Fallback: Try to load invitations using the existing API
       try {
-        console.log('Falling back to existing invites API...');
         const res = await fetch('/api/assignments/invites', { // Remove status filter to get all invites
           cache: 'no-store', 
           credentials: 'include' 
@@ -338,11 +333,7 @@ const loadProcessState = async () => {
         
         if (res.ok) {
           const data = await res.json();
-          console.log('Fallback API response:', data);
           const invites = Array.isArray(data?.invites) ? data.invites : [];
-                      console.log('Fallback invites loaded:', invites.length);
-            console.log('Invites data:', invites);
-            console.log('First invite details:', invites[0]);
           
           if (invites.length > 0) {
             // Map function for consistent formatting
@@ -386,13 +377,6 @@ const loadProcessState = async () => {
             const ersatzterminInvites = (hasRejected || hasAccepted) ? invitedInvites : [];
             
             
-            console.log('=== KEYWORD-BASED CATEGORIZATION ===');
-            console.log('Active invites (excluding verstanden/rejected_handled/withdrawn):', activeInvites.length);
-            console.log('- invited:', invitedInvites.length);
-            console.log('- applied:', appliedInvites.length);
-            console.log('- accepted:', acceptedInvites.length);
-            console.log('- rejected:', rejectedInvites.length);
-            console.log('- ersatztermin invites:', ersatzterminInvites.length);
             
             const mappedInvited = invitedInvites.map(mapInvite).filter((x: any) => x.id);
             const mappedWaiting = appliedInvites.map(mapInvite).filter((x: any) => x.id);
@@ -424,9 +408,6 @@ const loadProcessState = async () => {
               stage = 'select_assignment';
             }
             
-            console.log('=== SETTING PROCESS STATE FROM FALLBACK ===');
-            console.log('Determined stage:', stage);
-            console.log('Based on keywords:', { hasInvited, hasApplied, hasAcceptedKeyword, hasRejectedKeyword });
             
             setProcessState({
               stage: stage as any,
@@ -438,7 +419,6 @@ const loadProcessState = async () => {
               selectedIds: []
             });
             
-            console.log('Process state set to', stage, 'with invitations');
             
             // Also clear old state to prevent old UI from showing
             setHasAvailableAssignments(false);
@@ -446,12 +426,10 @@ const loadProcessState = async () => {
             return; // IMPORTANT: Return here to avoid setting to idle
           } else {
             // No invitations at all
-            console.log('No invitations found in fallback');
             setProcessState(prev => ({ ...prev, stage: 'idle' }));
             return;
           }
         } else {
-          console.log('Fallback API failed:', res.status);
           setProcessState(prev => ({ ...prev, stage: 'idle' }));
         }
       } catch (fallbackError) {
@@ -464,12 +442,9 @@ const loadProcessState = async () => {
   // Load assignment tracking data for persistent status
   const loadAssignmentTracking = async (assignmentId: string) => {
     try {
-      console.log('[loadAssignmentTracking] Fetching tracking data for:', assignmentId);
       const res = await fetch('/api/me/assignment-tracking', { cache: 'no-store', credentials: 'include' });
-      console.log('[loadAssignmentTracking] Response status:', res.status);
       if (res.ok) {
         const data = await res.json();
-        console.log('[loadAssignmentTracking] Raw response data:', data);
         const assignments = data.assignments || [];
         const tracking = assignments.find((a: any) => a.assignment_id === assignmentId);
         setTrackingData(tracking || null);
@@ -479,7 +454,6 @@ const loadProcessState = async () => {
           foto_pos_gesamt: tracking?.foto_pos_gesamt_url || null,
           foto_extra: tracking?.foto_extra_url || null,
         });
-        console.log('[loadAssignmentTracking] Found tracking for assignment:', tracking);
         
         // Set persistent status based on tracking data
         if (tracking) {
@@ -491,23 +465,19 @@ const loadProcessState = async () => {
             // Tracking data is from previous day - reset to idle for new day
             setEinsatzStatus("idle");
             setIsSwiped(false);
-            console.log('[loadAssignmentTracking] Status reset to idle (new day)');
           } else if (tracking.actual_start_time && tracking.actual_end_time) {
             // Both start and end times exist - completed
             setEinsatzStatus("completed");
             setIsSwiped(true);
             setLastCompletedAssignmentDate(new Date()); // Set completion date for UI logic
-            console.log('[loadAssignmentTracking] Status set to completed (both timestamps)');
           } else if (tracking.actual_start_time && !tracking.actual_end_time) {
             // Only start time exists - active/started
             setEinsatzStatus("started");
             setIsSwiped(true);
-            console.log('[loadAssignmentTracking] Status set to started (start timestamp only)');
           } else {
             // No start time - idle
             setEinsatzStatus("idle");
             setIsSwiped(false);
-            console.log('[loadAssignmentTracking] Status set to idle (no timestamps)');
           }
         }
       } else {
@@ -524,12 +494,9 @@ const loadProcessState = async () => {
     const startTime = Date.now();
     try {
       setNextAssignmentLoading(true);
-      console.log('[loadNextAssignment] Fetching next assignment...');
       const res = await fetch('/api/me/next-assignment', { cache: 'no-store', credentials: 'include' });
-      console.log('[loadNextAssignment] Response status:', res.status);
       if (res.ok) {
         const data = await res.json();
-        console.log('[loadNextAssignment] Response data:', data);
         setNextAssignment(data.assignment || null);
         
         // Load tracking data for persistent status if assignment is for today
@@ -567,10 +534,6 @@ const loadProcessState = async () => {
   };
   
   useEffect(() => {
-    console.log('=== MOUNTING EINSATZ PAGE ===');
-    console.log('Initial processState:', processState);
-    console.log('Initial hasAvailableAssignments:', hasAvailableAssignments);
-    console.log('Initial assignments:', assignments);
     loadProcessState();
     loadBuddyTags();
     loadNextAssignment();
@@ -595,14 +558,10 @@ const loadProcessState = async () => {
   
   // Track processState changes
   useEffect(() => {
-    console.log('=== PROCESS STATE CHANGED ===');
-    console.log('New processState:', processState);
   }, [processState]);
   
   // Track nextAssignment changes
   useEffect(() => {
-    console.log('=== NEXT ASSIGNMENT CHANGED ===');
-    console.log('nextAssignment:', nextAssignment);
   }, [nextAssignment]);
 
   
@@ -622,7 +581,6 @@ const loadProcessState = async () => {
             // Skip - process restoration is handled in loadProcessState now
             
             // Don't load old assignments if we have an active process
-            console.log('Active process found:', process.process_stage);
             
             // Restore UI state based on process stage
             if (process.process_stage !== 'idle') {
@@ -748,11 +706,6 @@ const loadProcessState = async () => {
               statuses[String(id)] = 'confirmed';
             });
             
-            console.log('Setting up accepted assignments state:', {
-              ids,
-              statuses,
-              acceptedAssignmentsCount: acceptedAssignments.length
-            });
             
             setSelectedAssignmentIds(ids);
             setAssignmentStatuses(statuses);
@@ -811,11 +764,6 @@ const loadProcessState = async () => {
               statuses[String(id)] = 'declined';
             });
             
-            console.log('Setting up rejected assignments state:', {
-              rejectedIds,
-              statuses,
-              rejectedAssignmentsCount: rejectedAssignments.length
-            });
             
             setSelectedAssignmentIds(rejectedIds);
             setAssignmentStatuses(statuses);
@@ -867,11 +815,9 @@ const loadProcessState = async () => {
                 
                 // Set replacement assignments in state
                 setReplacementAssignments(mappedErsatztermin);
-                console.log('Set Ersatztermin assignments:', mappedErsatztermin.length, 'items');
               } else {
                 // No Ersatztermin assignments - clear the state
                 setReplacementAssignments([]);
-                console.log('No Ersatztermin assignments available');
               }
             }
           }
@@ -1030,7 +976,6 @@ const loadProcessState = async () => {
       });
       
       if (response.ok) {
-        console.log(`${requestType} request created successfully`);
         // Re-check status to update UI
         await checkActiveSpecialStatus();
       } else {
@@ -1721,13 +1666,10 @@ const loadProcessState = async () => {
         };
         
         // Add early end reason if this was an early end
-        console.log('🔵 [END] Checking early end reason:', earlyEndReason, 'Minutes early end:', minutesEarlyEnd);
         if (earlyEndReason.trim()) {
           updateData.early_end_reason = earlyEndReason.trim();
           updateData.minutes_early_end = minutesEarlyEnd;
-          console.log('✅ [END] Added early end reasoning to API call');
         } else {
-          console.log('ℹ️ [END] No early end reasoning to add');
         }
         
         const response = await fetch('/api/assignments/today', {
@@ -1750,7 +1692,6 @@ const loadProcessState = async () => {
           }
           throw new Error(errorData.error || 'Der Einsatz konnte nicht beendet werden.');
         } else {
-          console.log('✅ Successfully updated end time for assignment:', displayedAssignment.id);
           // Clear early end reason after successful submission
           setEarlyEndReason("");
           setMinutesEarlyEnd(0);
@@ -1771,7 +1712,6 @@ const loadProcessState = async () => {
   };
 
   const handleBuddyTagSelect = (id: string) => {
-    console.log("Selected buddy tag ID:", id);
     setSelectedBuddyTagId(id);
   };
 
@@ -1853,8 +1793,6 @@ const loadProcessState = async () => {
 
   // NEW: Simplified flow handlers
   const handleNewAssignmentSelect = (assignmentId: string) => {
-    console.log('=== SELECTING ASSIGNMENT ===');
-    console.log('assignmentId:', assignmentId);
     
     setProcessState(prev => {
       const isSelected = prev.selectedIds.includes(assignmentId);
@@ -1862,8 +1800,6 @@ const loadProcessState = async () => {
         ? prev.selectedIds.filter(id => id !== assignmentId)
         : [...prev.selectedIds, assignmentId];
       
-      console.log('Current selectedIds:', prev.selectedIds);
-      console.log('New selectedIds:', newSelectedIds);
       
       return {
         ...prev,
@@ -1873,9 +1809,6 @@ const loadProcessState = async () => {
   };
 
   const handleNewSubmitAssignments = async () => {
-    console.log('=== SUBMITTING ASSIGNMENTS ===');
-    console.log('processState.selectedIds:', processState.selectedIds);
-    console.log('processState.invitedAssignments:', processState.invitedAssignments);
     
     if (processState.selectedIds.length === 0) {
       console.error('No assignments selected!');
@@ -1885,7 +1818,6 @@ const loadProcessState = async () => {
     try {
       // Submit selected assignments
       for (const assignmentId of processState.selectedIds) {
-        console.log('Submitting assignment:', assignmentId);
         await fetch(`/api/assignments/${assignmentId}/invites/respond`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1968,7 +1900,6 @@ const loadProcessState = async () => {
   };
 
   const handleNewAcknowledge = async () => {
-    console.log('User pressed Verstanden - marking as verstanden in DB');
     
     // Mark assignments as verstanden in database
     const assignmentIds = [
@@ -2622,11 +2553,6 @@ const loadProcessState = async () => {
 
         {/* Assignment Selection Card - NEW FLOW */}
         {(() => {
-          console.log('=== RENDER DECISION ===');
-          console.log('processState.stage:', processState.stage);
-          console.log('processState.invitedAssignments:', processState.invitedAssignments);
-          console.log('hasAvailableAssignments:', hasAvailableAssignments);
-          console.log('assignments:', assignments);
           return null;
         })()}
         {processState.stage === 'loading' ? (
@@ -2854,12 +2780,6 @@ const loadProcessState = async () => {
         
         {false ? ( // Disable old UI completely
           (() => {
-            console.log('Assignment card should render:', {
-              hasAvailableAssignments,
-              isAssignmentCollapsed,
-              selectedAssignmentIds,
-              assignmentStatuses
-            });
             return (
           <Card className="mb-6 border-dashed border-blue-400 dark:border-blue-600 shadow-sm">
             {!isAssignmentCollapsed ? (
@@ -2997,13 +2917,6 @@ const loadProcessState = async () => {
                 {/* Replacement Assignment Selection - Integrated */}
                 {(() => {
                   const hasDeclined = selectedAssignmentIds.some(id => assignmentStatuses[String(id)] === 'declined');
-                  console.log('Replacement UI check:', {
-                    showReplacementAssignments,
-                    selectedAssignmentIds,
-                    assignmentStatuses,
-                    hasDeclined,
-                    replacementCount: replacementAssignments.length
-                  });
                   return showReplacementAssignments && hasDeclined;
                 })() && (
                   <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
@@ -3093,7 +3006,6 @@ const loadProcessState = async () => {
                           ...processState.acceptedAssignments.map(a => a.id),
                           ...processState.rejectedAssignments.map(a => a.id)
                         ];
-                        console.log('Acknowledging all assignments in process:', allAssignmentIds);
                         
                         await Promise.all(
                           allAssignmentIds.map(id => 
@@ -3482,7 +3394,6 @@ const loadProcessState = async () => {
                     className="flex-1 bg-green-500 hover:bg-green-600 text-white"
                     onClick={() => {
                       // Handle order submission here
-                      console.log(`Ordered ${equipmentQuantity}x ${selectedEquipment?.name}`);
                       // Reset to list view
                       setEquipmentOrderStep("list");
                       setSelectedEquipment(null);

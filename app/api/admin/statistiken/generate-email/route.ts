@@ -1,22 +1,20 @@
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { recordDataAccess } from '@/lib/audit/dataAccess'
+import { requireAdmin } from '@/lib/auth/routeGuards'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 export async function POST(req: Request) {
-  try {
-    const server = createSupabaseServerClient()
-    const { data: { user } } = await server.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  const auth = await requireAdmin()
+  if (!auth.ok) return auth.response
 
+  try {
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 })
     }
 
     const body = await req.json().catch(() => ({}))
-    const name: string = (body?.name ?? '').toString()
-    const email: string = (body?.email ?? '').toString()
+    const name: string = (body?.name ?? '').toString().trim().slice(0, 200)
+    const userId: string | null = /^[0-9a-f-]{36}$/i.test(String(body?.userId || '')) ? String(body.userId) : null
     const mcetRaw: string = (body?.mcet ?? '').toString()
     const tmaRaw: string = (body?.tma ?? '').toString()
     const vlShareRaw: string = (body?.vlShare ?? '').toString()
@@ -40,15 +38,16 @@ export async function POST(req: Request) {
     const mcetDisplay = fmt1(mcetNum)
     const tmaDisplay = fmt1(tmaNum)
     const vlDisplay = fmt1(vlNum)
-    
+
     // Get current month name in German
     const currentDate = new Date()
     const monthNames = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
     const currentMonthName = monthNames[currentDate.getMonth()]
-    
+
     // Extract first name from full name
-    const pName = name.split(' ')[0]
-    
+    const pName = name.split(' ')[0] || 'Promotor'
+    const namePlaceholder = '{{VORNAME}}'
+
     // Map category to mood text
     const moodMap: Record<string, string> = {
       'Beeindruckt': `Mood: Stark Beeindruckt - Priorität Höchste Anerkennung! Schreibe diese E-Mail im Ton höchster Anerkennung und Wertschätzung. Die Leistung war außergewöhnlich. Formulierungen wie "herausragende Leistung", "wirklich beeindruckend", "exzellent" und "ein großes Lob für diese Performance" sollen den Kern der E-Mail bilden. Stelle sicher, dass diese positive Emotion in jedem Abschnitt mitschwingt, von der Einleitung bis zum Schluss. Vermeide jede neutrale oder zurückhaltende Formulierung.`,
@@ -57,41 +56,21 @@ export async function POST(req: Request) {
       'Motivierend (unzufrieden)': `Mood: Konstruktiv-Motivierend - Handlungsbedarf bei schwachen Zahlen! Die Zahlen sind aktuell nicht zufriedenstellend und es besteht klarer Handlungsbedarf. Wichtig: Formuliere absolut lösungsorientiert und unterstützend, nicht anklagend. Ziel ist es, den Promoter zu motivieren, gemeinsam Ursachen zu finden und die Performance zu steigern. Nutze Formulierungen wie "lassen Sie uns gemeinsam analysieren, wie wir hier eine Wende schaffen können", "wir möchten Sie unterstützen, wieder auf Kurs zu kommen", "wir sind überzeugt, dass mit den richtigen Anpassungen eine Verbesserung möglich ist". Der Ton ist ernst, aber partnerschaftlich und zukunftsorientiert.`,
       'Verschlechterung': `Mood: Besorgniserregende Verschlechterung - Ursachenforschung ist jetzt wichtig! Die Performance ist leider spürbar zurückgegangen. Dies muss klar, aber konstruktiv und nicht demotivierend angesprochen werden. Ziel ist es, den Promoter zur Reflexion anzuregen und gemeinsam nach Ursachen und Lösungen zu suchen. Formuliere Sätze wie: "Uns ist aufgefallen, dass die Zahlen in diesem Monat leider einen Rückgang zeigen. Lassen Sie uns gemeinsam überlegen, woran das liegen könnte und wie wir gegensteuern können.", "Es ist wichtig, diesen Trend zu verstehen, um wieder an frühere Erfolge anzuknüpfen." Biete Unterstützung an.`
     }
-    
+
     const selectedMood = moodMap[category] || ''
-    // Default: no historical context
-    let historicalContextString = 'Noch keine historischen Daten verfügbar.'
-
-    // Try to fetch latest historical feedback (KPIs + full email text) for this promotor by email
-    try {
-      if (email) {
-      const svc = createSupabaseServiceClient()
-        // Resolve user by email from user_profiles (case-insensitive)
-        const { data: profile } = await svc
-          .from('user_profiles')
-          .select('user_id, email')
-          .ilike('email', email)
-          .single()
-
-        if (profile?.user_id) {
-          const { data: latest } = await svc
+    let historicalContextString = 'Kein numerischer Vergleichskontext.'
+    if (userId) {
+      const service = createSupabaseServiceClient()
+      const { data: latest } = await service
         .from('kpi_feedback')
-            .select('mc_et, tma, vl_value, feedback_text, created_at')
-            .eq('user_id', profile.user_id)
+        .select('mc_et, tma, vl_value, created_at')
+        .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(1)
-            .single()
-
-          if (latest) {
-            const when = new Date(latest.created_at).toLocaleDateString('de-AT')
-            historicalContextString =
-              `Letztes Feedback vom ${when} – KPIs: MC/ET ${String(latest.mc_et ?? '')}, TMA ${String(latest.tma ?? '')}%, VL Share ${String(latest.vl_value ?? '')}%. ` +
-              `Gesendeter Text (Auszug): "${(latest.feedback_text || '').slice(0, 600)}"`
-          }
-        }
+        .maybeSingle()
+      if (latest) {
+        historicalContextString = `Vorherige KPIs: MC/ET ${String(latest.mc_et ?? '')}, TMA ${String(latest.tma ?? '')}%, VL Share ${String(latest.vl_value ?? '')}%.`
       }
-    } catch (e) {
-      // Keep default string if anything fails
     }
 
     const systemPrompt = `Du bist Teil einer Webapp, die automatisch E‑Mails an unsere externen Promotoren verschickt. Deine Aufgabe ist es, den E‑Mail-Text zu verfassen. Dabei beachtest du folgende Grundregeln:
@@ -101,12 +80,12 @@ export async function POST(req: Request) {
 • Die Empfänger sind unsere externen Promotoren im Einzelhandel. Du bleibst stets motivierend, übertreibst aber nicht.
 • Ziel der E‑Mails ist es, zu mehr Engagement anzuspornen und unsere Verkaufszahlen zu verbessern.
 • Die E‑Mails sollen direkt kopierfertig sein.
-• Keine Bindestriche in Sätzen verwende stattdessen Beistriche. 
+• Keine Bindestriche in Sätzen verwende stattdessen Beistriche.
 • Keine dicke Schrift, keine kursive Schrift, verwende keine '**'.
 
 Aufbau der E‑Mail:
 
-1. Anrede: "Liebe" bzw. "Lieber" + ${pName}. Verwende in der Anrede nur den Vornamen der Person. Schreibe IMMER in Du‑Form; verwende niemals "ihr" oder "euch".
+1. Anrede: "Liebe" bzw. "Lieber" + ${namePlaceholder}. Gib den Platzhalter ${namePlaceholder} exakt unverändert aus. Schreibe IMMER in Du‑Form; verwende niemals "ihr" oder "euch".
 
 2. Einleitung, z. B. "Ich darf dir heute deine ${currentMonthName} KPIs zukommen lassen."
 
@@ -246,13 +225,13 @@ Solltet ihr noch Tipps und Tricks brauchen, könnt ihr euch jederzeit bei uns me
 Liebe Grüße, dein Nespresso Team
 
 \`Mood: Stark Beeindruckt - Priorität Höchste Anerkennung! Schreibe diese E-Mail im Ton höchster Anerkennung und Wertschätzung. Die Leistung war außergewöhnlich. Formulierungen wie "herausragende Leistung", "wirklich beeindruckend", "exzellent" und "ein großes Lob für diese Performance" sollen den Kern der E-Mail bilden. Stelle sicher, dass diese positive Emotion in jedem Abschnitt mitschwingt, von der Einleitung bis zum Schluss. Vermeide jede neutrale oder zurückhaltende Formulierung.\`,
-        
+
         zufrieden: \`Mood: Solide Zufriedenheit - Fokus auf das Positive!\nDer Ton dieser E-Mail soll klarstellen: Trotz eventueller kleinerer Schwächen sind wir mit der Gesamtleistung zufrieden und blicken positiv auf die Zusammenarbeit. Nutze Formulierungen wie "eine solide Leistung unter diesen Umständen", "wir sind damit zufrieden", "gut gemacht". Die E-Mail soll unterstützend und positiv klingen, ohne die Realität zu beschönigen. Betone das Engagement.\`,
-        
+
         verbesserung: \`Mood: Deutliche Verbesserung - Trend hervorheben!\nDiese E-Mail muss den positiven Entwicklungstrend klar hervorheben. Auch wenn das Ziel noch nicht erreicht ist, ist der Fortschritt offensichtlich und anerkennenswert. Formuliere aktiv und positiv über die Verbesserung, z.B. "eine klare positive Entwicklung ist sichtbar", "Sie sind auf einem sehr guten Weg", "diese Steigerung ist ein tolles Signal". Motiviere, diesen Weg konsequent weiterzugehen.\`,
-        
+
         motivierend: \`Mood: Konstruktiv-Motivierend - Handlungsbedarf bei schwachen Zahlen!\nDie Zahlen sind aktuell nicht zufriedenstellend und es besteht klarer Handlungsbedarf. Wichtig: Formuliere absolut lösungsorientiert und unterstützend, nicht anklagend. Ziel ist es, den Promoter zu motivieren, gemeinsam Ursachen zu finden und die Performance zu steigern. Nutze Formulierungen wie "lassen Sie uns gemeinsam analysieren, wie wir hier eine Wende schaffen können", "wir möchten Sie unterstützen, wieder auf Kurs zu kommen", "wir sind überzeugt, dass mit den richtigen Anpassungen eine Verbesserung möglich ist". Der Ton ist ernst, aber partnerschaftlich und zukunftsorientiert.\`,
-        
+
         verschlechterung: \`Mood: Besorgniserregende Verschlechterung - Ursachenforschung ist jetzt wichtig!\nDie Performance ist leider spürbar zurückgegangen. Dies muss klar, aber konstruktiv und nicht demotivierend angesprochen werden. Ziel ist es, den Promoter zur Reflexion anzuregen und gemeinsam nach Ursachen und Lösungen zu suchen. Formuliere Sätze wie: "Uns ist aufgefallen, dass die Zahlen in diesem Monat leider einen Rückgang zeigen. Lassen Sie uns gemeinsam überlegen, woran das liegen könnte und wie wir gegensteuern können.", "Es ist wichtig, diesen Trend zu verstehen, um wieder an frühere Erfolge anzuknüpfen." Biete Unterstützung an.\`
 
 ACHTUNG – MAGIC TOUCH (sehr wichtig, unbedingt berücksichtigen): ${category}`
@@ -260,7 +239,7 @@ ACHTUNG – MAGIC TOUCH (sehr wichtig, unbedingt berücksichtigen): ${category}`
     const userPrompt = 'Erzeuge jetzt den endgültigen E-Mail-Text.'
 
     const requestPayload = {
-      model: 'gpt-5-chat-latest',
+      model: process.env.OPENAI_CHAT_MODEL || 'gpt-5-chat-latest',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
@@ -268,7 +247,8 @@ ACHTUNG – MAGIC TOUCH (sehr wichtig, unbedingt berücksichtigen): ${category}`
       temperature: 0.7
     }
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const baseUrl = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
@@ -278,19 +258,27 @@ ACHTUNG – MAGIC TOUCH (sehr wichtig, unbedingt berücksichtigen): ${category}`
     })
 
     if (!response.ok) {
-      const errText = await response.text()
-      return NextResponse.json({ error: 'OpenAI API error', details: errText }, { status: 500 })
+      return NextResponse.json({ error: 'OpenAI API error' }, { status: 502 })
     }
 
     const result = await response.json()
-    const text: string = (result?.choices?.[0]?.message?.content || '').trim()
-    if (!text) {
+    const generatedText: string = (result?.choices?.[0]?.message?.content || '').trim()
+    if (!generatedText) {
       return NextResponse.json({ error: 'Empty AI response' }, { status: 500 })
     }
 
+    const text = generatedText.split(namePlaceholder).join(pName)
+    await recordDataAccess({
+      actorUserId: auth.user.id,
+      action: 'kpi_email_draft_generated',
+      resourceType: 'kpi_email_draft',
+      subjectUserId: userId,
+      metadata: { external_ai_used: true, direct_identifier_sent: false },
+    })
+
     return NextResponse.json({ text })
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Server error' }, { status: 500 })
+  } catch {
+    return NextResponse.json({ error: 'Server error' }, { status: 500 })
   }
 }
 

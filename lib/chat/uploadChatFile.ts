@@ -7,21 +7,28 @@ export async function uploadChatFile(
   fileType: 'photo' | 'pdf'
 ): Promise<{ url: string; fileName: string } | null> {
   try {
+    const allowedTypes = fileType === 'photo'
+      ? new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+      : new Set(['application/pdf']);
+    if (!file.size || file.size > 10 * 1024 * 1024 || !allowedTypes.has(file.type.toLowerCase())) {
+      return null;
+    }
+
     const supabase = createSupabaseBrowserClient();
     
     // Generate unique filename
     const timestamp = Date.now();
     const extension = file instanceof File ? file.name.split('.').pop() : (fileType === 'photo' ? 'jpg' : 'pdf');
     const fileName = file instanceof File ? file.name : `${fileType}-${timestamp}.${extension}`;
-    const uniqueFileName = `${timestamp}-${fileName}`;
+    const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 180);
+    const uniqueFileName = `${timestamp}-${crypto.randomUUID()}-${safeFileName}`;
     
     // Storage path: {userId}/{conversationId}/{uniqueFileName}
     const filePath = `${userId}/${conversationId}/${uniqueFileName}`;
     
-    console.log('[uploadChatFile] Uploading to:', filePath);
     
     // Upload file to Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('chat-attachments')
       .upload(filePath, file, {
         cacheControl: '3600',
@@ -32,23 +39,8 @@ export async function uploadChatFile(
       console.error('[uploadChatFile] Upload error:', uploadError);
       return null;
     }
-    
-    console.log('[uploadChatFile] Upload successful:', uploadData);
-    
-    // Get signed URL (valid for 1 year) since bucket is private
-    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-      .from('chat-attachments')
-      .createSignedUrl(filePath, 31536000); // 1 year in seconds
-    
-    if (signedUrlError || !signedUrlData) {
-      console.error('[uploadChatFile] Error creating signed URL:', signedUrlError);
-      return null;
-    }
-    
-    console.log('[uploadChatFile] Signed URL:', signedUrlData.signedUrl);
-    
     return {
-      url: signedUrlData.signedUrl,
+      url: `/api/chat/attachments?path=${encodeURIComponent(filePath)}`,
       fileName: fileName,
     };
   } catch (error) {

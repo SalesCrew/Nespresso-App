@@ -12,7 +12,6 @@ export default function OnboardingDemoPage() {
   const handleOnboardingComplete = (data: any) => {
     setOnboardingData(data)
     setShowOnboarding(false)
-    console.log("Onboarding completed with data:", data)
   }
 
   return (

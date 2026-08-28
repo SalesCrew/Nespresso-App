@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
+import { requireAdmin, requireUser } from '@/lib/auth/routeGuards'
+import { signEinsatzPhotoFields } from '@/lib/storage/einsatzPhotos'
 
 const ASSIGNMENTS_PAGE_SIZE = 1000
 const IN_CLAUSE_CHUNK_SIZE = 500
@@ -14,6 +16,9 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 
 export async function GET(req: Request) {
   try {
+    const auth = await requireUser()
+    if (!auth.ok) return auth.response
+
     const url = new URL(req.url)
     const from = url.searchParams.get('from')
     const to = url.searchParams.get('to')
@@ -23,7 +28,35 @@ export async function GET(req: Request) {
 
     // Use service role to ensure admins can list all assignments regardless of session context
     const svc = createSupabaseServiceClient()
-    const idArray = ids ? ids.split(',').map((id) => id.trim()).filter(Boolean) : []
+    let idArray = ids ? ids.split(',').map((id) => id.trim()).filter(Boolean) : []
+    if (idArray.length > 200) {
+      return NextResponse.json({ error: 'too many assignment ids' }, { status: 400 })
+    }
+
+    if (!auth.isAdmin) {
+      if (idArray.length === 0) {
+        return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+      }
+
+      const [{ data: participantRows }, { data: invitationRows }] = await Promise.all([
+        svc
+          .from('assignment_participants')
+          .select('assignment_id')
+          .eq('user_id', auth.user.id)
+          .in('assignment_id', idArray),
+        svc
+          .from('assignment_invitations')
+          .select('assignment_id')
+          .eq('user_id', auth.user.id)
+          .in('assignment_id', idArray),
+      ])
+      const allowedIds = new Set([
+        ...(participantRows || []).map((row: any) => String(row.assignment_id)),
+        ...(invitationRows || []).map((row: any) => String(row.assignment_id)),
+      ])
+      idArray = idArray.filter((id) => allowedIds.has(id))
+      if (idArray.length === 0) return NextResponse.json({ assignments: [] })
+    }
     const buildQuery = (offset: number) => {
       let q = svc
         .from('assignments_with_buddy_info')
@@ -90,9 +123,9 @@ export async function GET(req: Request) {
       }
     }
 
-    const enriched = rows.map((r: any) => {
+    const enriched = await Promise.all(rows.map(async (r: any) => {
       const tracking = trackingMap.get(r.id)
-      return {
+      return signEinsatzPhotoFields(svc, {
         ...r,
         matched_market_id: r.matched_market_id !== undefined ? r.matched_market_id : (mmMap.get(r.id) ?? null),
         tracking_actual_start_time: tracking?.actual_start_time ?? null,
@@ -107,8 +140,13 @@ export async function GET(req: Request) {
         tracking_foto_kapsellade_url: tracking?.foto_kapsellade_url ?? null,
         tracking_foto_pos_gesamt_url: tracking?.foto_pos_gesamt_url ?? null,
         tracking_foto_extra_url: tracking?.foto_extra_url ?? null,
-      }
-    })
+      }, [
+        'tracking_foto_maschine_url',
+        'tracking_foto_kapsellade_url',
+        'tracking_foto_pos_gesamt_url',
+        'tracking_foto_extra_url',
+      ])
+    }))
 
     return NextResponse.json({ assignments: enriched })
   } catch (e: any) {
@@ -118,6 +156,8 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const auth = await requireAdmin()
+    if (!auth.ok) return auth.response
     const body = await req.json().catch(() => ({}))
     const svc = createSupabaseServiceClient()
     const { data, error } = await svc.from('assignments').insert(body).select('*').single()

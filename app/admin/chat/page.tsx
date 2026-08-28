@@ -83,7 +83,6 @@ export default function ChatPage() {
   const [showPollModal, setShowPollModal] = useState(false);
   useEffect(() => {
     if (showPollModal) {
-      console.log('[Poll] Modal open (admin)');
     }
   }, [showPollModal]);
   const [photoEditor, setPhotoEditor] = useState<{ show: boolean; image: string; caption: string; rotation: number; brightness: number; contrast: number; crop: { x: number; y: number; width: number; height: number } | null; cropMode: boolean } | null>(null);
@@ -598,10 +597,8 @@ export default function ChatPage() {
   // Stub functions for features not yet integrated with Socket.IO
   // These are no-ops to prevent errors in UI code paths we're keeping for later
   const setAllMessages = (updater: any) => {
-    console.log('[Chat] setAllMessages called - feature not yet integrated with Socket.IO');
   };
   const setContacts = (updater: any) => {
-    console.log('[Chat] setContacts called - feature not yet integrated with Socket.IO');
   };
 
   // Get messages for the selected conversation from real data
@@ -953,10 +950,6 @@ export default function ChatPage() {
             const originalY = rect.top - chatAreaRect.top;
             const startOffset = originalY - replyTargetY;
             
-            console.log('Chat area height:', chatAreaRect.height);
-            console.log('Original message Y:', originalY);
-            console.log('Reply target Y:', replyTargetY);
-            console.log('Start offset:', startOffset);
             
             // Create dynamic keyframe
             const keyframeName = `slide-to-reply-${contextMenu.messageId}`;
@@ -1068,7 +1061,6 @@ export default function ChatPage() {
         }
       }
     } else {
-      console.log(`${action} message ${contextMenu.messageId}`);
     }
     closeContextMenu();
   };
@@ -1677,7 +1669,6 @@ export default function ChatPage() {
                             }
                           } else {
                             // Multiple contacts - go to group naming step
-                          console.log('Weiter clicked, advancing to step 2');
                           setGroupCreationPopup(prev => ({ ...prev, step: 2 }));
                           }
                         }}
@@ -2261,7 +2252,6 @@ export default function ChatPage() {
                                 chatIntegration.fetchMessages(String(selectedChat.id));
                               }
                               
-                              console.log('Participant removed successfully');
                             } else {
                               const error = await response.json();
                               console.error('Failed to remove participant:', error);
@@ -2501,7 +2491,6 @@ export default function ChatPage() {
                                       chatIntegration.fetchMessages(String(selectedChat.id));
                                     }
                                     
-                                    console.log('Participants added successfully');
                                     
                                     // Reset selection
                                     setSelectedPromotors([]);
@@ -3755,7 +3744,6 @@ export default function ChatPage() {
                   onClick={(e) => {
                     e.preventDefault();
                     setTimeout(() => {
-                      console.log('[Poll] Open from attachment menu');
                       setShowPollModal(true);
                     }, 0);
                     setAttachmentPopup(false);

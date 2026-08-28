@@ -1,5 +1,6 @@
 import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
+import { signEinsatzPhotoFields } from '@/lib/storage/einsatzPhotos';
 import {
   ASSIGNMENT_LOCATION_RADIUS_METERS,
   calculateDistanceMeters,
@@ -99,7 +100,7 @@ export async function GET(request: Request) {
     const includeSchulung = url.searchParams.get('include_schulung') === '1';
     const server = await createSupabaseServerClientAsync();
     const service = createSupabaseServiceClient();
-    
+
     // Check if user is authenticated
     const { data: { user }, error: authError } = await server.auth.getUser();
     if (authError || !user) {
@@ -108,7 +109,6 @@ export async function GET(request: Request) {
     }
 
     // Check if user is admin using service client
-    console.log('Checking profile for user:', user.id);
     const { data: profile, error: profileError } = await service
       .from('user_profiles')
       .select('role')
@@ -117,30 +117,15 @@ export async function GET(request: Request) {
 
     if (profileError) {
       console.error('Profile query error:', profileError);
-      console.error('User ID:', user.id);
-      return NextResponse.json({ 
-        error: 'Profile not found', 
-        details: profileError.message,
-        userId: user.id 
-      }, { status: 404 });
-    }
-    
-    if (!profile) {
-      console.error('No profile found for user:', user.id);
-      return NextResponse.json({ 
-        error: 'Profile not found',
-        userId: user.id 
-      }, { status: 404 });
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
-    console.log('User profile role:', profile.role);
+    if (!profile) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+    }
+
     if (!['admin_of_admins', 'admin_staff'].includes(profile.role)) {
-      console.error('Role not allowed:', profile.role);
-      return NextResponse.json({ 
-        error: 'Forbidden', 
-        role: profile.role,
-        allowed: ['admin_of_admins', 'admin_staff']
-      }, { status: 403 });
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // First, ensure tracking records exist for today's assignments
@@ -168,9 +153,8 @@ export async function GET(request: Request) {
 
     if (assignmentsError) {
       console.error('Error fetching today\'s assignments after retry:', assignmentsError);
-      return NextResponse.json({ 
-        error: 'Failed to fetch assignments', 
-        details: assignmentsError.message 
+      return NextResponse.json({
+        error: 'Failed to fetch assignments'
       }, { status: 500 });
     }
 
@@ -249,11 +233,11 @@ export async function GET(request: Request) {
       }
     }
 
-    const enrichedAssignments = visibleAssignments.map((row: any) => {
+    const enrichedAssignments = await Promise.all(visibleAssignments.map(async (row: any) => {
       const assignmentId = String(row?.assignment_id || row?.id || '');
       const rowUserId = String(row?.user_id || row?.lead_user_id || '');
       const tracking = trackingByAssignmentUser.get(`${assignmentId}:${rowUserId}`);
-      return {
+      return signEinsatzPhotoFields(service, {
         ...row,
         type: String(row?.type || typeByAssignmentId.get(assignmentId) || '').toLowerCase(),
         participant_names: participantNamesByAssignmentId.get(assignmentId) || [],
@@ -273,16 +257,14 @@ export async function GET(request: Request) {
         end_location_captured_at: row?.end_location_captured_at ?? tracking?.end_location_captured_at ?? null,
         end_distance_meters: row?.end_distance_meters ?? tracking?.end_distance_meters ?? null,
         end_location_status: row?.end_location_status ?? tracking?.end_location_status ?? null,
-      };
-    });
+      });
+    }));
 
-    console.log(`Fetched ${assignments?.length || 0} assignments for today`);
     return NextResponse.json({ assignments: enrichedAssignments });
   } catch (error) {
     console.error('Unexpected error in /api/assignments/today:', error);
-    return NextResponse.json({ 
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+    return NextResponse.json({
+      error: 'Internal server error'
     }, { status: 500 });
   }
 }
@@ -292,7 +274,7 @@ export async function PATCH(request: Request) {
   try {
     const server = await createSupabaseServerClientAsync();
     const service = createSupabaseServiceClient();
-    
+
     // Check authentication
     const { data: { user }, error: authError } = await server.auth.getUser();
     if (authError || !user) {
@@ -309,7 +291,7 @@ export async function PATCH(request: Request) {
     // If user_id is provided, check admin role. If not, use current user (promotor updating their own)
     const targetUserId = user_id || user.id;
     const isAdminUpdate = Boolean(user_id && user_id !== user.id);
-    
+
     if (isAdminUpdate) {
       // Admin updating someone else's tracking
       const { data: profile } = await service
@@ -329,7 +311,7 @@ export async function PATCH(request: Request) {
         .eq('assignment_id', assignment_id)
         .eq('user_id', user.id)
         .single();
-      
+
       if (!participation) {
         return NextResponse.json({ error: 'Not assigned to this assignment' }, { status: 403 });
       }
@@ -343,7 +325,7 @@ export async function PATCH(request: Request) {
 
     if (assignmentScheduleError) {
       return NextResponse.json(
-        { error: 'Failed to load assignment schedule', details: assignmentScheduleError.message },
+        { error: 'Failed to load assignment schedule' },
         { status: 500 }
       );
     }
@@ -361,7 +343,7 @@ export async function PATCH(request: Request) {
     if (existingError) {
       console.error('Error loading tracking before update:', existingError);
       return NextResponse.json(
-        { error: 'Failed to load tracking data', details: existingError.message },
+        { error: 'Failed to load tracking data' },
         { status: 500 }
       );
     }
@@ -404,47 +386,37 @@ export async function PATCH(request: Request) {
     if (status) {
       updateData.status = status;
     }
-    
+
     // Handle early start reasoning
-    console.log('🔵 [API] Received early start data:', { early_start_reason, minutes_early_start });
     if (early_start_reason) {
       updateData.early_start_reason = early_start_reason;
-      console.log('✅ [API] Adding early_start_reason to update');
     }
     if (minutes_early_start !== undefined) {
       updateData.minutes_early_start = minutes_early_start;
-      console.log('✅ [API] Adding minutes_early_start to update');
     }
-    
+
     // Handle early end reasoning
-    console.log('🔵 [API] Received early end data:', { early_end_reason, minutes_early_end });
     if (early_end_reason) {
       updateData.early_end_reason = early_end_reason;
-      console.log('✅ [API] Adding early_end_reason to update');
     }
     if (minutes_early_end !== undefined) {
       updateData.minutes_early_end = minutes_early_end;
-      console.log('✅ [API] Adding minutes_early_end to update');
     }
-    
+
     // Promotor photo references can only be written by the verified upload route.
     // Admin corrections may still provide URLs directly.
     // Handle photo URLs
     if (isAdminUpdate && foto_maschine_url) {
       updateData.foto_maschine_url = foto_maschine_url;
-      console.log('✅ [API] Adding foto_maschine_url to update');
     }
     if (isAdminUpdate && foto_kapsellade_url) {
       updateData.foto_kapsellade_url = foto_kapsellade_url;
-      console.log('✅ [API] Adding foto_kapsellade_url to update');
     }
     if (isAdminUpdate && foto_pos_gesamt_url) {
       updateData.foto_pos_gesamt_url = foto_pos_gesamt_url;
-      console.log('✅ [API] Adding foto_pos_gesamt_url to update');
     }
     if (isAdminUpdate && foto_extra_url) {
       updateData.foto_extra_url = foto_extra_url;
-      console.log('✅ [API] Adding foto_extra_url to update');
     }
 
     // Handle action-based updates (legacy admin interface)
@@ -452,7 +424,7 @@ export async function PATCH(request: Request) {
       // Get Austrian local time as ISO string WITHOUT timezone conversion
       const now = new Date();
       // Use sv-SE locale which gives YYYY-MM-DD HH:mm:ss format
-      const austrianTimeString = now.toLocaleString('sv-SE', { 
+      const austrianTimeString = now.toLocaleString('sv-SE', {
         timeZone: 'Europe/Vienna',
         year: 'numeric',
         month: '2-digit',
@@ -462,7 +434,7 @@ export async function PATCH(request: Request) {
         second: '2-digit',
         hour12: false
       }).replace(' ', 'T') + '.000Z';  // Add T and fake Z to make it look like ISO but with Austrian time
-      
+
       switch (action) {
         case 'start':
           updateData.actual_start_time = austrianTimeString;
@@ -546,8 +518,7 @@ export async function PATCH(request: Request) {
       }
     }
 
-    console.log('🔴 [API] Final updateData before database save:', updateData);
-    
+
     // Update or create tracking record
     let result;
     if (existing) {
@@ -573,18 +544,16 @@ export async function PATCH(request: Request) {
 
     if (result.error) {
       console.error('Error updating tracking:', result.error);
-      return NextResponse.json({ 
-        error: 'Failed to update tracking',
-        details: result.error.message 
+      return NextResponse.json({
+        error: 'Failed to update tracking'
       }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, data: result.data });
   } catch (error) {
     console.error('Unexpected error in PATCH /api/assignments/today:', error);
-    return NextResponse.json({ 
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+    return NextResponse.json({
+      error: 'Internal server error'
     }, { status: 500 });
   }
 }

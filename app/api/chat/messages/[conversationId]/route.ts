@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
+import { chatAttachmentProxyUrl } from '@/lib/storage/chatAttachments';
 
 // GET: Fetch message history for a conversation
 export async function GET(
@@ -185,7 +186,7 @@ export async function GET(
           sender_name: replyToSender?.display_name || 'Unknown',
           message_text: replyTo.message_text,
           message_type: replyTo.message_type,
-          file_url: replyTo.file_url,
+          file_url: chatAttachmentProxyUrl(replyTo.file_url),
           file_name: replyTo.file_name,
         };
       }
@@ -229,6 +230,7 @@ export async function GET(
 
       return {
         ...message,
+        file_url: chatAttachmentProxyUrl(message.file_url),
         sender_name: sender?.display_name || 'Unknown',
         sender_role: sender?.role || 'promotor',
         reply_to: replyToEnriched,

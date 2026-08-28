@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/auth/routeGuards';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
-import { requireAdmin } from '@/lib/supabase/queries';
 import { z } from 'zod';
 
 const applicationSchema = z.object({
@@ -32,13 +31,12 @@ const applicationSchema = z.object({
   preferredRegion: z.string().optional().nullable(),
   workingDays: z.array(z.string()).optional().nullable(),
   hoursPerWeek: z.string().optional().nullable(),
-}).passthrough();
+  status: z.literal('received'),
+});
 
 export async function GET() {
-  // Temporary: allow any authenticated user to list, even if no profile is provisioned yet
-  const server = await createSupabaseServerClientAsync();
-  const { data: auth } = await server.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
   const svc = createSupabaseServiceClient();
   const { data, error } = await svc.from('applications').select('*').order('created_at', { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -46,6 +44,10 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const contentLength = Number(req.headers.get('content-length') || 0);
+  if (contentLength > 100_000) {
+    return NextResponse.json({ error: 'Anfrage zu gross' }, { status: 413 });
+  }
   const raw = await req.json().catch(() => ({} as any));
   const fullNameComputed = (raw.full_name ?? `${raw.firstName ?? ''} ${raw.lastName ?? ''}`)?.trim?.() ?? '';
   const emailComputed = typeof raw.email === 'string' ? raw.email.trim() : '';
@@ -79,7 +81,6 @@ export async function POST(req: NextRequest) {
     preferredRegion: raw.preferredRegion ?? null,
     workingDays: Array.isArray(raw.workingDays) ? raw.workingDays : null,
     hoursPerWeek: raw.hoursPerWeek ?? null,
-    payload: raw,
     status: 'received' as const,
   };
   // Validate minimally
@@ -95,9 +96,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const server = await createSupabaseServerClientAsync();
-  const { data: auth } = await server.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
   const svc = createSupabaseServiceClient();
   const body = await req.json().catch(() => ({} as any));
   const id = body?.id;
@@ -111,9 +111,8 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const server = await createSupabaseServerClientAsync();
-  const { data: auth } = await server.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
 
   const svc = createSupabaseServiceClient();
   const body = await req.json().catch(() => ({} as any));

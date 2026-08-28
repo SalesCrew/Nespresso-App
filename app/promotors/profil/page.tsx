@@ -7,10 +7,10 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Input } from "@/components/ui/input"
 import { createSupabaseBrowserClient } from "@/lib/supabase/client"
-import { 
-  MapPin, 
-  Mail, 
-  Phone, 
+import {
+  MapPin,
+  Mail,
+  Phone,
   Calendar,
   FileText,
   Users,
@@ -76,12 +76,12 @@ function TypingDocumentName({ documentName }: { documentName: string }) {
   const [displayText, setDisplayText] = useState('');
   const [isTypingReview, setIsTypingReview] = useState(false);
   const [phase, setPhase] = useState<'typing-name' | 'showing-name' | 'typing-review' | 'showing-review'>('typing-name');
-  
+
   const reviewText = 'Admins prüfen das Dokument';
-  
+
   useEffect(() => {
     let timeout: NodeJS.Timeout;
-    
+
     if (phase === 'typing-name') {
       // Type out the document name character by character
       if (displayText.length < documentName.length) {
@@ -121,10 +121,10 @@ function TypingDocumentName({ documentName }: { documentName: string }) {
         setIsTypingReview(false);
       }, 2000);
     }
-    
+
     return () => clearTimeout(timeout);
   }, [displayText, phase, documentName]);
-  
+
   return (
     <span className="text-sm text-gray-600 dark:text-gray-300">
       {displayText}
@@ -208,10 +208,10 @@ export default function ProfilPage() {
   const [headerName, setHeaderName] = useState<string>("")
   const [headerLocation, setHeaderLocation] = useState<string>("")
   const [headerJoinDate, setHeaderJoinDate] = useState<string>("")
-  
+
   // Access credentials data
   const [accessData, setAccessData] = useState<any>(null)
-  
+
   // User profile data
   const [userProfileData, setUserProfileData] = useState<any>(null)
   const [isLoading, setIsLoading] = useState<boolean>(true)
@@ -302,19 +302,19 @@ export default function ProfilPage() {
         setSavingPersonal(true)
         const supabase = createSupabaseBrowserClient()
         const { data: { user } } = await supabase.auth.getUser()
-        
+
         if (user) {
-          const { error } = await supabase
-            .from('promotor_profiles')
-            .update({
+          const response = await fetch(`/api/promotors/${user.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
               birth_date: editablePersonalData.birthday,
               social_security_number: editablePersonalData.socialSecurityNumber,
               citizenship: editablePersonalData.citizenship,
-            })
-            .eq('user_id', user.id)
-          
-          if (error) throw error
-          
+            }),
+          })
+          if (!response.ok) throw new Error('Persönliche Daten konnten nicht gespeichert werden')
+
           // Refresh the data
           await loadUserProfile()
         }
@@ -333,44 +333,15 @@ export default function ProfilPage() {
         setSavingAccess(true)
         const supabase = createSupabaseBrowserClient()
         const { data: { user } } = await supabase.auth.getUser()
-        
+
         if (user) {
-          if (accessData) {
-            // Update existing record
-            const { error } = await supabase
-              .from('access_credentials')
-              .update({
-                huebner_email: editableAccessData.huebner_email,
-                huebner_password: editableAccessData.huebner_password,
-                demotool_email: editableAccessData.demotool_email,
-                demotool_password: editableAccessData.demotool_password,
-                tma_email: editableAccessData.tma_email,
-                tma_password: editableAccessData.tma_password,
-                boost_app_email: editableAccessData.boost_app_email,
-                boost_app_password: editableAccessData.boost_app_password,
-              })
-              .eq('user_id', user.id)
-            
-            if (error) throw error
-          } else {
-            // Insert new record
-            const { error } = await supabase
-              .from('access_credentials')
-              .insert({
-                user_id: user.id,
-                huebner_email: editableAccessData.huebner_email,
-                huebner_password: editableAccessData.huebner_password,
-                demotool_email: editableAccessData.demotool_email,
-                demotool_password: editableAccessData.demotool_password,
-                tma_email: editableAccessData.tma_email,
-                tma_password: editableAccessData.tma_password,
-                boost_app_email: editableAccessData.boost_app_email,
-                boost_app_password: editableAccessData.boost_app_password,
-              })
-            
-            if (error) throw error
-          }
-          
+          const response = await fetch(`/api/promotors/${user.id}/access-credentials`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(editableAccessData),
+          })
+          if (!response.ok) throw new Error('Zugangsdaten konnten nicht gespeichert werden')
+
           // Refresh the data
           await loadAccessCredentials()
         }
@@ -389,17 +360,15 @@ export default function ProfilPage() {
         setSavingEmployment(true)
         const supabase = createSupabaseBrowserClient()
         const { data: { user } } = await supabase.auth.getUser()
-        
+
         if (user) {
-          const { error } = await supabase
-            .from('promotor_profiles')
-            .update({
-              working_days: editableWorkingDays
-            })
-            .eq('user_id', user.id)
-          
-          if (error) throw error
-          
+          const response = await fetch(`/api/promotors/${user.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ working_days: editableWorkingDays }),
+          })
+          if (!response.ok) throw new Error('Arbeitstage konnten nicht gespeichert werden')
+
           // Refresh the data
           await loadUserProfile()
         }
@@ -416,18 +385,13 @@ export default function ProfilPage() {
     try {
       const supabase = createSupabaseBrowserClient()
       const { data: { user } } = await supabase.auth.getUser()
-      
+
       if (user) {
-        const { data, error } = await supabase
-          .from('access_credentials')
-          .select('*')
-          .eq('user_id', user.id)
-          .single()
-        
-        if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-          throw error
-        }
-        
+        const response = await fetch(`/api/promotors/${user.id}/access-credentials`, { cache: 'no-store' })
+        if (!response.ok) throw new Error('Zugangsdaten konnten nicht geladen werden')
+        const payload = await response.json()
+        const data = payload.credentials
+
         if (data) {
           setAccessData(data)
           setEditableAccessData({
@@ -440,6 +404,8 @@ export default function ProfilPage() {
             boost_app_email: data.boost_app_email || "",
             boost_app_password: data.boost_app_password || ""
           })
+        } else {
+          setAccessData(null)
         }
       }
     } catch (e) {
@@ -451,26 +417,26 @@ export default function ProfilPage() {
     try {
       const supabase = createSupabaseBrowserClient()
       const { data: { user } } = await supabase.auth.getUser()
-      
+
       if (user) {
         const { data, error } = await supabase
           .from('promotor_profiles')
           .select('*')
           .eq('user_id', user.id)
           .single()
-        
+
         if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
           throw error
         }
-        
+
         if (data) {
           setUserProfileData(data)
-          
+
           // Load profile picture if available
           if (data.profile_picture_url) {
             setUserProfile({ avatar: data.profile_picture_url })
           }
-          
+
           setEditablePersonalData({
             birthday: data.birth_date || "",
             socialSecurityNumber: data.social_security_number || "",
@@ -520,7 +486,7 @@ export default function ProfilPage() {
       await supabase.storage
         .from('profilbilder-promotoren')
         .remove([filePath])
-      
+
       // Upload new profile picture
       const { error: uploadError } = await supabase.storage
         .from('profilbilder-promotoren')
@@ -534,16 +500,15 @@ export default function ProfilPage() {
       const { data: urlData } = supabase.storage
         .from('profilbilder-promotoren')
         .getPublicUrl(filePath)
-      
+
       const urlWithTimestamp = `${urlData.publicUrl}?t=${Date.now()}`
 
-      // Update promotor_profiles with new URL
-      const { error: updateError } = await supabase
-        .from('promotor_profiles')
-        .update({ profile_picture_url: urlWithTimestamp })
-        .eq('user_id', user.id)
-
-      if (updateError) throw updateError
+      const updateResponse = await fetch(`/api/promotors/${user.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_picture_url: urlWithTimestamp }),
+      })
+      if (!updateResponse.ok) throw new Error('Profilbild konnte nicht gespeichert werden')
 
       // Refresh page to show new profile picture
       alert('Profilfoto erfolgreich hochgeladen!')
@@ -661,11 +626,9 @@ export default function ProfilPage() {
         const type = mapDocNameToType(d.name)
         let status: 'missing'|'pending'|'approved' = 'missing'
         const st = map.get(type)
-        console.log(`Document ${d.name} (type: ${type}) has DB status: ${st}`)
         if (st === 'approved') status = 'approved'
         else if (st === 'uploaded') status = 'pending'
         else status = 'missing' // No DB entry or any other status = missing
-        console.log(`Document ${d.name} mapped to UI status: ${status}`)
         // Conditional requirements based on application data
         let required = d.required
         if (d.name === 'Arbeitserlaubnis') required = needsWP
@@ -710,10 +673,10 @@ export default function ProfilPage() {
           } catch {}
           // load access credentials
           await loadAccessCredentials()
-          
+
           // load user profile data
           await loadUserProfile()
-          
+
           // load display name from user_profiles with auth metadata fallback
           try {
             const { data: up } = await supabase
@@ -829,33 +792,28 @@ export default function ProfilPage() {
       try {
         // Immediately reflect submitting state
         setDocuments(prev => prev.map(d => d.name === documentName ? { ...d, status: 'pending' } : d))
-        console.log('Uploading document:', documentName, 'type:', doc_type, 'ext:', ext)
         // get canonical path
         const up = await fetch(`/api/promotors/${uid}/documents/upload-url`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ doc_type, file_ext: ext })
         })
         const upj = await up.json()
-        console.log('Upload URL response:', upj)
         const path = upj?.path
         const token = upj?.token
         if (!path || !token) {
-          console.error('No path or token received:', { path, token })
+          console.error('Document upload could not be prepared')
           return
         }
-        console.log('Uploading to storage with path:', path)
         const { error: upErr } = await supabase.storage.from('documents').uploadToSignedUrl(path, token, file)
         if (upErr) {
           console.error('Storage upload error:', upErr)
           throw upErr
         }
-        console.log('Confirming upload with doc_type:', doc_type, 'path:', path)
         const confirmRes = await fetch(`/api/promotors/${uid}/documents/confirm`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ doc_type, path })
         })
         const confirmJson = await confirmRes.json()
-        console.log('Confirm response:', confirmJson)
         // refresh from server to be safe (should return 'uploaded' -> pending in UI)
         await refreshDocuments(uid)
       } catch (e) {
@@ -874,13 +832,13 @@ export default function ProfilPage() {
       const currentDay = now.getDate()
       const currentMonth = now.getMonth()
       const currentYear = now.getFullYear()
-      
+
       // If today is the 15th, show payday message
       if (currentDay === 15) {
         setPayrollCountdown({ days: 0, hours: 0, minutes: 0, isPayday: true })
         return
       }
-      
+
       // Calculate next payroll date (15th of current or next month)
       let nextPayrollDate: Date
       if (currentDay < 15) {
@@ -890,24 +848,24 @@ export default function ProfilPage() {
         // Next payroll is 15th of next month
         nextPayrollDate = new Date(currentYear, currentMonth + 1, 15)
       }
-      
+
       const timeDiff = nextPayrollDate.getTime() - now.getTime()
-      
+
       if (timeDiff > 0) {
         const days = Math.floor(timeDiff / (1000 * 60 * 60 * 24))
         const hours = Math.floor((timeDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
         const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60))
-        
+
         setPayrollCountdown({ days, hours, minutes, isPayday: false })
       }
     }
-    
+
     // Calculate immediately
     calculatePayrollCountdown()
-    
+
     // Update every minute
     const interval = setInterval(calculatePayrollCountdown, 60000)
-    
+
     return () => clearInterval(interval)
   }, [])
 
@@ -952,7 +910,7 @@ export default function ProfilPage() {
         <CardContent className="p-6">
           <div className="flex items-center space-x-4">
             <div className="relative">
-              <Avatar 
+              <Avatar
                 className="h-20 w-20 border-4 border-blue-200 dark:border-blue-900 cursor-pointer hover:opacity-80 transition-opacity"
                 onClick={() => {
                   // Only show menu if no profile picture uploaded yet
@@ -966,7 +924,7 @@ export default function ProfilPage() {
                   JP
                 </AvatarFallback>
               </Avatar>
-              
+
               {/* Photo Menu - only show if no picture uploaded */}
               {showPhotoMenu && (!userProfile.avatar || userProfile.avatar.includes('placeholder')) && (
                 <div className="absolute left-24 top-0 z-50 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
@@ -982,7 +940,7 @@ export default function ProfilPage() {
                   </button>
                 </div>
               )}
-              
+
               {/* Hidden File Input */}
               <input
                 ref={photoInputRef}
@@ -1022,19 +980,19 @@ export default function ProfilPage() {
       {/* Tab Navigation */}
       <div className="relative flex space-x-2 bg-gray-50 dark:bg-gray-800/50 p-1.5 rounded-xl border border-gray-200/50 dark:border-gray-700/50">
         {/* Sliding Background Indicator */}
-        <div 
+        <div
           className={`absolute top-1.5 bottom-1.5 bg-white dark:bg-gray-700 shadow-sm border border-gray-200/50 dark:border-gray-600/50 rounded-lg transition-all duration-500 ease-in-out ${
-            activeTab === "overview" 
-              ? "left-1.5 right-[calc(50%+0.25rem)]" 
+            activeTab === "overview"
+              ? "left-1.5 right-[calc(50%+0.25rem)]"
               : "left-[calc(50%+0.25rem)] right-1.5"
           }`}
         />
-        
+
         <Button
           variant="ghost"
           className={`flex-1 rounded-lg transition-all duration-300 font-medium text-sm relative z-10 hover:bg-transparent focus:bg-transparent active:bg-transparent ${
-            activeTab === "overview" 
-              ? "bg-gradient-to-r from-blue-500 to-indigo-600 bg-clip-text text-transparent" 
+            activeTab === "overview"
+              ? "bg-gradient-to-r from-blue-500 to-indigo-600 bg-clip-text text-transparent"
               : "text-gray-600 dark:text-gray-400"
           }`}
           onClick={() => setActiveTab("overview")}
@@ -1044,8 +1002,8 @@ export default function ProfilPage() {
         <Button
           variant="ghost"
           className={`flex-1 rounded-lg transition-all duration-300 font-medium text-sm relative z-10 hover:bg-transparent focus:bg-transparent active:bg-transparent ${
-            activeTab === "stats" 
-              ? "bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent" 
+            activeTab === "stats"
+              ? "bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent"
               : "text-gray-600 dark:text-gray-400"
           }`}
           onClick={() => setActiveTab("stats")}
@@ -1058,15 +1016,15 @@ export default function ProfilPage() {
       <div className="relative overflow-hidden">
         {/* Overview Tab */}
         <div className={`transition-all duration-500 ease-in-out ${
-          activeTab === "overview" 
-            ? "translate-x-0 opacity-100" 
+          activeTab === "overview"
+            ? "translate-x-0 opacity-100"
             : "-translate-x-full opacity-0 absolute top-0 left-0 w-full"
         }`}>
           <div className="space-y-4 px-2">
                       {/* Contact Information */}
           <div className={`transition-all duration-300 rounded-lg ${
-            isEditingContact 
-              ? "bg-gradient-to-r from-blue-500 to-indigo-600 p-[2px]" 
+            isEditingContact
+              ? "bg-gradient-to-r from-blue-500 to-indigo-600 p-[2px]"
               : "p-0"
           }`}>
             <Card className={`border-none bg-white dark:bg-gray-900 h-full ${
@@ -1140,8 +1098,8 @@ export default function ProfilPage() {
 
                       {/* Clothing Size Information */}
           <div className={`transition-all duration-300 rounded-lg ${
-            isEditingClothing 
-              ? "bg-gradient-to-r from-blue-500 to-indigo-600 p-[2px]" 
+            isEditingClothing
+              ? "bg-gradient-to-r from-blue-500 to-indigo-600 p-[2px]"
               : "p-0"
           }`}>
                          <Card className="border-none shadow-lg shadow-purple-500/20 bg-white dark:bg-gray-900 h-full">
@@ -1238,7 +1196,7 @@ export default function ProfilPage() {
             {(() => {
               const hasActiveContract = promotorContracts.some((c: any) => c.is_active)
               return (
-            <Card 
+            <Card
               className="relative border-none shadow-lg shadow-blue-500/30 bg-gradient-to-r from-blue-400 via-blue-500 to-indigo-600 h-24 flex items-center justify-center cursor-pointer hover:shadow-xl hover:shadow-blue-500/40 hover:scale-105 transition-all duration-300 group"
               onClick={() => setShowDienstvertragPopup(true)}
             >
@@ -1345,8 +1303,8 @@ export default function ProfilPage() {
 
           {/* Employment Information */}
           <div className={`transition-all duration-300 rounded-lg ${
-            isEditingEmployment 
-              ? "bg-gradient-to-r from-orange-500 to-amber-600 p-[2px]" 
+            isEditingEmployment
+              ? "bg-gradient-to-r from-orange-500 to-amber-600 p-[2px]"
               : "p-0"
           }`}>
             <Card className="relative border-none shadow-lg shadow-orange-500/20 bg-white dark:bg-gray-900 overflow-hidden h-full">
@@ -1400,7 +1358,7 @@ export default function ProfilPage() {
                   const hasActive = !!activeContract;
                   const hoursPerWeek = userProfileData?.contract_hours_per_week ?? null;
                   const statusText = hasActive ? 'Dienstvertrag hinterlegt' : null;
-                  
+
                   return (
                     <>
                       {/* Employment Type */}
@@ -1504,8 +1462,8 @@ export default function ProfilPage() {
 
           {/* Bank Data Information */}
           <div className={`transition-all duration-300 rounded-lg ${
-            isEditingBank 
-              ? "bg-gradient-to-r from-blue-500 to-indigo-600 p-[2px]" 
+            isEditingBank
+              ? "bg-gradient-to-r from-blue-500 to-indigo-600 p-[2px]"
               : "p-0"
           }`}>
             <Card className="border-none shadow-lg shadow-blue-500/20 bg-white dark:bg-gray-900 h-full">
@@ -1638,8 +1596,8 @@ export default function ProfilPage() {
 
           {/* Personal Information */}
           <div className={`transition-all duration-300 rounded-lg ${
-            isEditingPersonal 
-              ? "bg-gradient-to-r from-blue-500 to-indigo-600 p-[2px]" 
+            isEditingPersonal
+              ? "bg-gradient-to-r from-blue-500 to-indigo-600 p-[2px]"
               : "p-0"
           }`}>
                          <Card className="border-none shadow-lg shadow-green-500/20 bg-white dark:bg-gray-900 h-full">
@@ -1819,12 +1777,12 @@ export default function ProfilPage() {
                         isLoading ? (
                           <div className="h-4 w-40 rounded-md animate-skeleton-fade" />
                         ) : (
-                          <p 
+                          <p
                             className="text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer hover:text-yellow-600 transition-colors"
                             onClick={() => accessData?.huebner_password && togglePasswordVisibility('huebner')}
                           >
-                            {accessData?.huebner_password ? 
-                              (showHuebnerPassword ? accessData.huebner_password : '••••••••') : 
+                            {accessData?.huebner_password ?
+                              (showHuebnerPassword ? accessData.huebner_password : '••••••••') :
                               'Nicht angegeben'
                             }
                           </p>
@@ -1894,12 +1852,12 @@ export default function ProfilPage() {
                         isLoading ? (
                           <div className="h-4 w-40 rounded-md animate-skeleton-fade" />
                         ) : (
-                          <p 
+                          <p
                             className="text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer hover:text-yellow-600 transition-colors"
                             onClick={() => accessData?.demotool_password && togglePasswordVisibility('demotool')}
                           >
-                            {accessData?.demotool_password ? 
-                              (showDemotoolPassword ? accessData.demotool_password : '••••••••') : 
+                            {accessData?.demotool_password ?
+                              (showDemotoolPassword ? accessData.demotool_password : '••••••••') :
                               'Nicht angegeben'
                             }
                           </p>
@@ -1969,12 +1927,12 @@ export default function ProfilPage() {
                         isLoading ? (
                           <div className="h-4 w-40 rounded-md animate-skeleton-fade" />
                         ) : (
-                          <p 
+                          <p
                             className="text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer hover:text-yellow-600 transition-colors"
                             onClick={() => accessData?.tma_password && togglePasswordVisibility('tma')}
                           >
-                            {accessData?.tma_password ? 
-                              (showTmaPassword ? accessData.tma_password : '••••••••') : 
+                            {accessData?.tma_password ?
+                              (showTmaPassword ? accessData.tma_password : '••••••••') :
                               'Nicht angegeben'
                             }
                           </p>
@@ -2041,12 +1999,12 @@ export default function ProfilPage() {
                         isLoading ? (
                           <div className="h-4 w-40 rounded-md animate-skeleton-fade" />
                         ) : (
-                          <p 
+                          <p
                             className="text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer hover:text-yellow-600 transition-colors"
                             onClick={() => accessData?.boost_app_password && togglePasswordVisibility('boost_app')}
                           >
-                            {accessData?.boost_app_password ? 
-                              (showBoostAppPassword ? accessData.boost_app_password : '••••••••') : 
+                            {accessData?.boost_app_password ?
+                              (showBoostAppPassword ? accessData.boost_app_password : '••••••••') :
                               'Nicht angegeben'
                             }
                           </p>
@@ -2073,7 +2031,7 @@ export default function ProfilPage() {
               </CardContent>
             </Card>
           </div>
-          
+
           {/* Empty space for shadow visibility */}
           <div className="h-4"></div>
           </div>
@@ -2081,8 +2039,8 @@ export default function ProfilPage() {
 
         {/* Stats Tab */}
         <div className={`transition-all duration-500 ease-in-out ${
-          activeTab === "stats" 
-            ? "translate-x-0 opacity-100" 
+          activeTab === "stats"
+            ? "translate-x-0 opacity-100"
             : "translate-x-full opacity-0 absolute top-0 left-0 w-full"
         }`}>
           <div className="space-y-4">
@@ -2199,7 +2157,7 @@ export default function ProfilPage() {
       {/* Dienstvertrag Popup */}
       {showDienstvertragPopup && (
         <>
-          <div 
+          <div
             className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[60]"
             onClick={() => setShowDienstvertragPopup(false)}
           ></div>
@@ -2210,7 +2168,7 @@ export default function ProfilPage() {
                 <h3 className="text-lg font-semibold">Meine Dienstverträge</h3>
               </div>
             </div>
-            
+
             <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto">
               {/* Empty state */}
               {promotorContracts.length === 0 && (
@@ -2251,7 +2209,7 @@ export default function ProfilPage() {
                           <div>Hinterlegt am: {contract.created_at ? new Date(contract.created_at).toLocaleDateString('de-DE') : 'N/A'}</div>
                   </div>
                         <div className="flex items-center gap-2">
-                  <button 
+                  <button
                             className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 ${
                               contract.is_active
                                 ? 'text-white bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700'
@@ -2275,9 +2233,9 @@ export default function ProfilPage() {
                 );
               })()}
             </div>
-            
+
             <div className="border-t border-gray-200 dark:border-gray-700 p-4">
-              <button 
+              <button
                 onClick={() => setShowDienstvertragPopup(false)}
                 className="w-full p-2 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors text-sm font-medium text-gray-700 dark:text-gray-200"
               >
@@ -2291,7 +2249,7 @@ export default function ProfilPage() {
         {/* Dienstvertrag Content Popup */}
         {showDienstvertragContent && (
           <>
-            <div 
+            <div
               className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]"
               onClick={() => setShowDienstvertragContent(false)}
             ></div>
@@ -2300,7 +2258,7 @@ export default function ProfilPage() {
               <div className="sticky top-0 bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-4 rounded-t-lg">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
-                    <button 
+                    <button
                       onClick={() => {
                         setShowDienstvertragContent(false);
                         setShowDienstvertragPopup(true);
@@ -2331,7 +2289,7 @@ export default function ProfilPage() {
                         )}
                       </>
                     )}
-                    <button 
+                    <button
                       onClick={() => setShowDienstvertragContent(false)}
                       className="p-2 hover:bg-white/20 rounded-lg transition-colors"
                     >
@@ -2340,7 +2298,7 @@ export default function ProfilPage() {
                   </div>
                 </div>
               </div>
-              
+
               {/* Content */}
               <div className="overflow-y-auto max-h-[calc(90vh-120px)] p-6">
                 {loadingContractPreview ? (
@@ -2370,4 +2328,4 @@ export default function ProfilPage() {
         )}
       </div>
     )
-} 
+}

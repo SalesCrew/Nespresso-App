@@ -11,7 +11,7 @@ import PromotorNotificationStack from "@/components/notifications/PromotorNotifi
 interface PromotorLayoutProps {
   children: React.ReactNode;
 }
- 
+
 export default async function PromotorLayout({ children }: PromotorLayoutProps) {
   const { user, profile } = await getCurrentUserAndProfile();
 
@@ -19,20 +19,8 @@ export default async function PromotorLayout({ children }: PromotorLayoutProps) 
     redirect("/auth/promotors/login");
   }
 
-  // If profile is missing but user is authenticated, allow access for now
   if (!profile) {
-    return (
-      <SiteLayout>
-        <SocketProvider>
-          <NotificationCenterProvider maxVisible={1}>
-            <PromotorUnreadBridge />
-            <PromotorToastListener currentUserId={user.id} />
-            <PromotorNotificationStack />
-            {children}
-          </NotificationCenterProvider>
-        </SocketProvider>
-      </SiteLayout>
-    );
+    redirect("/auth/promotors/login");
   }
 
   if (profile.role === "promotor") {

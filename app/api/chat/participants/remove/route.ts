@@ -18,8 +18,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing conversationId or userId' }, { status: 400 });
     }
 
-    console.log('[Remove Participant] Request:', { conversationId, userId });
-
     const supabase = createSupabaseServiceClient();
 
     // Verify conversation exists and requester is admin or participant
@@ -29,11 +27,8 @@ export async function POST(request: NextRequest) {
       .eq('id', conversationId)
       .single();
 
-    console.log('[Remove Participant] Conversation lookup:', { conversation, convError });
-
     if (convError || !conversation) {
-      console.error('[Remove Participant] Conversation not found:', convError);
-      return NextResponse.json({ error: 'Conversation not found', details: convError?.message }, { status: 404 });
+      return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
     if (conversation.type !== 'group') {
@@ -89,13 +84,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to remove participant' }, { status: 500 });
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
       removedUser: removedUser || { user_id: userId, display_name: 'Unknown' }
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error in POST /api/chat/participants/remove:', error);
-    return NextResponse.json({ error: 'Internal server error', details: error?.message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 

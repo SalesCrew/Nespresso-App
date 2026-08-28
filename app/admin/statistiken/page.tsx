@@ -391,14 +391,11 @@ export default function StatistikenPage() {
   // Fetch promotors and history from database on mount
   useEffect(() => {
     const fetchPromoters = async () => {
-      console.log('👥 Fetching promotors list...');
       try {
         const res = await fetch('/api/admin/promotors-list');
         if (res.ok) {
           const data = await res.json();
-          console.log('✅ Received promotors:', data.promotors?.length || 0);
           if (data.promotors && data.promotors.length > 0) {
-            console.log('Sample promotor:', data.promotors[0]);
           }
           setAvailablePromotersData(data.promotors || []);
         }
@@ -408,19 +405,14 @@ export default function StatistikenPage() {
     };
 
     const fetchHistory = async () => {
-      console.log('📊 Fetching KPI feedback history...');
       setHistoryLoading(true);
       try {
         const res = await fetch('/api/admin/kpi-feedback');
-        console.log('📥 Response status:', res.status);
-        
+
         if (res.ok) {
           const data = await res.json();
-          console.log('📦 Received data:', data);
-          console.log('📋 Feedback items count:', data.feedback?.length || 0);
-          
+
           const historyData = (data.feedback || []).map((item: any) => {
-            console.log('🔄 Mapping item:', item.id, 'Name:', item.promotor_name);
             return {
               id: item.id,
               name: item.promotor_name || 'Unbekannt',
@@ -435,8 +427,7 @@ export default function StatistikenPage() {
               read: item.read || false
             };
           });
-          
-          console.log('✅ Mapped history data:', historyData.length, 'cards');
+
           setHistoryCards(historyData);
         } else {
           const errorData = await res.json();
@@ -461,7 +452,7 @@ export default function StatistikenPage() {
 
     const normalize = (str: string) => str.toLowerCase().trim().replace(/\s+/g, ' ');
     const inputNorm = normalize(inputName);
-    
+
     // Helper: calculate Levenshtein distance
     const levenshtein = (a: string, b: string): number => {
       const matrix: number[][] = [];
@@ -481,7 +472,7 @@ export default function StatistikenPage() {
 
     for (const promotor of dbPromoters) {
       const dbNorm = normalize(promotor.name);
-      
+
       // Exact match
       if (inputNorm === dbNorm) {
         return promotor;
@@ -548,7 +539,7 @@ export default function StatistikenPage() {
   const handleKPIClick = async (card: CardData) => {
     setSelectedCard(card);
     setShowStatsModal(true);
-    
+
     // Fetch KPI history for this promotor
     const promotorId = matchedPromoterIds[card.id];
     if (promotorId) {
@@ -583,26 +574,26 @@ export default function StatistikenPage() {
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-        
+
         // Process the data starting from row 2 (index 1) to skip headers
         const newCardData: any[] = [];
-        
+
         for (let i = 1; i < jsonData.length; i++) {
           const row = jsonData[i] as any[];
-          
+
           // Extract data from specific columns
           const name = row[0] || ''; // Column A
           const email = row[1] || ''; // Column B
           const mcet = parseFloat(row[8]) || 0; // Column I (index 8)
           const tma = (parseFloat(row[11]) || 0) * 100; // Column L (index 11) - multiply by 100 to convert from decimal to percentage
           const vlShare = (parseFloat(row[16]) || 0) * 100; // Column Q (index 16) - multiply by 100 to convert from decimal to percentage
-          
+
           // Skip empty rows
           if (!name && !email) continue;
-          
+
           // Generate ID from name
           const id = name.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
-          
+
           newCardData.push({
             id: id || `card_${i}`,
             name,
@@ -612,37 +603,31 @@ export default function StatistikenPage() {
             vlShare
           });
         }
-        
+
         if (newCardData.length > 0) {
           // New import should start a fresh draft batch and never inherit stale per-card states.
           resetKpiDraftRuntimeState();
           setCardData(newCardData);
-          
+
           // Auto-match promotors using fuzzy matching
           const newMatches: {[key: string]: string | null} = {};
           const newIds: {[key: string]: string | null} = {};
-          
-          console.log('🔍 Starting auto-match with', availablePromotersData.length, 'promotors in DB');
-          
+
+
           newCardData.forEach(card => {
             const match = fuzzyMatchName(card.name, availablePromotersData);
-            console.log(`Match attempt: "${card.name}" →`, match ? `${match.name} (${match.user_id})` : 'NO MATCH');
             if (match) {
               newMatches[card.id] = match.name;
               newIds[card.id] = match.user_id;
             }
           });
-          
-          console.log('✅ Matched promotors:', newMatches);
-          console.log('✅ Matched IDs:', newIds);
-          
+
+
           setMatchedPromoters(newMatches);
           setMatchedPromoterIds(newIds);
-          
-          console.log('Imported', newCardData.length, 'records');
-          console.log('Auto-matched', Object.keys(newMatches).length, 'promotors');
+
         }
-        
+
       } catch (error) {
         console.error('Error processing Excel file:', error);
         alert('Fehler beim Verarbeiten der Excel-Datei. Bitte überprüfen Sie das Format.');
@@ -669,9 +654,9 @@ export default function StatistikenPage() {
     const files = event.dataTransfer.files;
     if (files.length > 0) {
       const file = files[0];
-      if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
+      if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
           file.type === 'application/vnd.ms-excel' ||
-          file.name.endsWith('.xlsx') || 
+          file.name.endsWith('.xlsx') ||
           file.name.endsWith('.xls')) {
         processStatisticsExcel(file);
         setShowImportModal(false);
@@ -698,9 +683,9 @@ export default function StatistikenPage() {
     const files = event.dataTransfer.files;
     if (files.length > 0) {
       const file = files[0];
-      if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
+      if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
           file.type === 'application/vnd.ms-excel' ||
-          file.name.endsWith('.xlsx') || 
+          file.name.endsWith('.xlsx') ||
           file.name.endsWith('.xls')) {
         if (praemienWave) {
           await processPraemienExcel(file);
@@ -732,13 +717,13 @@ export default function StatistikenPage() {
           vertuo_pop: get(r, 17),
           vorteilsbox: get(r, 23),
         })) as any[];
-      
+
       const res = await fetch('/api/admin/kpi-praemien/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ waveMonth: praemienWave, rows: mapped }),
       });
-      
+
       if (res.ok) {
         const result = await res.json().catch(() => ({}));
         const ref = await fetch(`/api/admin/kpi-praemien?waveMonth=${praemienWave}`, { cache: 'no-store' });
@@ -768,12 +753,12 @@ export default function StatistikenPage() {
     const card = cardData.find(c => c.id === cardId);
     if (!card) return;
     setGeneratingStates(prev => ({ ...prev, [cardId]: true }));
-    
+
     try {
       // Calculate rankings: sort by MC/ET and VL Share descending
       const mcetSorted = [...cardData].sort((a, b) => parseFloat(String(b.mcet)) - parseFloat(String(a.mcet)));
       const vlShareSorted = [...cardData].sort((a, b) => parseFloat(String(b.vlShare)) - parseFloat(String(a.vlShare)));
-      
+
       const mcetRank = mcetSorted.findIndex(c => c.id === cardId) + 1;
       const vlRank = vlShareSorted.findIndex(c => c.id === cardId) + 1;
 
@@ -783,6 +768,7 @@ export default function StatistikenPage() {
         body: JSON.stringify({
           name: card.name,
           email: card.email,
+          userId: matchedPromoterIds[cardId] || null,
           mcet: card.mcet,
           tma: card.tma,
           vlShare: card.vlShare,
@@ -839,7 +825,7 @@ export default function StatistikenPage() {
 
   const handleSendToHistory = async () => {
     // Get all validated cards with their complete state
-    const validatedCards = cardData.filter(card => 
+    const validatedCards = cardData.filter(card =>
       validationStates[card.id] && generatedStates[card.id] && matchedPromoterIds[card.id]
     ).map(card => ({
       ...card,
@@ -849,19 +835,16 @@ export default function StatistikenPage() {
       generatedText: editedTexts[card.id] || getGeneratedEmailText(),
       sentAt: new Date()
     }));
-    
+
     if (validatedCards.length === 0) {
       alert('Keine validierten Karten mit zugewiesenem Promotor gefunden.');
       return;
     }
 
     try {
-      console.log('💾 Preparing to save', validatedCards.length, 'validated cards');
-      console.log('Current matchedPromoterIds state:', matchedPromoterIds);
-      
+
       // Prepare feedback items for database
       const feedbackItems = validatedCards.map(card => {
-        console.log(`Card ${card.id}: promoter="${card.matchedPromoter}", id=${card.matchedPromoterId}`);
         return {
           user_id: card.matchedPromoterId,
           mc_et: card.mcet,
@@ -872,7 +855,6 @@ export default function StatistikenPage() {
         };
       });
 
-      console.log('📤 Sending feedback items:', feedbackItems);
 
       // Save to database
       const res = await fetch('/api/admin/kpi-feedback', {
@@ -886,11 +868,10 @@ export default function StatistikenPage() {
       }
 
       const result = await res.json();
-      console.log('Saved', result.count, 'feedback records to database');
-      
+
       // Add to history UI
     setHistoryCards(prev => [...prev, ...validatedCards]);
-    
+
     // Remove from current cards
     const validatedCardIds = validatedCards.map(card => card.id);
     setCardData(prev => prev.filter(card => !validatedCardIds.includes(card.id)));
@@ -905,7 +886,7 @@ export default function StatistikenPage() {
     // Collapse the card and show generating state like initial generation
     setGeneratedStates(prev => ({ ...prev, [cardId]: false }));
     setGeneratingStates(prev => ({ ...prev, [cardId]: true }));
-    
+
     setTimeout(() => {
       setGeneratingStates(prev => ({ ...prev, [cardId]: false }));
       setGeneratedStates(prev => ({ ...prev, [cardId]: true }));
@@ -940,27 +921,27 @@ Liebe Grüße, dein Nespresso Team`;
       setGeneratingAll(false);
       return;
     }
-    
+
     setGeneratingAll(true);
     shouldStopGenerationRef.current = false;
     const cardIds = cardData.map(card => card.id);
-    
+
     for (const cardId of cardIds) {
       // Check if generation should stop
       if (shouldStopGenerationRef.current) break;
-      
+
       // Skip if already generated
       if (generatedStates[cardId]) continue;
-      
+
       // Start generating this card with a fresh request
       await handleGenerateEmail(cardId);
-      
+
       // Check if generation should stop after current card completes
       if (shouldStopGenerationRef.current) {
         break;
       }
     }
-    
+
     setGeneratingAll(false);
     shouldStopGenerationRef.current = false;
   };
@@ -986,13 +967,13 @@ Liebe Grüße, dein Nespresso Team`;
   const getMagicTouchStyle = (cardId: string) => {
     const selectedCategory = magicTouchCategories[cardId];
     if (!selectedCategory) return {};
-    
+
     // If Neutral is selected, return empty object to use default styling
     if (selectedCategory === 'Neutral') return {};
-    
+
     const category = categories.find(c => c.name === selectedCategory);
     if (!category) return {};
-    
+
     // Convert hex to rgba with 80% opacity for background
     const hexToRgba = (hex: string, alpha: number) => {
       const r = parseInt(hex.slice(1, 3), 16);
@@ -1000,8 +981,8 @@ Liebe Grüße, dein Nespresso Team`;
       const b = parseInt(hex.slice(5, 7), 16);
       return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     };
-    
-    return { 
+
+    return {
       backgroundColor: hexToRgba(category.bgColor, 0.8),
       borderColor: category.borderColor,
       boxShadow: `0 1px 3px 0 ${category.borderColor}40, 0 1px 2px 0 ${category.borderColor}60`
@@ -1012,17 +993,17 @@ Liebe Grüße, dein Nespresso Team`;
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      
+
       // Close magic touch dropdown
       if (!target.closest('.magic-touch-dropdown')) {
         setOpenDropdown(null);
       }
-      
+
       // Close promoter dropdown
       if (!target.closest('[data-promoter-dropdown]')) {
         setShowPromoterDropdown({});
       }
-      
+
       // Close promoter filter dropdown in stats modal
       if (!target.closest('.promoter-filter-dropdown')) {
         setShowPromoterFilterDropdown(false);
@@ -1040,7 +1021,7 @@ Liebe Grüße, dein Nespresso Team`;
     if (!scheduledCalls.find(call => call.id === card.id)) {
       setScheduledCalls(prev => [...prev, { id: card.id, name: card.name, email: card.email }]);
     }
-    
+
     // Show green check for 2 seconds
     setRecentlyScheduled(prev => ({ ...prev, [card.id]: true }));
     setTimeout(() => {
@@ -1074,7 +1055,7 @@ Liebe Grüße, dein Nespresso Team`;
     } else {
       // First click - start wobble and set pending state
       setPendingHistoryDelete(prev => ({ ...prev, [cardId]: true }));
-      
+
       // Clear pending state after 2 seconds
       setTimeout(() => {
         setPendingHistoryDelete(prev => {
@@ -1113,7 +1094,7 @@ Liebe Grüße, dein Nespresso Team`;
 
   const getPromoterMatchStatus = (cardName: string) => {
     // Simple name matching logic - check if card name exists in available promoters
-    const matchedPromoter = availablePromoters.find(promoter => 
+    const matchedPromoter = availablePromoters.find(promoter =>
       promoter.toLowerCase() === cardName.toLowerCase()
     );
     return matchedPromoter || null;
@@ -1128,7 +1109,7 @@ Liebe Grüße, dein Nespresso Team`;
         newMatches[card.id] = match;
       }
     });
-    
+
     if (Object.keys(newMatches).length > 0) {
       setMatchedPromoters(prev => ({ ...prev, ...newMatches }));
     }
@@ -1158,12 +1139,12 @@ Liebe Grüße, dein Nespresso Team`;
     if (rank === 3) {
       return 'border-amber-200/50 bg-gradient-to-r from-amber-50/20 to-orange-50/20 hover:from-amber-50/40 hover:to-orange-50/40';
     }
-    
+
     // For rank 4+, use color based on KPI value
-    const colorClass = metric === "mcet" ? getColorForMcEt(value) : 
-                      metric === "tma" ? getColorForTma(value) : 
+    const colorClass = metric === "mcet" ? getColorForMcEt(value) :
+                      metric === "tma" ? getColorForTma(value) :
                       getColorForVlShare(value);
-    
+
     if (colorClass === "text-green-600 dark:text-green-400") {
       return 'border-green-200/50 bg-gradient-to-r from-green-50/20 to-emerald-50/20 hover:from-green-50/40 hover:to-emerald-50/40';
     }
@@ -1189,13 +1170,13 @@ Liebe Grüße, dein Nespresso Team`;
   // Get magic touch style for history cards
   const getHistoryMagicTouchStyle = (magicTouchCategory?: string) => {
     if (!magicTouchCategory) return {};
-    
+
     // If Neutral is selected, return empty object to use default styling
     if (magicTouchCategory === 'Neutral') return {};
-    
+
     const category = categories.find(c => c.name === magicTouchCategory);
     if (!category) return {};
-    
+
     // Convert hex to rgba with 80% opacity for background
     const hexToRgba = (hex: string, alpha: number) => {
       const r = parseInt(hex.slice(1, 3), 16);
@@ -1203,8 +1184,8 @@ Liebe Grüße, dein Nespresso Team`;
       const b = parseInt(hex.slice(5, 7), 16);
       return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     };
-    
-    return { 
+
+    return {
       backgroundColor: hexToRgba(category.bgColor, 0.8),
       borderColor: category.borderColor,
       boxShadow: `0 1px 3px 0 ${category.borderColor}40, 0 1px 2px 0 ${category.borderColor}60`
@@ -1238,7 +1219,7 @@ Liebe Grüße, dein Nespresso Team`;
     if (historyCards.length === 0) {
       return {
         mcet: "N/A",
-        tma: "N/A", 
+        tma: "N/A",
         vlShare: "N/A",
         count: 0
       };
@@ -1248,31 +1229,31 @@ Liebe Grüße, dein Nespresso Team`;
 
     if (timeframe === "30days") {
       // Get the last wave (group of cards sent within 3 days of each other)
-      const sortedCards = [...historyCards].sort((a, b) => 
+      const sortedCards = [...historyCards].sort((a, b) =>
         new Date(b.sentAt!).getTime() - new Date(a.sentAt!).getTime()
       );
-      
+
       if (sortedCards.length > 0) {
         const lastSentDate = new Date(sortedCards[0].sentAt!);
         const threeDaysAgo = new Date(lastSentDate.getTime() - (3 * 24 * 60 * 60 * 1000));
-        
-        relevantCards = sortedCards.filter(card => 
+
+        relevantCards = sortedCards.filter(card =>
           new Date(card.sentAt!) >= threeDaysAgo
         );
       }
     } else if (timeframe === "6months") {
       // Group cards by waves (within 3 days of each other) and take last 6 waves
-      const sortedCards = [...historyCards].sort((a, b) => 
+      const sortedCards = [...historyCards].sort((a, b) =>
         new Date(b.sentAt!).getTime() - new Date(a.sentAt!).getTime()
       );
-      
+
       const waves: HistoryCardData[][] = [];
       let currentWave: HistoryCardData[] = [];
       let lastDate: Date | null = null;
-      
+
       for (const card of sortedCards) {
         const cardDate = new Date(card.sentAt!);
-        
+
         if (!lastDate || (lastDate.getTime() - cardDate.getTime()) > (3 * 24 * 60 * 60 * 1000)) {
           // Start new wave
           if (currentWave.length > 0) {
@@ -1285,11 +1266,11 @@ Liebe Grüße, dein Nespresso Team`;
           currentWave.push(card);
         }
       }
-      
+
       if (currentWave.length > 0) {
         waves.push(currentWave);
       }
-      
+
       // Take last 6 waves
       const last6Waves = waves.slice(0, 6);
       relevantCards = last6Waves.flat();
@@ -1319,17 +1300,17 @@ Liebe Grüße, dein Nespresso Team`;
     }
 
     // Group cards by waves (within 3 days of each other)
-    const sortedCards = [...historyCards].sort((a, b) => 
+    const sortedCards = [...historyCards].sort((a, b) =>
       new Date(b.sentAt!).getTime() - new Date(a.sentAt!).getTime()
     );
-    
+
     const waves: HistoryCardData[][] = [];
     let currentWave: HistoryCardData[] = [];
     let lastDate: Date | null = null;
-    
+
     for (const card of sortedCards) {
       const cardDate = new Date(card.sentAt!);
-      
+
       if (!lastDate || (lastDate.getTime() - cardDate.getTime()) > (3 * 24 * 60 * 60 * 1000)) {
         // Start new wave
         if (currentWave.length > 0) {
@@ -1342,7 +1323,7 @@ Liebe Grüße, dein Nespresso Team`;
         currentWave.push(card);
       }
     }
-    
+
     if (currentWave.length > 0) {
       waves.push(currentWave);
     }
@@ -1395,12 +1376,12 @@ Liebe Grüße, dein Nespresso Team`;
 
     if (timeframe === "30days") {
       const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
-      relevantData = kpiHistory.filter(item => 
+      relevantData = kpiHistory.filter(item =>
         new Date(item.created_at) >= thirtyDaysAgo
       );
     } else if (timeframe === "6months") {
       const sixMonthsAgo = new Date(now.getTime() - (180 * 24 * 60 * 60 * 1000));
-      relevantData = kpiHistory.filter(item => 
+      relevantData = kpiHistory.filter(item =>
         new Date(item.created_at) >= sixMonthsAgo
       );
     }
@@ -1433,7 +1414,7 @@ Liebe Grüße, dein Nespresso Team`;
     }
 
     const mostRecent = kpiHistory[0]; // First entry (newest)
-    
+
     const mcetChange = calculateKPIChange(selectedCard.mcet, mostRecent.mc_et);
     const tmaChange = calculateKPIChange(selectedCard.tma, mostRecent.tma);
     const vlChange = calculateKPIChange(selectedCard.vlShare, mostRecent.vl_value);
@@ -1449,7 +1430,7 @@ Liebe Grüße, dein Nespresso Team`;
   const getAverageColor = (metric: 'mcet' | 'tma' | 'vlShare', value: string) => {
     if (value === "N/A") return "text-gray-400";
     const numValue = parseFloat(value);
-    
+
     if (metric === 'mcet') {
       if (numValue >= 4.0) return "text-green-600";
       if (numValue >= 3.5) return "text-orange-500";
@@ -1475,17 +1456,17 @@ Liebe Grüße, dein Nespresso Team`;
     }
 
     // Group cards by waves (within 3 days of each other)
-    const sortedCards = [...historyCards].sort((a, b) => 
+    const sortedCards = [...historyCards].sort((a, b) =>
       new Date(b.sentAt!).getTime() - new Date(a.sentAt!).getTime()
     );
-    
+
     const waves: HistoryCardData[][] = [];
     let currentWave: HistoryCardData[] = [];
     let lastDate: Date | null = null;
-    
+
     for (const card of sortedCards) {
       const cardDate = new Date(card.sentAt!);
-      
+
       if (!lastDate || (lastDate.getTime() - cardDate.getTime()) > (3 * 24 * 60 * 60 * 1000)) {
         // Start new wave
         if (currentWave.length > 0) {
@@ -1498,7 +1479,7 @@ Liebe Grüße, dein Nespresso Team`;
         currentWave.push(card);
       }
     }
-    
+
     if (currentWave.length > 0) {
       waves.push(currentWave);
     }
@@ -1551,7 +1532,7 @@ Liebe Grüße, dein Nespresso Team`;
     const now = new Date();
     const filteredCards = historyCards.filter(card => {
       if (!card.sentAt || chartTimeFilter === "all") return true;
-      
+
       const monthsAgo = chartTimeFilter === "3months" ? 3 : chartTimeFilter === "6months" ? 6 : 12;
       const cutoffDate = new Date(now.getFullYear(), now.getMonth() - monthsAgo, 1);
       return card.sentAt >= cutoffDate;
@@ -1559,20 +1540,20 @@ Liebe Grüße, dein Nespresso Team`;
 
     // Group history cards by month-year and calculate averages
     const monthlyData: Record<string, { mcet: number[], tma: number[], vlShare: number[], date: Date }> = {};
-    
+
     filteredCards.forEach(card => {
       if (card.sentAt) {
         const monthKey = card.sentAt.toLocaleDateString('de-DE', { month: 'short', year: 'numeric' });
-        
+
         if (!monthlyData[monthKey]) {
-          monthlyData[monthKey] = { 
-            mcet: [], 
-            tma: [], 
-            vlShare: [], 
+          monthlyData[monthKey] = {
+            mcet: [],
+            tma: [],
+            vlShare: [],
             date: new Date(card.sentAt.getFullYear(), card.sentAt.getMonth(), 1)
           };
         }
-        
+
         monthlyData[monthKey].mcet.push(card.mcet);
         monthlyData[monthKey].tma.push(card.tma);
         monthlyData[monthKey].vlShare.push(card.vlShare);
@@ -1593,7 +1574,7 @@ Liebe Grüße, dein Nespresso Team`;
     if (chartData.length > maxPoints) {
       return chartData.slice(-maxPoints);
     }
-    
+
     return chartData;
   };
 
@@ -1617,57 +1598,57 @@ Liebe Grüße, dein Nespresso Team`;
   // Generate PDF of the chart and statistics
   const generatePDF = async () => {
     const pdf = new jsPDF('landscape', 'mm', 'a4');
-    
+
     // A4 landscape dimensions: 297mm x 210mm
     const pageWidth = 297;
     const pageHeight = 210;
-    
+
     // Add header
     pdf.setFontSize(20);
     pdf.setFont('helvetica', 'bold');
     pdf.text('Nespresso CA KPI Graph Export', 20, 25);
-    
+
     // Add export date to top right
-    const currentDate = new Date().toLocaleDateString('de-DE', { 
-      day: '2-digit', 
-      month: '2-digit', 
-      year: 'numeric' 
+    const currentDate = new Date().toLocaleDateString('de-DE', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
     });
     pdf.setFontSize(12);
     pdf.setFont('helvetica', 'normal');
     pdf.setTextColor(100, 100, 100);
     pdf.text(currentDate, 270, 25);
-    
+
     // Reset text color
     pdf.setTextColor(0, 0, 0);
-    
+
     // Add statistics in horizontal layout (three pyramids side by side)
     let yPosition = 45;
-    
+
     // Get all statistics data
     const allTimeStats = calculateAverages("alltime");
     const thirtyDaysStats = calculateAverages("30days");
     const waveChanges = calculateWaveChanges();
     const sixMonthsStats = calculateAverages("6months");
     const sixMonthChanges = calculate6MonthsWaveChanges();
-    
+
     // Define column widths and positions
     const columnWidth = 90;
     const col1X = 20;
     const col2X = col1X + columnWidth;
     const col3X = col2X + columnWidth;
-    
+
     // Column Headers
     pdf.setFontSize(12);
     pdf.setFont('helvetica', 'bold');
     pdf.text(`All Time (${allTimeStats.count}):`, col1X, yPosition);
     pdf.text(`Last 30 Days (${thirtyDaysStats.count}):`, col2X, yPosition);
     pdf.text(`Last 6 Months (${sixMonthsStats.count}):`, col3X, yPosition);
-    
+
     yPosition += 8;
     pdf.setFontSize(10);
     pdf.setFont('helvetica', 'normal');
-    
+
     // MC/ET Row - All Time
     pdf.text('Avg MC/ET: ', col1X, yPosition);
     if (allTimeStats.mcet !== "N/A") {
@@ -1679,7 +1660,7 @@ Liebe Grüße, dein Nespresso Team`;
     } else {
       pdf.text(allTimeStats.mcet, col1X + 20, yPosition);
     }
-    
+
     // MC/ET Row - 30 Days
     pdf.text('Avg MC/ET: ', col2X, yPosition);
     if (thirtyDaysStats.mcet !== "N/A") {
@@ -1694,7 +1675,7 @@ Liebe Grüße, dein Nespresso Team`;
     } else {
       pdf.text(thirtyDaysStats.mcet, col2X + 20, yPosition);
     }
-    
+
     // MC/ET Row - 6 Months
     pdf.text('Avg MC/ET: ', col3X, yPosition);
     if (sixMonthsStats.mcet !== "N/A") {
@@ -1709,9 +1690,9 @@ Liebe Grüße, dein Nespresso Team`;
     } else {
       pdf.text(sixMonthsStats.mcet, col3X + 20, yPosition);
     }
-    
+
     yPosition += 8;
-    
+
     // TMA Row - All Time
     pdf.text('Avg TMA: ', col1X, yPosition);
     if (allTimeStats.tma !== "N/A") {
@@ -1723,7 +1704,7 @@ Liebe Grüße, dein Nespresso Team`;
     } else {
       pdf.text(allTimeStats.tma, col1X + 17, yPosition);
     }
-    
+
     // TMA Row - 30 Days
     pdf.text('Avg TMA: ', col2X, yPosition);
     if (thirtyDaysStats.tma !== "N/A") {
@@ -1738,7 +1719,7 @@ Liebe Grüße, dein Nespresso Team`;
     } else {
       pdf.text(thirtyDaysStats.tma, col2X + 17, yPosition);
     }
-    
+
     // TMA Row - 6 Months
     pdf.text('Avg TMA: ', col3X, yPosition);
     if (sixMonthsStats.tma !== "N/A") {
@@ -1753,9 +1734,9 @@ Liebe Grüße, dein Nespresso Team`;
     } else {
       pdf.text(sixMonthsStats.tma, col3X + 17, yPosition);
     }
-    
+
     yPosition += 8;
-    
+
     // VL Share Row - All Time
     pdf.text('Avg VL Share: ', col1X, yPosition);
     if (allTimeStats.vlShare !== "N/A") {
@@ -1767,7 +1748,7 @@ Liebe Grüße, dein Nespresso Team`;
     } else {
       pdf.text(allTimeStats.vlShare, col1X + 25, yPosition);
     }
-    
+
     // VL Share Row - 30 Days
     pdf.text('Avg VL Share: ', col2X, yPosition);
     if (thirtyDaysStats.vlShare !== "N/A") {
@@ -1782,7 +1763,7 @@ Liebe Grüße, dein Nespresso Team`;
     } else {
       pdf.text(thirtyDaysStats.vlShare, col2X + 25, yPosition);
     }
-    
+
     // VL Share Row - 6 Months
     pdf.text('Avg VL Share: ', col3X, yPosition);
     if (sixMonthsStats.vlShare !== "N/A") {
@@ -1797,7 +1778,7 @@ Liebe Grüße, dein Nespresso Team`;
     } else {
       pdf.text(sixMonthsStats.vlShare, col3X + 25, yPosition);
     }
-    
+
     // Capture chart (excluding the button, legend, and timeframe menu)
     const chartElement = document.getElementById('trend-chart-content');
     if (chartElement) {
@@ -1807,64 +1788,64 @@ Liebe Grüße, dein Nespresso Team`;
       if (legendContainer) {
         legendContainer.style.display = 'none';
       }
-      
+
       const canvas = await html2canvas(chartElement, {
         backgroundColor: '#ffffff',
         scale: 2
       });
-      
+
       // Restore legend visibility
       if (legendContainer) {
         legendContainer.style.display = originalDisplay || '';
       }
-      
+
       const imgData = canvas.toDataURL('image/png');
       const imgWidth = 240;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
+
       // Calculate safe boundaries - ensure bottom margin of 15mm
       const chartStartY = yPosition + 5;
       const maxAllowedHeight = pageHeight - chartStartY - 15; // 15mm bottom margin
-      
+
       const finalHeight = Math.min(imgHeight, maxAllowedHeight);
       const finalWidth = imgHeight > maxAllowedHeight ? (imgWidth * maxAllowedHeight) / imgHeight : imgWidth;
-      
+
       pdf.addImage(imgData, 'PNG', 20, chartStartY, finalWidth, finalHeight);
-      
+
       // Add custom legend below the chart in a horizontal line (centered and smaller)
       const legendY = chartStartY + finalHeight + 8; // 8mm spacing below chart
-      
+
       pdf.setFontSize(8);
       pdf.setFont('helvetica', 'normal');
-      
+
       // Center the legend - calculate starting position
       const totalLegendWidth = 120; // approximate total width
       const legendStartX = 20 + (finalWidth - totalLegendWidth) / 2;
-      
+
       // MC/ET legend item
       const legend1X = legendStartX;
       pdf.setFillColor(59, 130, 246); // blue
       pdf.circle(legend1X, legendY, 1, 'F');
       pdf.setTextColor(0, 0, 0);
       pdf.text('MC/ET (Linke Skala)', legend1X + 3, legendY + 1);
-      
-      // TMA legend item  
+
+      // TMA legend item
       const legend2X = legend1X + 40;
       pdf.setFillColor(16, 185, 129); // green
       pdf.circle(legend2X, legendY, 1, 'F');
       pdf.text('TMA (%)', legend2X + 3, legendY + 1);
-      
+
       // VL Share legend item
       const legend3X = legend2X + 25;
       pdf.setFillColor(139, 92, 246); // purple
       pdf.circle(legend3X, legendY, 1, 'F');
       pdf.text('VL Share (%)', legend3X + 3, legendY + 1);
-      
+
       // Add white bottom margin to ensure nothing gets cut off
       pdf.setFillColor(255, 255, 255);
       pdf.rect(0, pageHeight - 15, pageWidth, 15, 'F');
     }
-    
+
     // Save the PDF
     pdf.save('nespresso-ca-kpi-export.pdf');
   };
@@ -1937,36 +1918,36 @@ Liebe Grüße, dein Nespresso Team`;
               <h1 className="text-2xl font-semibold text-gray-900">Statistiken</h1>
               <p className="text-gray-500 text-sm">CA KPIs und Mystery Shops Verwaltung</p>
             </div>
-            
+
             {/* Menu Buttons and Action Buttons */}
             <div className="flex items-center space-x-3">
               {/* Menu Buttons - Overview and History */}
-              <button 
+              <button
                 onClick={() => setSelectedMenu('overview')}
                 className={`flex items-center space-x-2 px-3 py-2 text-sm border rounded-lg transition-all duration-200 ${
-                  selectedMenu === 'overview' 
-                    ? 'bg-gray-100 text-gray-900 border-gray-300 scale-[1.02] shadow-sm' 
+                  selectedMenu === 'overview'
+                    ? 'bg-gray-100 text-gray-900 border-gray-300 scale-[1.02] shadow-sm'
                     : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
                 }`}
               >
                 <Send className="h-4 w-4" />
                 <span>Overview</span>
               </button>
-              <button 
+              <button
                 onClick={() => setSelectedMenu('history')}
                 className={`flex items-center space-x-2 px-3 py-2 text-sm border rounded-lg transition-all duration-200 ${
-                  selectedMenu === 'history' 
-                    ? 'bg-gray-100 text-gray-900 border-gray-300 scale-[1.02] shadow-sm' 
+                  selectedMenu === 'history'
+                    ? 'bg-gray-100 text-gray-900 border-gray-300 scale-[1.02] shadow-sm'
                     : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
                 }`}
               >
                 <FileText className="h-4 w-4" />
                 <span>History {historyLoading ? <span className="inline-block h-4 w-10 bg-gray-200 rounded animate-skeleton-fade align-middle" /> : `(${historyCards.length})`}</span>
               </button>
-              
+
               {/* Vertical Divider */}
               <div className="h-8 w-px bg-gray-300 opacity-60 mx-3"></div>
-              <button 
+              <button
                 onClick={() => setShowImportModal(true)}
                 className="flex items-center space-x-2 px-3 py-2 bg-white text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
               >
@@ -2003,14 +1984,14 @@ Liebe Grüße, dein Nespresso Team`;
                 <Gift className="h-4 w-4" />
                 <span>Prämien</span>
               </button>
-              <button 
+              <button
                 onClick={() => setShowCallsModal(true)}
                 className="flex items-center space-x-2 px-3 py-2 bg-white text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
               >
                 <Phone className="h-4 w-4" />
                 <span>Calls ({scheduledCalls.length})</span>
               </button>
-              <button 
+              <button
                 onClick={() => setShowRanksModal(true)}
                 className="flex items-center space-x-2 px-3 py-2 text-black text-sm rounded-lg hover:opacity-90 transition-all duration-200 opacity-80"
                 style={{
@@ -2021,7 +2002,7 @@ Liebe Grüße, dein Nespresso Team`;
                 <Crown className="h-4 w-4" />
                 <span>Ranks</span>
               </button>
-              <button 
+              <button
                 onClick={handleGenerateAllEmails}
                 className="flex items-center space-x-2 px-3 py-2 text-white text-sm rounded-lg hover:opacity-90 transition-all duration-200 opacity-80"
                 style={{
@@ -2305,7 +2286,7 @@ Liebe Grüße, dein Nespresso Team`;
                   <div key={card.id} className="bg-white border border-gray-100 rounded-lg p-4 shadow">
                     <div className="flex items-center justify-between mb-2">
                       <h3 className="font-medium text-gray-900">{card.name}</h3>
-                      <button 
+                      <button
                         className="text-red-500 hover:text-red-600"
                         onClick={() => handleDeleteCard(card.id)}
                       >
@@ -2322,16 +2303,16 @@ Liebe Grüße, dein Nespresso Team`;
                       )}
                       <p className="text-sm text-gray-600 truncate">{card.email}</p>
                     </div>
-                    
+
                     {/* KPI Metrics */}
-                    <div 
+                    <div
                       className="bg-gray-100 border border-gray-200 rounded px-3 py-2 mb-4 cursor-pointer hover:bg-gray-50 transition-colors"
                       onClick={() => handleKPIClick(card)}
                     >
                       <div className="flex items-center justify-between text-xs">
                         <div className="text-center">
                           <div className="text-gray-500">MC/ET:</div>
-                          <div 
+                          <div
                             className={`font-semibold ${getColorForMcEt(card.mcet) !== "custom-orange" ? getColorForMcEt(card.mcet) : ""}`}
                             style={{...getStyleForColor(getColorForMcEt(card.mcet))}}
                           >
@@ -2340,7 +2321,7 @@ Liebe Grüße, dein Nespresso Team`;
                         </div>
                         <div className="text-center">
                           <div className="text-gray-500">TMA:</div>
-                          <div 
+                          <div
                             className={`font-semibold ${getColorForTma(card.tma) !== "custom-orange" ? getColorForTma(card.tma) : ""}`}
                             style={{...getStyleForColor(getColorForTma(card.tma))}}
                           >
@@ -2349,7 +2330,7 @@ Liebe Grüße, dein Nespresso Team`;
                         </div>
                         <div className="text-center">
                           <div className="text-gray-500">VL:</div>
-                          <div 
+                          <div
                             className={`font-semibold ${getColorForVlShare(card.vlShare) !== "custom-orange" ? getColorForVlShare(card.vlShare) : ""}`}
                             style={{...getStyleForColor(getColorForVlShare(card.vlShare))}}
                           >
@@ -2369,7 +2350,7 @@ Liebe Grüße, dein Nespresso Team`;
                         <span className="text-xs text-gray-600 font-semibold">Magic Touch</span>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <button 
+                        <button
                           className={`${recentlyScheduled[card.id] ? 'text-green-500' : 'text-gray-400 hover:text-gray-600'} transition-colors`}
                           onClick={() => handleScheduleCall(card)}
                         >
@@ -2381,7 +2362,7 @@ Liebe Grüße, dein Nespresso Team`;
                             </svg>
                           )}
                         </button>
-                        <button 
+                        <button
                           className="text-gray-400 hover:text-gray-600"
                           onClick={() => generatedStates[card.id] ? handleRegenerateEmail(card.id) : handleGenerateEmail(card.id)}
                         >
@@ -2391,7 +2372,7 @@ Liebe Grüße, dein Nespresso Team`;
                         </button>
                         {generatedStates[card.id] && (
                           <>
-                            <button 
+                            <button
                               className={`${copiedText[card.id] ? 'text-green-500' : 'text-gray-400 hover:text-gray-600'}`}
                               onClick={() => handleCopyGeneratedText(card.id)}
                             >
@@ -2401,7 +2382,7 @@ Liebe Grüße, dein Nespresso Team`;
                                 <Copy className="h-4 w-4" />
                               )}
                             </button>
-                            <button 
+                            <button
                               className={`${editingStates[card.id] ? 'text-green-500' : 'text-gray-400 hover:text-gray-600'}`}
                               onClick={() => handleEditText(card.id)}
                             >
@@ -2417,7 +2398,7 @@ Liebe Grüße, dein Nespresso Team`;
                     </div>
 
                     <div className="relative magic-touch-dropdown">
-                      <div 
+                      <div
                         className="flex items-center justify-between mb-3 px-2 py-1 rounded-md border border-gray-300 shadow-sm text-xs bg-gray-50 text-gray-600 cursor-pointer"
                         style={getMagicTouchStyle(card.id)}
                         onClick={() => handleMagicTouchClick(card.id)}
@@ -2439,7 +2420,7 @@ Liebe Grüße, dein Nespresso Team`;
                         </div>
                         <ChevronDown className="h-3 w-3 text-gray-400" />
                       </div>
-                      
+
                       {openDropdown === card.id && (
                         <div className="absolute top-full left-0 w-full bg-white border border-gray-200 rounded-md shadow-lg z-10 mt-1">
                           {categories.map((category) => (
@@ -2464,18 +2445,18 @@ Liebe Grüße, dein Nespresso Team`;
                       )}
                     </div>
 
-                    <div 
+                    <div
                       className={`px-2 py-1 rounded-md border text-xs mb-3 mt-2.5 flex items-center space-x-2 relative border-gray-200 bg-gray-100 text-gray-600 cursor-pointer hover:bg-gray-50 ${showPromoterDropdown[card.id] ? 'z-[9999]' : ''}`}
                       onClick={() => handlePromoterContainerClick(card.id)}
                       data-promoter-dropdown
                     >
                       {/* Status indicator dot */}
                       <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                        matchedPromoters[card.id] 
-                          ? 'bg-green-600 shadow-sm shadow-green-600/50 ring-2 ring-green-600/20 opacity-50' 
+                        matchedPromoters[card.id]
+                          ? 'bg-green-600 shadow-sm shadow-green-600/50 ring-2 ring-green-600/20 opacity-50'
                           : 'bg-red-500 shadow-sm shadow-red-500/50 ring-2 ring-red-500/20 opacity-50'
                       }`}></div>
-                      
+
                       {/* Text content */}
                       <span className="opacity-50">
                         {matchedPromoters[card.id] || 'Kein Promotor gefunden'}
@@ -2497,8 +2478,8 @@ Liebe Grüße, dein Nespresso Team`;
                           />
                           <div className="max-h-32 overflow-y-auto scrollbar-hide">
                             {availablePromoters
-                              .filter(promoter => 
-                                !promoterSearch[card.id] || 
+                              .filter(promoter =>
+                                !promoterSearch[card.id] ||
                                 promoter.toLowerCase().includes(promoterSearch[card.id].toLowerCase())
                               )
                               .map((promoter) => (
@@ -2524,9 +2505,9 @@ Liebe Grüße, dein Nespresso Team`;
                     style={editingStates[card.id] ? {boxShadow: '0 0 6px 3px rgba(34, 197, 94, 0.2)'} : {}}>
                       {!generatingStates[card.id] && !generatedStates[card.id] && (
                         <div className="flex justify-center items-center h-full">
-                          <button 
+                          <button
                             onClick={() => handleGenerateEmail(card.id)}
-                            className="flex items-center space-x-1.5 px-2.5 py-1.5 text-xs text-white rounded-lg transition-all duration-200 opacity-85" 
+                            className="flex items-center space-x-1.5 px-2.5 py-1.5 text-xs text-white rounded-lg transition-all duration-200 opacity-85"
                             style={{background: 'linear-gradient(135deg, #22C55E, #105F2D)'}}
                           >
                             <Zap className="h-3.5 w-3.5" />
@@ -2534,7 +2515,7 @@ Liebe Grüße, dein Nespresso Team`;
                           </button>
                         </div>
                       )}
-                      
+
                       {generatingStates[card.id] && (
                         <div className="flex justify-center items-center">
                           <div className="flex flex-col items-center space-y-1">
@@ -2548,7 +2529,7 @@ Liebe Grüße, dein Nespresso Team`;
                           </div>
                         </div>
                       )}
-                      
+
                       {generatedStates[card.id] && (
                         <div className="text-xs text-gray-600 leading-relaxed h-72 overflow-y-auto scrollbar-hide w-full">
                           {editingStates[card.id] ? (
@@ -2564,7 +2545,7 @@ Liebe Grüße, dein Nespresso Team`;
                         </div>
                       )}
                     </div>
-                    
+
                     {/* Validation Button - Only show when text is generated */}
                     {generatedStates[card.id] && (
                       <div className="-mb-3">
@@ -2581,7 +2562,7 @@ Liebe Grüße, dein Nespresso Team`;
                   </div>
                 ))}
               </div>
-              
+
               {/* Send & Save to History Button - Only show when there are validated cards */}
               {Object.values(validationStates).some(isValidated => isValidated) && (
                 <div className="mt-6 flex justify-center">
@@ -2638,10 +2619,10 @@ Liebe Grüße, dein Nespresso Team`;
                     </div>
                   </div>
                 </div>
-                
+
                 {/* Continuous horizontal line */}
                 <hr className="border-gray-200 mb-3" />
-                
+
                 <div className="grid grid-cols-3">
                   {/* All Time Data */}
                   <div className="text-center px-6">
@@ -2651,7 +2632,7 @@ Liebe Grüße, dein Nespresso Team`;
                           Avg MC/ET: {historyLoading ? (
                             <span className="inline-block h-4 w-10 bg-gray-200 rounded animate-skeleton-fade align-middle"></span>
                           ) : calculateAverages("alltime").mcet !== "N/A" ? (
-                            <span 
+                            <span
                               className={`font-medium ${getColorForMcEt(parseFloat(calculateAverages("alltime").mcet)) !== "custom-orange" ? getColorForMcEt(parseFloat(calculateAverages("alltime").mcet)) : ""}`}
                               style={{...getStyleForColor(getColorForMcEt(parseFloat(calculateAverages("alltime").mcet)))}}
                             >
@@ -2663,8 +2644,8 @@ Liebe Grüße, dein Nespresso Team`;
                         </span>
                         {calculateAverages("alltime").mcet !== "N/A" && (
                           <span className={`inline-flex items-center px-1 py-0 rounded text-[10px] font-medium bg-gray-100 ${
-                            parseFloat(calculateAverages("alltime").mcet) >= 4.5 
-                              ? 'text-green-600' 
+                            parseFloat(calculateAverages("alltime").mcet) >= 4.5
+                              ? 'text-green-600'
                               : 'text-red-600'
                           }`}>
                             {parseFloat(calculateAverages("alltime").mcet) >= 4.5 ? '+' : ''}{(parseFloat(calculateAverages("alltime").mcet) - 4.5).toFixed(1)}
@@ -2676,7 +2657,7 @@ Liebe Grüße, dein Nespresso Team`;
                           Avg TMA: {historyLoading ? (
                             <span className="inline-block h-4 w-10 bg-gray-200 rounded animate-skeleton-fade align-middle"></span>
                           ) : calculateAverages("alltime").tma !== "N/A" ? (
-                            <span 
+                            <span
                               className={`font-medium ${getColorForTma(parseFloat(calculateAverages("alltime").tma)) !== "custom-orange" ? getColorForTma(parseFloat(calculateAverages("alltime").tma)) : ""}`}
                               style={{...getStyleForColor(getColorForTma(parseFloat(calculateAverages("alltime").tma)))}}
                             >
@@ -2688,8 +2669,8 @@ Liebe Grüße, dein Nespresso Team`;
                         </span>
                         {calculateAverages("alltime").tma !== "N/A" && (
                           <span className={`inline-flex items-center px-1 py-0 rounded text-[10px] font-medium bg-gray-100 ${
-                            parseFloat(calculateAverages("alltime").tma) >= 75 
-                              ? 'text-green-600' 
+                            parseFloat(calculateAverages("alltime").tma) >= 75
+                              ? 'text-green-600'
                               : 'text-red-600'
                           }`}>
                             {parseFloat(calculateAverages("alltime").tma) >= 75 ? '+' : ''}{(parseFloat(calculateAverages("alltime").tma) - 75).toFixed(1)}
@@ -2701,7 +2682,7 @@ Liebe Grüße, dein Nespresso Team`;
                           Avg VL Share: {historyLoading ? (
                             <span className="inline-block h-4 w-10 bg-gray-200 rounded animate-skeleton-fade align-middle"></span>
                           ) : calculateAverages("alltime").vlShare !== "N/A" ? (
-                            <span 
+                            <span
                               className={`font-medium ${getColorForVlShare(parseFloat(calculateAverages("alltime").vlShare)) !== "custom-orange" ? getColorForVlShare(parseFloat(calculateAverages("alltime").vlShare)) : ""}`}
                               style={{...getStyleForColor(getColorForVlShare(parseFloat(calculateAverages("alltime").vlShare)))}}
                             >
@@ -2713,8 +2694,8 @@ Liebe Grüße, dein Nespresso Team`;
                         </span>
                         {calculateAverages("alltime").vlShare !== "N/A" && (
                           <span className={`inline-flex items-center px-1 py-0 rounded text-[10px] font-medium bg-gray-100 ${
-                            parseFloat(calculateAverages("alltime").vlShare) >= 10 
-                              ? 'text-green-600' 
+                            parseFloat(calculateAverages("alltime").vlShare) >= 10
+                              ? 'text-green-600'
                               : 'text-red-600'
                           }`}>
                             {parseFloat(calculateAverages("alltime").vlShare) >= 10 ? '+' : ''}{(parseFloat(calculateAverages("alltime").vlShare) - 10).toFixed(1)}
@@ -2732,7 +2713,7 @@ Liebe Grüße, dein Nespresso Team`;
                           Avg MC/ET: {historyLoading ? (
                             <span className="inline-block h-4 w-10 bg-gray-200 rounded animate-skeleton-fade align-middle"></span>
                           ) : calculateAverages("30days").mcet !== "N/A" ? (
-                            <span 
+                            <span
                               className={`font-medium ${getColorForMcEt(parseFloat(calculateAverages("30days").mcet)) !== "custom-orange" ? getColorForMcEt(parseFloat(calculateAverages("30days").mcet)) : ""}`}
                               style={{...getStyleForColor(getColorForMcEt(parseFloat(calculateAverages("30days").mcet)))}}
                             >
@@ -2744,8 +2725,8 @@ Liebe Grüße, dein Nespresso Team`;
                         </span>
                         {calculateWaveChanges().mcet !== null && (
                           <span className={`inline-flex items-center px-1 py-0 rounded text-[10px] font-medium bg-gray-100 ${
-                            calculateWaveChanges().mcet! >= 0 
-                              ? 'text-green-600' 
+                            calculateWaveChanges().mcet! >= 0
+                              ? 'text-green-600'
                               : 'text-red-600'
                           }`}>
                             {calculateWaveChanges().mcet! >= 0 ? '+' : ''}{calculateWaveChanges().mcet!.toFixed(0)}%
@@ -2757,7 +2738,7 @@ Liebe Grüße, dein Nespresso Team`;
                           Avg TMA: {historyLoading ? (
                             <span className="inline-block h-4 w-10 bg-gray-200 rounded animate-skeleton-fade align-middle"></span>
                           ) : calculateAverages("30days").tma !== "N/A" ? (
-                            <span 
+                            <span
                               className={`font-medium ${getColorForTma(parseFloat(calculateAverages("30days").tma)) !== "custom-orange" ? getColorForTma(parseFloat(calculateAverages("30days").tma)) : ""}`}
                               style={{...getStyleForColor(getColorForTma(parseFloat(calculateAverages("30days").tma)))}}
                             >
@@ -2769,8 +2750,8 @@ Liebe Grüße, dein Nespresso Team`;
                         </span>
                         {calculateWaveChanges().tma !== null && (
                           <span className={`inline-flex items-center px-1 py-0 rounded text-[10px] font-medium bg-gray-100 ${
-                            calculateWaveChanges().tma! >= 0 
-                              ? 'text-green-600' 
+                            calculateWaveChanges().tma! >= 0
+                              ? 'text-green-600'
                               : 'text-red-600'
                           }`}>
                             {calculateWaveChanges().tma! >= 0 ? '+' : ''}{calculateWaveChanges().tma!.toFixed(0)}%
@@ -2782,7 +2763,7 @@ Liebe Grüße, dein Nespresso Team`;
                           Avg VL Share: {historyLoading ? (
                             <span className="inline-block h-4 w-10 bg-gray-200 rounded animate-skeleton-fade align-middle"></span>
                           ) : calculateAverages("30days").vlShare !== "N/A" ? (
-                            <span 
+                            <span
                               className={`font-medium ${getColorForVlShare(parseFloat(calculateAverages("30days").vlShare)) !== "custom-orange" ? getColorForVlShare(parseFloat(calculateAverages("30days").vlShare)) : ""}`}
                               style={{...getStyleForColor(getColorForVlShare(parseFloat(calculateAverages("30days").vlShare)))}}
                             >
@@ -2794,8 +2775,8 @@ Liebe Grüße, dein Nespresso Team`;
                         </span>
                         {calculateWaveChanges().vlShare !== null && (
                           <span className={`inline-flex items-center px-1 py-0 rounded text-[10px] font-medium bg-gray-100 ${
-                            calculateWaveChanges().vlShare! >= 0 
-                              ? 'text-green-600' 
+                            calculateWaveChanges().vlShare! >= 0
+                              ? 'text-green-600'
                               : 'text-red-600'
                           }`}>
                             {calculateWaveChanges().vlShare! >= 0 ? '+' : ''}{calculateWaveChanges().vlShare!.toFixed(0)}%
@@ -2813,7 +2794,7 @@ Liebe Grüße, dein Nespresso Team`;
                           Avg MC/ET: {historyLoading ? (
                             <span className="inline-block h-4 w-10 bg-gray-200 rounded animate-skeleton-fade align-middle"></span>
                           ) : calculateAverages("6months").mcet !== "N/A" ? (
-                            <span 
+                            <span
                               className={`font-medium ${getColorForMcEt(parseFloat(calculateAverages("6months").mcet)) !== "custom-orange" ? getColorForMcEt(parseFloat(calculateAverages("6months").mcet)) : ""}`}
                               style={{...getStyleForColor(getColorForMcEt(parseFloat(calculateAverages("6months").mcet)))}}
                             >
@@ -2825,8 +2806,8 @@ Liebe Grüße, dein Nespresso Team`;
                         </span>
                         {calculate6MonthsWaveChanges().mcet !== null && (
                           <span className={`inline-flex items-center px-1 py-0 rounded text-[10px] font-medium bg-gray-100 ${
-                            calculate6MonthsWaveChanges().mcet! >= 0 
-                              ? 'text-green-600' 
+                            calculate6MonthsWaveChanges().mcet! >= 0
+                              ? 'text-green-600'
                               : 'text-red-600'
                           }`}>
                             {calculate6MonthsWaveChanges().mcet! >= 0 ? '+' : ''}{calculate6MonthsWaveChanges().mcet!.toFixed(0)}%
@@ -2838,7 +2819,7 @@ Liebe Grüße, dein Nespresso Team`;
                           Avg TMA: {historyLoading ? (
                             <span className="inline-block h-4 w-10 bg-gray-200 rounded animate-skeleton-fade align-middle"></span>
                           ) : calculateAverages("6months").tma !== "N/A" ? (
-                            <span 
+                            <span
                               className={`font-medium ${getColorForTma(parseFloat(calculateAverages("6months").tma)) !== "custom-orange" ? getColorForTma(parseFloat(calculateAverages("6months").tma)) : ""}`}
                               style={{...getStyleForColor(getColorForTma(parseFloat(calculateAverages("6months").tma)))}}
                             >
@@ -2850,8 +2831,8 @@ Liebe Grüße, dein Nespresso Team`;
                         </span>
                         {calculate6MonthsWaveChanges().tma !== null && (
                           <span className={`inline-flex items-center px-1 py-0 rounded text-[10px] font-medium bg-gray-100 ${
-                            calculate6MonthsWaveChanges().tma! >= 0 
-                              ? 'text-green-600' 
+                            calculate6MonthsWaveChanges().tma! >= 0
+                              ? 'text-green-600'
                               : 'text-red-600'
                           }`}>
                             {calculate6MonthsWaveChanges().tma! >= 0 ? '+' : ''}{calculate6MonthsWaveChanges().tma!.toFixed(0)}%
@@ -2863,7 +2844,7 @@ Liebe Grüße, dein Nespresso Team`;
                           Avg VL Share: {historyLoading ? (
                             <span className="inline-block h-4 w-10 bg-gray-200 rounded animate-skeleton-fade align-middle"></span>
                           ) : calculateAverages("6months").vlShare !== "N/A" ? (
-                            <span 
+                            <span
                               className={`font-medium ${getColorForVlShare(parseFloat(calculateAverages("6months").vlShare)) !== "custom-orange" ? getColorForVlShare(parseFloat(calculateAverages("6months").vlShare)) : ""}`}
                               style={{...getStyleForColor(getColorForVlShare(parseFloat(calculateAverages("6months").vlShare)))}}
                             >
@@ -2875,8 +2856,8 @@ Liebe Grüße, dein Nespresso Team`;
                         </span>
                         {calculate6MonthsWaveChanges().vlShare !== null && (
                           <span className={`inline-flex items-center px-1 py-0 rounded text-[10px] font-medium bg-gray-100 ${
-                            calculate6MonthsWaveChanges().vlShare! >= 0 
-                              ? 'text-green-600' 
+                            calculate6MonthsWaveChanges().vlShare! >= 0
+                              ? 'text-green-600'
                               : 'text-red-600'
                           }`}>
                             {calculate6MonthsWaveChanges().vlShare! >= 0 ? '+' : ''}{calculate6MonthsWaveChanges().vlShare!.toFixed(0)}%
@@ -2907,22 +2888,22 @@ Liebe Grüße, dein Nespresso Team`;
                             <ResponsiveContainer width="100%" height={300}>
                               <LineChart data={generateChartData()} margin={{ left: 20, right: 30, top: 20, bottom: 20 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                                <XAxis 
-                                  dataKey="month" 
+                                <XAxis
+                                  dataKey="month"
                                   stroke="#6b7280"
                                   fontSize={12}
                                   type="category"
                                   interval={0}
                                   tick={{ fontSize: 12 }}
                                 />
-                                <YAxis 
+                                <YAxis
                                   yAxisId="mcet"
                                   domain={[0, 6]}
                                   stroke="#6b7280"
                                   fontSize={12}
                                   label={{ value: 'MC/ET', angle: -90, position: 'insideLeft' }}
                                 />
-                                <YAxis 
+                                <YAxis
                                   yAxisId="percentage"
                                   orientation="right"
                                   domain={[0, 100]}
@@ -2930,7 +2911,7 @@ Liebe Grüße, dein Nespresso Team`;
                                   fontSize={12}
                                   label={{ value: 'Prozent (%)', angle: 90, position: 'insideRight' }}
                                 />
-                                <Tooltip 
+                                <Tooltip
                                   contentStyle={{
                                     backgroundColor: '#f9fafb',
                                     border: '1px solid #e5e7eb',
@@ -2942,31 +2923,31 @@ Liebe Grüße, dein Nespresso Team`;
                                     name === 'mcet' ? 'MC/ET' : name === 'tma' ? 'TMA' : 'VL Share'
                                   ]}
                                 />
-                                <Line 
+                                <Line
                                   yAxisId="mcet"
-                                  type="monotone" 
-                                  dataKey="mcet" 
-                                  stroke="#3b82f6" 
+                                  type="monotone"
+                                  dataKey="mcet"
+                                  stroke="#3b82f6"
                                   strokeWidth={2}
                                   dot={{ fill: '#3b82f6', strokeWidth: 2, r: 4 }}
                                   activeDot={{ r: 6, stroke: '#3b82f6', strokeWidth: 2 }}
                                   connectNulls={false}
                                 />
-                                <Line 
+                                <Line
                                   yAxisId="percentage"
-                                  type="monotone" 
-                                  dataKey="tma" 
-                                  stroke="#10b981" 
+                                  type="monotone"
+                                  dataKey="tma"
+                                  stroke="#10b981"
                                   strokeWidth={2}
                                   dot={{ fill: '#10b981', strokeWidth: 2, r: 4 }}
                                   activeDot={{ r: 6, stroke: '#10b981', strokeWidth: 2 }}
                                   connectNulls={false}
                                 />
-                                <Line 
+                                <Line
                                   yAxisId="percentage"
-                                  type="monotone" 
-                                  dataKey="vlShare" 
-                                  stroke="#8b5cf6" 
+                                  type="monotone"
+                                  dataKey="vlShare"
+                                  stroke="#8b5cf6"
                                   strokeWidth={2}
                                   dot={{ fill: '#8b5cf6', strokeWidth: 2, r: 4 }}
                                   activeDot={{ r: 6, stroke: '#8b5cf6', strokeWidth: 2 }}
@@ -2974,7 +2955,7 @@ Liebe Grüße, dein Nespresso Team`;
                                 />
                               </LineChart>
                             </ResponsiveContainer>
-                            
+
                             {/* Legend and Time Filter */}
                             <div className="relative flex justify-center items-center mt-4">
                               {/* Legend */}
@@ -2992,14 +2973,14 @@ Liebe Grüße, dein Nespresso Team`;
                                   <span className="text-sm text-gray-600">VL Share (%)</span>
                                 </div>
                               </div>
-                              
+
                               {/* Time Filter Buttons */}
                               <div className="absolute right-0 flex space-x-1 bg-gray-100 p-1 rounded-lg">
                                 <button
                                   onClick={() => setChartTimeFilter("3months")}
                                   className={`px-3 py-1 text-xs rounded transition-all duration-200 ${
-                                    chartTimeFilter === "3months" 
-                                      ? 'bg-white text-gray-900 shadow-sm' 
+                                    chartTimeFilter === "3months"
+                                      ? 'bg-white text-gray-900 shadow-sm'
                                       : 'text-gray-600 hover:text-gray-900'
                                   }`}
                                 >
@@ -3008,8 +2989,8 @@ Liebe Grüße, dein Nespresso Team`;
                                 <button
                                   onClick={() => setChartTimeFilter("6months")}
                                   className={`px-3 py-1 text-xs rounded transition-all duration-200 ${
-                                    chartTimeFilter === "6months" 
-                                      ? 'bg-white text-gray-900 shadow-sm' 
+                                    chartTimeFilter === "6months"
+                                      ? 'bg-white text-gray-900 shadow-sm'
                                       : 'text-gray-600 hover:text-gray-900'
                                   }`}
                                 >
@@ -3018,8 +2999,8 @@ Liebe Grüße, dein Nespresso Team`;
                                 <button
                                   onClick={() => setChartTimeFilter("1year")}
                                   className={`px-3 py-1 text-xs rounded transition-all duration-200 ${
-                                    chartTimeFilter === "1year" 
-                                      ? 'bg-white text-gray-900 shadow-sm' 
+                                    chartTimeFilter === "1year"
+                                      ? 'bg-white text-gray-900 shadow-sm'
                                       : 'text-gray-600 hover:text-gray-900'
                                   }`}
                                 >
@@ -3028,8 +3009,8 @@ Liebe Grüße, dein Nespresso Team`;
                                 <button
                                   onClick={() => setChartTimeFilter("all")}
                                   className={`px-3 py-1 text-xs rounded transition-all duration-200 ${
-                                    chartTimeFilter === "all" 
-                                      ? 'bg-white text-gray-900 shadow-sm' 
+                                    chartTimeFilter === "all"
+                                      ? 'bg-white text-gray-900 shadow-sm'
                                       : 'text-gray-600 hover:text-gray-900'
                                   }`}
                                 >
@@ -3068,10 +3049,10 @@ Liebe Grüße, dein Nespresso Team`;
                         <span>{selectedPromoterFilter === "all" ? "All Promoters" : selectedPromoterFilter}</span>
                         <ChevronDown className="h-4 w-4 text-gray-400" />
                       </button>
-                      
+
                       {showPromoterFilterDropdown && (
                         <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
-                          <div 
+                          <div
                             onClick={() => {
                               setSelectedPromoterFilter("all");
                               setShowPromoterFilterDropdown(false);
@@ -3142,14 +3123,14 @@ Liebe Grüße, dein Nespresso Team`;
                     <div key={date}>
                       {/* Date Header */}
                       <h2 className="text-lg font-bold text-gray-900 mb-4">{date}</h2>
-                      
+
                       {/* Cards Grid for this date */}
                       <div className="grid grid-cols-5 gap-4">
                         {cards.map((card) => (
                           <div key={card.id} className="bg-white border border-gray-100 rounded-lg p-4 shadow">
                             <div className="flex items-center justify-between mb-3">
                               <h3 className="font-medium text-gray-900">{card.name}</h3>
-                              <button 
+                              <button
                                 className={`text-red-500 hover:text-red-600 ${pendingHistoryDelete[card.id] ? 'wobble' : ''}`}
                                 onClick={() => handleDeleteHistoryCard(card.id)}
                               >
@@ -3158,13 +3139,13 @@ Liebe Grüße, dein Nespresso Team`;
                                 </svg>
                               </button>
                             </div>
-                            
+
                             {/* KPI Metrics */}
                             <div className="bg-gray-100 border border-gray-200 rounded px-3 py-2 mb-4">
                               <div className="flex items-center justify-between text-xs">
                                 <div className="text-center">
                                   <div className="text-gray-500">MC/ET:</div>
-                                  <div 
+                                  <div
                                     className={`font-semibold ${getColorForMcEt(card.mcet) !== "custom-orange" ? getColorForMcEt(card.mcet) : ""}`}
                                     style={{...getStyleForColor(getColorForMcEt(card.mcet))}}
                                   >
@@ -3173,7 +3154,7 @@ Liebe Grüße, dein Nespresso Team`;
                                 </div>
                                 <div className="text-center">
                                   <div className="text-gray-500">TMA:</div>
-                                  <div 
+                                  <div
                                     className={`font-semibold ${getColorForTma(card.tma) !== "custom-orange" ? getColorForTma(card.tma) : ""}`}
                                     style={{...getStyleForColor(getColorForTma(card.tma))}}
                                   >
@@ -3182,7 +3163,7 @@ Liebe Grüße, dein Nespresso Team`;
                                 </div>
                                 <div className="text-center">
                                   <div className="text-gray-500">VL:</div>
-                                  <div 
+                                  <div
                                     className={`font-semibold ${getColorForVlShare(card.vlShare) !== "custom-orange" ? getColorForVlShare(card.vlShare) : ""}`}
                                     style={{...getStyleForColor(getColorForVlShare(card.vlShare))}}
                                   >
@@ -3231,11 +3212,11 @@ Liebe Grüße, dein Nespresso Team`;
                             <div className="px-2 py-1 rounded-md border text-xs mb-3 mt-2.5 flex items-center space-x-2 relative border-gray-200 bg-gray-100 text-gray-600">
                               {/* Status indicator dot */}
                               <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                card.matchedPromoter 
-                                  ? 'bg-green-600 shadow-sm shadow-green-600/50 ring-2 ring-green-600/20 opacity-50' 
+                                card.matchedPromoter
+                                  ? 'bg-green-600 shadow-sm shadow-green-600/50 ring-2 ring-green-600/20 opacity-50'
                                   : 'bg-red-500 shadow-sm shadow-red-500/50 ring-2 ring-red-500/20 opacity-50'
                               }`}></div>
-                              
+
                               {/* Text content */}
                               <span className="opacity-50">
                                 {card.matchedPromoter || 'Kein Promotor gefunden'}
@@ -3298,7 +3279,7 @@ Liebe Grüße, dein Nespresso Team`;
                       <ChevronDown className="h-4 w-4 text-blue-100" style={{ color: 'rgb(191 219 254)' }} />
                     )}
                   </button>
-                  
+
                   {showExcelFormatInfo && (
                     <div className="space-y-1.5 mt-2.5">
                       <div className="flex items-start text-xs">
@@ -3326,7 +3307,7 @@ Liebe Grüße, dein Nespresso Team`;
                 </div>
 
                 {/* Drag and Drop Area */}
-                <div 
+                <div
                   className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors"
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
@@ -3348,7 +3329,7 @@ Liebe Grüße, dein Nespresso Team`;
                       <p className="text-sm text-gray-600">
                         Excel-Datei hier ablegen oder
                       </p>
-                      <button 
+                      <button
                         onClick={() => fileInputRef.current?.click()}
                         className="text-sm text-blue-600 hover:text-blue-700 font-medium"
                       >
@@ -3405,7 +3386,7 @@ Liebe Grüße, dein Nespresso Team`;
                       <ChevronDown className="h-4 w-4 text-blue-100" style={{ color: 'rgb(191 219 254)' }} />
                     )}
                   </button>
-                  
+
                   {showPraemienExcelFormatInfo && (
                     <div className="space-y-1.5 mt-2.5">
                       <div className="flex items-start text-xs">
@@ -3445,7 +3426,7 @@ Liebe Grüße, dein Nespresso Team`;
                 </div>
 
                 {/* Drag and Drop Area */}
-                <div 
+                <div
                   className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors"
                   onDragOver={handlePraemienDragOver}
                   onDrop={handlePraemienDrop}
@@ -3467,7 +3448,7 @@ Liebe Grüße, dein Nespresso Team`;
                       <p className="text-sm text-gray-600">
                         Excel-Datei hier ablegen oder
                       </p>
-                      <button 
+                      <button
                         onClick={() => praemienFileInputRef.current?.click()}
                         className="text-sm text-blue-600 hover:text-blue-700 font-medium"
                       >
@@ -3515,27 +3496,27 @@ Liebe Grüße, dein Nespresso Team`;
                 <div className="relative mb-6">
                   <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg relative">
                     {/* Sliding indicator */}
-                    <div 
+                    <div
                       className={`absolute top-1 bottom-1 bg-white rounded-md shadow-sm transition-all duration-300 ease-in-out ${
-                        activeCallsTab === "geplante" 
-                          ? "left-1 right-1/2 mr-0.5" 
+                        activeCallsTab === "geplante"
+                          ? "left-1 right-1/2 mr-0.5"
                           : "left-1/2 right-1 ml-0.5"
                       }`}
                     />
-                    
+
                     <button
                       onClick={() => setActiveCallsTab("geplante")}
                       className="relative flex-1 px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 z-10"
                     >
                       <div className="flex items-center justify-center space-x-2">
                         <Phone className={`h-4 w-4 transition-colors duration-200 ${
-                          activeCallsTab === "geplante" 
-                            ? "text-blue-500" 
+                          activeCallsTab === "geplante"
+                            ? "text-blue-500"
                             : "text-gray-600"
                         }`} />
                         <span className={`transition-all duration-200 ${
-                          activeCallsTab === "geplante" 
-                            ? "text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-blue-600" 
+                          activeCallsTab === "geplante"
+                            ? "text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-blue-600"
                             : "text-gray-600"
                         }`}>Geplante Anrufe</span>
                       </div>
@@ -3546,13 +3527,13 @@ Liebe Grüße, dein Nespresso Team`;
                     >
                       <div className="flex items-center justify-center space-x-2">
                         <FileText className={`h-4 w-4 transition-colors duration-200 ${
-                          activeCallsTab === "verlauf" 
-                            ? "text-purple-500" 
+                          activeCallsTab === "verlauf"
+                            ? "text-purple-500"
                             : "text-gray-600"
                         }`} />
                         <span className={`transition-all duration-200 ${
-                          activeCallsTab === "verlauf" 
-                            ? "text-transparent bg-clip-text bg-gradient-to-r from-purple-500 to-pink-500" 
+                          activeCallsTab === "verlauf"
+                            ? "text-transparent bg-clip-text bg-gradient-to-r from-purple-500 to-pink-500"
                             : "text-gray-600"
                         }`}>Verlauf</span>
                       </div>
@@ -3649,24 +3630,24 @@ Liebe Grüße, dein Nespresso Team`;
                 <div className="relative mb-6">
                   <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg relative">
                     {/* Sliding indicator */}
-                    <div 
+                    <div
                       className={`absolute top-1 bottom-1 bg-white rounded-md shadow-sm transition-all duration-300 ease-in-out ${
-                        activeRanksTab === "mcet" 
-                          ? "left-1 right-2/3 mr-0.5" 
+                        activeRanksTab === "mcet"
+                          ? "left-1 right-2/3 mr-0.5"
                           : activeRanksTab === "tma"
                           ? "left-1/3 right-1/3"
                           : "left-2/3 right-1 ml-0.5"
                       }`}
                     />
-                    
+
                     <button
                       onClick={() => setActiveRanksTab("mcet")}
                       className="relative flex-1 px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 z-10"
                     >
                       <div className="flex items-center justify-center space-x-2">
                         <span className={`transition-all duration-200 ${
-                          activeRanksTab === "mcet" 
-                            ? "text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-blue-600" 
+                          activeRanksTab === "mcet"
+                            ? "text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-blue-600"
                             : "text-gray-600"
                         }`}>MC/ET</span>
                       </div>
@@ -3677,8 +3658,8 @@ Liebe Grüße, dein Nespresso Team`;
                     >
                       <div className="flex items-center justify-center space-x-2">
                         <span className={`transition-all duration-200 ${
-                          activeRanksTab === "tma" 
-                            ? "text-transparent bg-clip-text bg-gradient-to-r from-green-500 to-emerald-600" 
+                          activeRanksTab === "tma"
+                            ? "text-transparent bg-clip-text bg-gradient-to-r from-green-500 to-emerald-600"
                             : "text-gray-600"
                         }`}>TMA</span>
                       </div>
@@ -3689,8 +3670,8 @@ Liebe Grüße, dein Nespresso Team`;
                     >
                       <div className="flex items-center justify-center space-x-2">
                         <span className={`transition-all duration-200 ${
-                          activeRanksTab === "vlshare" 
-                            ? "text-transparent bg-clip-text bg-gradient-to-r from-purple-500 to-pink-500" 
+                          activeRanksTab === "vlshare"
+                            ? "text-transparent bg-clip-text bg-gradient-to-r from-purple-500 to-pink-500"
                             : "text-gray-600"
                         }`}>VL Share</span>
                       </div>
@@ -3702,40 +3683,40 @@ Liebe Grüße, dein Nespresso Team`;
                 <div className="space-y-2">
                   {cardData.length > 0 ? (
                     getSortedLeaderboard(activeRanksTab).map((entry) => {
-                      const currentValue = activeRanksTab === "mcet" ? entry.mcet : 
-                                         activeRanksTab === "tma" ? entry.tma : 
+                      const currentValue = activeRanksTab === "mcet" ? entry.mcet :
+                                         activeRanksTab === "tma" ? entry.tma :
                                          entry.vlShare;
-                      
+
                       return (
-                        <div 
-                          key={entry.id} 
+                        <div
+                          key={entry.id}
                           className={`flex items-center justify-between p-4 rounded-lg border transition-all duration-200 hover:shadow-sm ${
                             getLeaderboardItemStyling(entry.rank, activeRanksTab, currentValue)
                           }`}
                         >
                           <div className="flex items-center space-x-3">
                             {/* Placement Icon */}
-                            <div 
+                            <div
                               className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                               style={getRankIconStyle(entry.rank)}
                             >
                               <span className="text-white font-bold text-sm">{entry.rank}</span>
                             </div>
-                            
+
                             {/* Promoter Info */}
                             <div>
                               <h4 className="text-sm font-medium text-gray-900">{entry.name}</h4>
                               <p className="text-xs text-gray-500">{entry.email}</p>
                             </div>
                           </div>
-                          
+
                           {/* Value */}
                           <div className="text-right">
-                            <div 
+                            <div
                               className={`text-sm font-bold ${
-                                activeRanksTab === "mcet" ? 
+                                activeRanksTab === "mcet" ?
                                   (getColorForMcEt(entry.mcet) !== "custom-orange" ? getColorForMcEt(entry.mcet) : "") :
-                                activeRanksTab === "tma" ? 
+                                activeRanksTab === "tma" ?
                                   (getColorForTma(entry.tma) !== "custom-orange" ? getColorForTma(entry.tma) : "") :
                                   (getColorForVlShare(entry.vlShare) !== "custom-orange" ? getColorForVlShare(entry.vlShare) : "")
                               }`}
@@ -3800,7 +3781,7 @@ Liebe Grüße, dein Nespresso Team`;
                         <TrendingUp className="h-3 w-3" />
                         <span>MC/ET:</span>
                       </div>
-                      <div 
+                      <div
                         className={`text-xl font-semibold ${getColorForMcEt(selectedCard.mcet) !== "custom-orange" ? getColorForMcEt(selectedCard.mcet) : ""}`}
                         style={{...getStyleForColor(getColorForMcEt(selectedCard.mcet))}}
                       >
@@ -3808,8 +3789,8 @@ Liebe Grüße, dein Nespresso Team`;
                       </div>
                       {calculateCurrentVsHistory().mcet !== null ? (
                         <div className={`inline-block px-1 py-0 rounded text-[10px] font-medium bg-gray-100 mt-0.5 ${
-                          calculateCurrentVsHistory().mcet! >= 0 
-                            ? 'text-green-600' 
+                          calculateCurrentVsHistory().mcet! >= 0
+                            ? 'text-green-600'
                             : 'text-red-600'
                         }`}>
                           {calculateCurrentVsHistory().mcet! >= 0 ? '+' : ''}{calculateCurrentVsHistory().mcet!.toFixed(0)}%
@@ -3823,7 +3804,7 @@ Liebe Grüße, dein Nespresso Team`;
                         <PieChart className="h-3 w-3" />
                         <span>TMA:</span>
                       </div>
-                      <div 
+                      <div
                         className={`text-xl font-semibold ${getColorForTma(selectedCard.tma) !== "custom-orange" ? getColorForTma(selectedCard.tma) : ""}`}
                         style={{...getStyleForColor(getColorForTma(selectedCard.tma))}}
                       >
@@ -3831,8 +3812,8 @@ Liebe Grüße, dein Nespresso Team`;
                       </div>
                       {calculateCurrentVsHistory().tma !== null ? (
                         <div className={`inline-block px-1 py-0 rounded text-[10px] font-medium bg-gray-100 mt-0.5 ${
-                          calculateCurrentVsHistory().tma! >= 0 
-                            ? 'text-green-600' 
+                          calculateCurrentVsHistory().tma! >= 0
+                            ? 'text-green-600'
                             : 'text-red-600'
                         }`}>
                           {calculateCurrentVsHistory().tma! >= 0 ? '+' : ''}{calculateCurrentVsHistory().tma!.toFixed(0)}%
@@ -3846,7 +3827,7 @@ Liebe Grüße, dein Nespresso Team`;
                         <Percent className="h-3 w-3" />
                         <span>VL:</span>
                       </div>
-                      <div 
+                      <div
                         className={`text-xl font-semibold ${getColorForVlShare(selectedCard.vlShare) !== "custom-orange" ? getColorForVlShare(selectedCard.vlShare) : ""}`}
                         style={{...getStyleForColor(getColorForVlShare(selectedCard.vlShare))}}
                       >
@@ -3854,8 +3835,8 @@ Liebe Grüße, dein Nespresso Team`;
                       </div>
                       {calculateCurrentVsHistory().vlShare !== null ? (
                         <div className={`inline-block px-1 py-0 rounded text-[10px] font-medium bg-gray-100 mt-0.5 ${
-                          calculateCurrentVsHistory().vlShare! >= 0 
-                            ? 'text-green-600' 
+                          calculateCurrentVsHistory().vlShare! >= 0
+                            ? 'text-green-600'
                             : 'text-red-600'
                         }`}>
                           {calculateCurrentVsHistory().vlShare! >= 0 ? '+' : ''}{calculateCurrentVsHistory().vlShare!.toFixed(0)}%
@@ -4064,4 +4045,4 @@ Liebe Grüße, dein Nespresso Team`;
       `}</style>
     </div>
   );
-} 
+}

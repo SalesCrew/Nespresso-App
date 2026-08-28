@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server'
+import { requireAdmin } from '@/lib/auth/routeGuards'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 // GET invite details (promotor names) grouped by assignment_id and status
 export async function GET(req: Request) {
+  const auth = await requireAdmin()
+  if (!auth.ok) return auth.response
+
   try {
     const url = new URL(req.url)
     const idsParam = url.searchParams.get('ids') || ''
@@ -11,6 +15,7 @@ export async function GET(req: Request) {
     if (ids.length === 0) {
       return NextResponse.json({ details: {} })
     }
+    if (ids.length > 200) return NextResponse.json({ error: 'Too many assignment ids' }, { status: 400 })
 
     const svc = createSupabaseServiceClient()
 
@@ -27,7 +32,7 @@ export async function GET(req: Request) {
 
     // Get all unique user_ids
     const userIds = [...new Set((invites || []).map((i: any) => i.user_id))]
-    
+
     if (userIds.length === 0) {
       return NextResponse.json({ details: {} })
     }
@@ -50,20 +55,20 @@ export async function GET(req: Request) {
 
     for (const assignmentId of ids) {
       details[assignmentId] = { invited: [], accepted: [], rejected: [] }
-      
+
       const assignmentInvites = (invites || []).filter((i: any) => i.assignment_id === assignmentId)
-      
+
       for (const invite of assignmentInvites) {
         const userName = userMap.get(invite.user_id) || 'Unbekannt'
-        
+
         // All invites go into "invited"
         details[assignmentId].invited.push(userName)
-        
+
         // Applied goes into "accepted"
         if (invite.status === 'applied') {
           details[assignmentId].accepted.push(userName)
         }
-        
+
         // Rejected/withdrawn goes into "rejected"
         if (invite.status === 'rejected' || invite.status === 'withdrawn') {
           details[assignmentId].rejected.push(userName)

@@ -6,28 +6,26 @@ export async function GET() {
   try {
     const server = await createSupabaseServerClientAsync();
     const { data: { user } } = await server.auth.getUser();
-    
+
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const svc = createSupabaseServiceClient();
-    
+
     // Fetch all promotors with their names
     const { data: promotors, error } = await svc
       .from('user_profiles')
       .select('user_id, display_name')
       .eq('role', 'promotor')
       .order('display_name', { ascending: true });
-    
+
     if (error) {
       console.error('Error fetching promotors:', error);
       return NextResponse.json({ error: 'Failed to fetch promotors' }, { status: 500 });
     }
 
-    console.log('📋 Fetched promotors from user_profiles:', promotors?.length || 0);
     if (promotors && promotors.length > 0) {
-      console.log('Sample promotor:', promotors[0]);
     }
 
     // Map to simple structure
@@ -36,7 +34,6 @@ export async function GET() {
       name: p.display_name
     }));
 
-    console.log('✅ Returning', promotorList.length, 'promotors');
     return NextResponse.json({ promotors: promotorList });
   } catch (e: any) {
     console.error('Error in promotors-list:', e);

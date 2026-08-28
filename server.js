@@ -7,15 +7,75 @@ const { createClient } = require('@supabase/supabase-js');
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
 const port = parseInt(process.env.PORT || '3000', 10);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !serviceRoleKey) {
+  throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+}
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 // Initialize Supabase client for server-side operations
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+  supabaseUrl,
+  serviceRoleKey,
+  { auth: { autoRefreshToken: false, persistSession: false } }
 );
+
+const configuredOriginHosts = [
+  process.env.ALLOWED_ORIGIN,
+  process.env.APP_ORIGIN,
+  process.env.NEXT_PUBLIC_APP_URL,
+  process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
+]
+  .filter(Boolean)
+  .flatMap((value) => String(value).split(','))
+  .map((value) => value.trim())
+  .filter(Boolean)
+  .map((value) => {
+    try { return new URL(value).host; } catch { return ''; }
+  })
+  .filter(Boolean);
+
+function isAllowedSocketRequest(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try {
+    const originHost = new URL(origin).host;
+    return originHost === req.headers.host || configuredOriginHosts.includes(originHost);
+  } catch {
+    return false;
+  }
+}
+
+function chatAttachmentProxyUrl(reference) {
+  if (typeof reference !== 'string' || !reference.trim()) return null;
+  const value = reference.trim();
+  if (value.startsWith('/api/chat/attachments?path=')) return value;
+  const markers = [
+    '/storage/v1/object/sign/chat-attachments/',
+    '/storage/v1/object/public/chat-attachments/',
+    '/storage/v1/object/authenticated/chat-attachments/',
+  ];
+  let path = value;
+  for (const marker of markers) {
+    const markerIndex = value.indexOf(marker);
+    if (markerIndex >= 0) {
+      path = value.slice(markerIndex + marker.length).split('?')[0];
+      break;
+    }
+  }
+  if (/^https?:\/\//i.test(path)) return null;
+  try {
+    path = decodeURIComponent(path).replace(/^\/+/, '');
+  } catch {
+    return null;
+  }
+  if (!path || path.includes('..') || path.includes('\\')) return null;
+  return `/api/chat/attachments?path=${encodeURIComponent(path)}`;
+}
 
 app.prepare().then(() => {
   const httpServer = createServer(async (req, res) => {
@@ -32,41 +92,41 @@ app.prepare().then(() => {
   // Initialize Socket.IO
   const io = new Server(httpServer, {
     cors: {
-      origin: dev ? 'http://localhost:3000' : '*',
+      origin: true,
       methods: ['GET', 'POST'],
     },
+    allowRequest: (req, callback) => callback(null, isAllowedSocketRequest(req)),
+    maxHttpBufferSize: 1_000_000,
   });
 
   // Middleware to authenticate socket connections
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth.token;
-      
+
       if (!token) {
         return next(new Error('Authentication token missing'));
       }
 
       // Verify token with Supabase
       const { data: { user }, error } = await supabase.auth.getUser(token);
-      
+
       if (error || !user) {
         return next(new Error('Invalid authentication token'));
       }
 
       // Attach user info to socket
       socket.userId = user.id;
-      socket.userEmail = user.email;
-      
       // Fetch user profile for role information
       const { data: profile } = await supabase
         .from('user_profiles')
         .select('role, display_name')
         .eq('user_id', user.id)
         .single();
-      
+
       socket.userRole = profile?.role || 'promotor';
       socket.userName = profile?.display_name || user.email;
-      
+
       next();
     } catch (error) {
       console.error('Socket authentication error:', error);
@@ -76,20 +136,17 @@ app.prepare().then(() => {
 
   // Socket.IO connection handler
   io.on('connection', async (socket) => {
-    console.log(`User connected: ${socket.userId} (${socket.userName})`);
-
     // Join user to their conversation rooms
     try {
       const { data: participants } = await supabase
         .from('chat_participants')
         .select('conversation_id')
         .eq('user_id', socket.userId);
-      
+
       if (participants) {
         participants.forEach(({ conversation_id }) => {
           socket.join(conversation_id);
         });
-        console.log(`User ${socket.userName} joined ${participants.length} conversation rooms`);
       }
     } catch (error) {
       console.error('Error joining conversation rooms:', error);
@@ -99,6 +156,13 @@ app.prepare().then(() => {
     socket.on('send_message', async (data, callback) => {
       try {
         const { conversationId, messageText, messageType = 'text', fileUrl = null, fileName = null, replyToId = null, pollQuestion, pollOptions, allowMultiple } = data;
+
+        if (!conversationId || !['text', 'file', 'image', 'poll'].includes(String(messageType))) {
+          return callback({ error: 'Invalid message payload' });
+        }
+        if (String(messageText || '').length > 5000 || String(fileName || '').length > 255 || String(fileUrl || '').length > 2000) {
+          return callback({ error: 'Message payload too large' });
+        }
 
         // Validate that user is participant in conversation
         const { data: participant } = await supabase
@@ -131,9 +195,11 @@ app.prepare().then(() => {
           if (!isAdmin) {
             return callback({ error: 'Only admins can create polls' });
           }
-          const question = (pollQuestion || messageText || '').toString().trim();
-          const options = Array.isArray(pollOptions) ? pollOptions.filter(Boolean).map((s) => String(s).trim()) : [];
-          if (!question || options.length < 2) {
+          const question = (pollQuestion || messageText || '').toString().trim().slice(0, 500);
+          const options = Array.isArray(pollOptions)
+            ? pollOptions.filter(Boolean).slice(0, 10).map((s) => String(s).trim().slice(0, 200))
+            : [];
+          if (!question || options.length < 2 || options.some((option) => !option)) {
             return callback({ error: 'Invalid poll payload' });
           }
           // Create poll
@@ -221,7 +287,7 @@ app.prepare().then(() => {
             .select('id, sender_id, message_text, message_type, file_url, file_name')
             .eq('id', replyToId)
             .single();
-          
+
           if (replyToMessage) {
             // Fetch sender name for the reply-to message
             const { data: replyToSenderProfile } = await supabase
@@ -229,13 +295,13 @@ app.prepare().then(() => {
               .select('display_name')
               .eq('user_id', replyToMessage.sender_id)
               .single();
-            
+
             replyToDetails = {
               id: replyToMessage.id,
               sender_name: replyToSenderProfile?.display_name || 'Unknown',
               message_text: replyToMessage.message_text,
               message_type: replyToMessage.message_type,
-              file_url: replyToMessage.file_url,
+              file_url: chatAttachmentProxyUrl(replyToMessage.file_url),
               file_name: replyToMessage.file_name,
             };
           }
@@ -244,6 +310,7 @@ app.prepare().then(() => {
         // Fetch sender info for the message
         const messageWithSender = {
           ...newMessage,
+          file_url: chatAttachmentProxyUrl(newMessage.file_url),
           sender_name: socket.userName,
           sender_role: socket.userRole,
           reply_to: replyToDetails,
@@ -358,10 +425,18 @@ app.prepare().then(() => {
 
     socket.on('typing_stop', async ({ conversationId }) => {
       try {
-        socket.to(conversationId).emit('user_stopped_typing', {
-          userId: socket.userId,
-          conversationId,
-        });
+        const { data: participant } = await supabase
+          .from('chat_participants')
+          .select('conversation_id')
+          .eq('conversation_id', conversationId)
+          .eq('user_id', socket.userId)
+          .maybeSingle();
+        if (participant) {
+          socket.to(conversationId).emit('user_stopped_typing', {
+            userId: socket.userId,
+            conversationId,
+          });
+        }
       } catch (error) {
         console.error('Error handling typing_stop:', error);
       }
@@ -396,15 +471,25 @@ app.prepare().then(() => {
     });
 
     // Handle user joining a new conversation (for dynamic group creation)
-    socket.on('join_conversation', ({ conversationId }) => {
-      socket.join(conversationId);
-      console.log(`User ${socket.userName} joined conversation ${conversationId}`);
+    socket.on('join_conversation', async ({ conversationId }, callback) => {
+      const cb = typeof callback === 'function' ? callback : () => {};
+      try {
+        const { data: participant } = await supabase
+          .from('chat_participants')
+          .select('conversation_id')
+          .eq('conversation_id', conversationId)
+          .eq('user_id', socket.userId)
+          .maybeSingle();
+        if (!participant) return cb({ error: 'Not a participant' });
+        await socket.join(conversationId);
+        cb({ success: true });
+      } catch {
+        cb({ error: 'Failed to join conversation' });
+      }
     });
 
     // Handle disconnection
-    socket.on('disconnect', () => {
-      console.log(`User disconnected: ${socket.userId} (${socket.userName})`);
-    });
+    socket.on('disconnect', () => {});
   });
 
   httpServer
@@ -414,7 +499,6 @@ app.prepare().then(() => {
     })
     .listen(port, () => {
       console.log(`> Ready on http://${hostname}:${port}`);
-      console.log(`> Socket.IO server is running`);
     });
 });
 

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireAdmin } from '@/lib/auth/routeGuards'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { normalizeForMatch } from '@/lib/matchers/marketMatcher'
 
@@ -89,6 +90,9 @@ function resolvePromotorMatch(importedNameRaw: string, promotors: PromotorCandid
 }
 
 export async function POST() {
+  const auth = await requireAdmin()
+  if (!auth.ok) return auth.response
+
   try {
     const svc = createSupabaseServiceClient()
 

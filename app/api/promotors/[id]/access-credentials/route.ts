@@ -1,13 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
+import { requireSelfOrAdmin } from '@/lib/auth/routeGuards';
+import { recordDataAccess } from '@/lib/audit/dataAccess';
+
+const EDITABLE_FIELDS = new Set([
+  'huebner_email', 'huebner_password',
+  'demotool_email', 'demotool_password',
+  'tma_email', 'tma_password',
+  'boost_app_email', 'boost_app_password',
+  'easyname_email', 'easyname_password',
+]);
+
+function sanitizeCredentialUpdate(input: unknown): Record<string, string | null> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+  return Object.fromEntries(
+    Object.entries(input as Record<string, unknown>)
+      .filter(([key]) => EDITABLE_FIELDS.has(key))
+      .map(([key, value]) => [key, value === null ? null : String(value).slice(0, 500)])
+  );
+}
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const server = createSupabaseServerClient();
-  const { data: auth } = await server.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
   const promotorId = params.id;
+  const auth = await requireSelfOrAdmin(promotorId);
+  if (!auth.ok) return auth.response;
   const svc = createSupabaseServiceClient();
 
   try {
@@ -25,30 +41,35 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: 'Failed to fetch credentials' }, { status: 500 });
     }
 
-    return NextResponse.json({ credentials: credentials || null });
-  } catch (error: any) {
-    console.error('Unexpected error in access credentials:', error);
-    return NextResponse.json({ 
-      error: 'Internal server error',
-      details: error.message || 'Unknown error'
-    }, { status: 500 });
+    await recordDataAccess({
+      actorUserId: auth.user.id,
+      action: 'external_credentials_read',
+      resourceType: 'access_credentials',
+      resourceId: credentials?.id || null,
+      subjectUserId: userId,
+    });
+
+    return NextResponse.json(
+      { credentials: credentials || null },
+      { headers: { 'Cache-Control': 'private, no-store' } }
+    );
+  } catch {
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const server = createSupabaseServerClient();
-  const { data: auth } = await server.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
   const promotorId = params.id;
+  const auth = await requireSelfOrAdmin(promotorId);
+  if (!auth.ok) return auth.response;
   const svc = createSupabaseServiceClient();
-
-  console.log('🔑 PATCH - Updating credentials for promotor:', promotorId);
 
   try {
     const userId = promotorId;
-    const updateData = await req.json();
-    console.log('🔑 PATCH - Update data received:', updateData);
+    const updateData = sanitizeCredentialUpdate(await req.json().catch(() => null));
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: 'no editable fields provided' }, { status: 400 });
+    }
 
     // First check if record exists
     const { data: existing, error: checkError } = await svc
@@ -57,54 +78,46 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       .eq('user_id', userId)
       .single();
 
-    console.log('🔑 PATCH - Existing record:', existing);
-    console.log('🔑 PATCH - Check error:', checkError);
-
     let result;
     if (existing) {
-      // Update existing record
-      console.log('🔑 PATCH - Updating existing record');
       const { data: updated, error: updateError } = await svc
         .from('access_credentials')
         .update(updateData)
         .eq('user_id', userId)
         .select()
         .single();
-      
-      console.log('🔑 PATCH - Update result:', updated);
-      console.log('🔑 PATCH - Update error:', updateError);
-      
+
       if (updateError) {
         throw updateError;
       }
       result = updated;
     } else {
-      // Insert new record
-      console.log('🔑 PATCH - Creating new record');
       const { data: inserted, error: insertError } = await svc
         .from('access_credentials')
         .insert({ user_id: userId, ...updateData })
         .select()
         .single();
-      
-      console.log('🔑 PATCH - Insert result:', inserted);
-      console.log('🔑 PATCH - Insert error:', insertError);
-      
+
       if (insertError) {
         throw insertError;
       }
       result = inserted;
     }
 
-    console.log('🔑 PATCH - Final result:', result);
-    return NextResponse.json({ credentials: result });
-  } catch (error: any) {
-    console.error('🔑 PATCH - Unexpected error:', error);
-    console.error('🔑 PATCH - Error details:', error.details);
-    console.error('🔑 PATCH - Error message:', error.message);
-    return NextResponse.json({ 
-      error: 'Internal server error',
-      details: error.message || 'Unknown error'
-    }, { status: 500 });
+    await recordDataAccess({
+      actorUserId: auth.user.id,
+      action: 'external_credentials_updated',
+      resourceType: 'access_credentials',
+      resourceId: result?.id || null,
+      subjectUserId: userId,
+      metadata: { changed_field_count: Object.keys(updateData).length },
+    });
+
+    return NextResponse.json(
+      { credentials: result },
+      { headers: { 'Cache-Control': 'private, no-store' } }
+    );
+  } catch {
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

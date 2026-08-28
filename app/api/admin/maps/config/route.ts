@@ -19,7 +19,7 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const apiKey = process.env.GOOGLE_MAPS_BROWSER_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+  const apiKey = process.env.GOOGLE_MAPS_BROWSER_API_KEY;
   if (!apiKey) {
     return NextResponse.json({ error: "Google Maps ist nicht konfiguriert." }, { status: 503 });
   }

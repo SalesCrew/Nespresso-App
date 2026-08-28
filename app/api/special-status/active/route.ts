@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 
+function viennaDate(value: string | Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Vienna',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(value));
+}
+
 // GET: Get user's active special status
 export async function GET(request: NextRequest) {
   try {
@@ -66,7 +75,8 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Clear special status from today's assignments
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const today = viennaDate(now);
     
     // First get the assignment IDs for this user
     const { data: participations } = await service
@@ -77,18 +87,35 @@ export async function DELETE(request: NextRequest) {
     if (participations && participations.length > 0) {
       const assignmentIds = participations.map(p => p.assignment_id);
       
-      const { error: assignmentError } = await service
+      const windowStart = new Date(now.getTime() - 36 * 60 * 60 * 1000).toISOString();
+      const windowEnd = new Date(now.getTime() + 36 * 60 * 60 * 1000).toISOString();
+      const { data: assignments, error: assignmentLookupError } = await service
         .from('assignments')
-        .update({
-          special_status: null,
-          updated_at: new Date().toISOString()
-        })
-        .eq('date', today)
-        .in('id', assignmentIds);
+        .select('id, start_ts')
+        .in('id', assignmentIds)
+        .gte('start_ts', windowStart)
+        .lt('start_ts', windowEnd);
+
+      if (assignmentLookupError) {
+        console.error('Error loading assignments while clearing status:', assignmentLookupError);
+      } else {
+        const todayIds = (assignments || [])
+          .filter((assignment: any) => viennaDate(assignment.start_ts) === today)
+          .map((assignment: any) => assignment.id);
+
+        if (todayIds.length > 0) {
+          const { error: assignmentError } = await service
+            .from('assignments')
+            .update({
+              special_status: null,
+              updated_at: now.toISOString()
+            })
+            .in('id', todayIds);
       
-      if (assignmentError) {
-        console.error('Error clearing assignment status:', assignmentError);
-        // Don't fail the request if this fails
+          if (assignmentError) {
+            console.error('Error clearing assignment status:', assignmentError);
+          }
+        }
       }
     }
 

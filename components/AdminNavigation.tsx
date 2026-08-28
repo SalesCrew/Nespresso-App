@@ -19,7 +19,8 @@ import {
   Phone,
   MapPin,
   Camera,
-  Check
+  Check,
+  ShieldCheck
 } from "lucide-react";
 
 interface AdminNavigationProps {
@@ -54,6 +55,7 @@ export default function AdminNavigation({ sidebarOpen, setSidebarOpen }: AdminNa
     { id: "schulungen", label: "Schulungen", icon: BookOpen, active: pathname === '/admin/schulungen', href: '/admin/schulungen' },
     { id: "sales-challenge", label: "Sales Challenge", icon: Trophy, active: pathname === '/admin/sales-challenge', href: '/admin/sales-challenge' },
     { id: "demotool-agent", label: "DemoTool Agent", icon: Cpu, active: pathname === '/admin/demotool-agent', href: '/admin/demotool-agent' },
+    { id: "datenschutz", label: "Datenschutz", icon: ShieldCheck, active: pathname === '/admin/datenschutz', href: '/admin/datenschutz' },
     { id: "settings", label: "Einstellungen", icon: Settings, active: false, href: '#' }
   ];
 
@@ -121,7 +123,7 @@ export default function AdminNavigation({ sidebarOpen, setSidebarOpen }: AdminNa
     <div className={`fixed top-0 left-0 h-full bg-white/95 backdrop-blur-sm border-r border-gray-100/50 z-40 transition-all duration-300 ${sidebarOpen ? 'w-56' : 'w-14'}`}>
       <div className="p-3">
         <div className={`${sidebarOpen ? 'flex items-center space-x-3' : 'w-8 h-8 flex items-center justify-center mx-auto'} bg-gray-100 rounded-lg mb-6 ${sidebarOpen ? 'p-3' : ''} relative`} data-admin-profile>
-          <div 
+          <div
             className="w-8 h-8 rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
             onClick={() => setShowAdminProfile(!showAdminProfile)}
           >
@@ -140,9 +142,9 @@ export default function AdminNavigation({ sidebarOpen, setSidebarOpen }: AdminNa
 
           {/* Admin Profile Modal */}
           {showAdminProfile && (
-            <div 
+            <div
               className="absolute top-full left-0 mt-2 rounded-lg shadow-lg border border-gray-200 z-50"
-              style={{ 
+              style={{
                 width: '280px',
                 backgroundColor: 'rgba(255, 255, 255, 0.97)'
               }}
@@ -166,7 +168,7 @@ export default function AdminNavigation({ sidebarOpen, setSidebarOpen }: AdminNa
                   </div>
                 </div>
               </div>
-              
+
               {/* Profile Details */}
               <div className="p-4 space-y-3">
                 <div className="flex items-center space-x-3 cursor-pointer" onClick={() => copyToClipboard(adminData.email, 'email')}>
@@ -232,8 +234,8 @@ export default function AdminNavigation({ sidebarOpen, setSidebarOpen }: AdminNa
                 }
               }}
               className={`${sidebarOpen ? 'w-full flex items-center space-x-3 px-3 py-2' : 'w-8 h-8 flex items-center justify-center mx-auto'} rounded-lg transition-colors ${
-                item.active 
-                  ? 'text-white' 
+                item.active
+                  ? 'text-white'
                   : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
               }`}
               style={item.active ? {background: 'linear-gradient(135deg, #22C55E, #105F2D)'} : {}}
@@ -247,4 +249,4 @@ export default function AdminNavigation({ sidebarOpen, setSidebarOpen }: AdminNa
       </div>
     </div>
   );
-} 
+}

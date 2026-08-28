@@ -1005,24 +1005,20 @@ export default function EinsatzplanPage() {
 
   // Function to get AI recommendations
   const fetchAiRecommendations = async (assignmentId: string) => {
-    console.log('🎯 [CLIENT] AI recommendation request started', { assignmentId });
     
     if (!assignmentId) {
-      console.log('❌ [CLIENT] No assignment ID provided');
       setAiError('Bitte wählen Sie zuerst einen Einsatz aus');
       return;
     }
 
     setAiLoading(true);
     setAiError(null);
-    console.log('🔄 [CLIENT] Setting loading state, calling API...');
 
     try {
       const requestBody = { 
         assignmentId: assignmentId,
         maxRecommendations: 6 
       };
-      console.log('📤 [CLIENT] Request payload:', requestBody);
 
       const response = await fetch('/api/ai/recommend-promotors', {
         method: 'POST',
@@ -1030,21 +1026,13 @@ export default function EinsatzplanPage() {
         body: JSON.stringify(requestBody)
       });
 
-      console.log('📥 [CLIENT] Response received:', {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok
-      });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.log('❌ [CLIENT] API error response:', errorText);
         throw new Error('Fehler beim Abrufen der Empfehlungen');
       }
 
       const data = await response.json();
-      console.log('✅ [CLIENT] API response data:', data);
-      console.log('🏆 [CLIENT] Recommendations received:', data.recommendations?.length || 0);
       
       setAiRecommendations(data.recommendations || []);
     } catch (err: any) {
@@ -1053,7 +1041,6 @@ export default function EinsatzplanPage() {
       setAiRecommendations([]);
     } finally {
       setAiLoading(false);
-      console.log('🏁 [CLIENT] AI request completed');
     }
   };
 
@@ -1105,7 +1092,6 @@ export default function EinsatzplanPage() {
   // Function to update assignment status
   const updateAssignmentStatus = async (assignmentId: string, newStatus: string) => {
     try {
-      console.log('🟢 [CLIENT] Updating assignment status:', { assignmentId, newStatus });
       
       // Send UI status directly - API will handle special_status detection
       const response = await fetch(`/api/assignments/${assignmentId}`, {
@@ -1121,7 +1107,6 @@ export default function EinsatzplanPage() {
       }
       
       const result = await response.json();
-      console.log('🟢 [CLIENT] Status update successful:', result);
       
       // Update local state
       setEditingEinsatz((prev: any) => prev ? { ...prev, status: newStatus } : prev);
@@ -1136,7 +1121,6 @@ export default function EinsatzplanPage() {
   // Function to update assignment notes
   const updateAssignmentNotes = async (assignmentId: string, notes: string) => {
     try {
-      console.log('🔵 Saving notes:', { assignmentId, notes });
       const response = await fetch(`/api/assignments/${assignmentId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1150,7 +1134,6 @@ export default function EinsatzplanPage() {
       }
       
       const result = await response.json();
-      console.log('✅ Notes saved successfully:', result);
       
       // Update local state
       setEditingEinsatz((prev: any) => prev ? { ...prev, notes } : prev);
@@ -1195,7 +1178,6 @@ export default function EinsatzplanPage() {
         return;
       }
       
-      console.log('Promotor note saved successfully');
     } catch (error) {
       console.error('Error saving promotor note:', error);
     }
@@ -1948,7 +1930,6 @@ export default function EinsatzplanPage() {
   };
   // Process Excel file for Roh Excel import
   const processRohExcel = (file: File) => {
-    console.log('🔵 processRohExcel START - file:', file.name, 'size:', file.size);
     const reader = new FileReader();
     
     reader.onerror = (error) => {
@@ -1957,19 +1938,12 @@ export default function EinsatzplanPage() {
     };
     
     reader.onload = async (e) => {
-      console.log('🔵 FileReader.onload triggered');
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        console.log('🔵 ArrayBuffer size:', data.length);
         const workbook = XLSX.read(data, { type: 'array' });
-        console.log('🔵 Workbook sheets:', workbook.SheetNames);
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-        console.log('🔵 Excel parsed. Total rows:', jsonData.length);
-        console.log('🔵 First row (header):', jsonData[0]);
-        console.log('🔵 Second row (data):', jsonData[1]);
-        console.log('🔵 Date columns from header:', jsonData[0]?.slice(4, 10));
         // Expected layout:
         // Col A: location name (used as address text)
         // Col B: PLZ
@@ -1978,10 +1952,8 @@ export default function EinsatzplanPage() {
         // Body from Col E onwards: values 1, 2, or 0.75 meaning shifts per rules
         const header = jsonData[0] || [];
         const rows: any[] = [];
-        console.log('🔵 Header length:', header.length);
         if (header.length < 5) throw new Error('Excel-Format unerwartet (Header fehlt)');
         
-        console.log('🔵 Starting row processing...');
         for (let r = 1; r < jsonData.length; r++) {
           const row = jsonData[r] || [];
           const location_text = String(row[0] || '').trim();
@@ -1998,7 +1970,6 @@ export default function EinsatzplanPage() {
             if (![1, 2, 0.75].includes(val)) continue;
             
             if (r === 1 && assignmentsForRow === 0) {
-              console.log(`🔵 First valid cell - Col ${c}: label="${label}", value=${val}`);
             }
             
             // Handle Excel serial dates or text dates
@@ -2043,25 +2014,18 @@ export default function EinsatzplanPage() {
             if (val === 2) rows.push(base);
           }
         }
-        console.log('🔵 Assignments to import:', rows.length);
         if (rows.length > 0) {
-          console.log('🔵 First assignment:', rows[0]);
-          console.log('🔵 Sample dates:', rows.slice(0, 3).map(r => r.start_ts));
         }
         
         const res = await fetch('/api/assignments/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }) })
-        console.log('🔵 Import response:', res.status);
         if (!res.ok) {
           const t = await res.text();
           throw new Error(`Import fehlgeschlagen: ${res.status} ${t}`);
         }
         const importResult = await res.json();
-        console.log('🔵 Import result:', importResult);
         setShowImportModal(false)
         // Load ALL assignments after import to see the new ones
-        console.log('🔵 Calling loadAssignments...');
         await loadAssignments(true)
-        console.log('🔵 Import complete!');
       } catch (error: any) {
         console.error('🔴 Error processing Roh Excel:', error);
         console.error('🔴 Stack trace:', error?.stack);
@@ -2437,7 +2401,6 @@ export default function EinsatzplanPage() {
   // Handle file selection
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    console.log('File selected:', file?.name, 'Import type:', importType);
     if (file) {
       if (activeView === 'maerkte') {
         processMarketsExcel(file);
@@ -2447,7 +2410,6 @@ export default function EinsatzplanPage() {
       } else if (importType === 'intern' || importType === 'update') {
         prepareInternExcelPreview(file);
       } else {
-        console.log('Unknown import type:', importType);
         }
       }
     }
@@ -2461,7 +2423,6 @@ export default function EinsatzplanPage() {
   const handleDrop = (event: React.DragEvent) => {
     event.preventDefault();
     const file = event.dataTransfer.files[0];
-    console.log('File dropped:', file?.name, 'Import type:', importType);
     if (file) {
       if (activeView === 'maerkte') {
         processMarketsExcel(file);
@@ -2471,7 +2432,6 @@ export default function EinsatzplanPage() {
       } else if (importType === 'intern' || importType === 'update') {
         prepareInternExcelPreview(file);
       } else {
-        console.log('Unknown import type:', importType);
         }
       }
     }
@@ -2677,7 +2637,6 @@ export default function EinsatzplanPage() {
   }, [filteredEinsatzplan]);
 
   const loadAssignments = async (skipFilters = false) => {
-    console.log('🟢 loadAssignments called, skipFilters:', skipFilters);
     const startTime = Date.now(); // Track loading start time
     try {
       setAssignmentsLoading(true);
@@ -2689,20 +2648,14 @@ export default function EinsatzplanPage() {
         if (regionFilter && regionFilter !== 'ALLE') params.set('region', regionFilter);
         if (statusFilter) params.set('status', statusFilter);
       }
-      console.log('🟢 Fetching from /api/assignments with params:', params.toString());
       const res = await fetch(`/api/assignments?${params.toString()}`, { cache: 'no-store' });
-      console.log('🟢 Response status:', res.status);
       if (!res.ok) {
         const t = await res.text();
         throw new Error(`Laden fehlgeschlagen: ${res.status} ${t}`);
       }
       const j = await res.json();
-      console.log('🟢 Response data:', j);
       const rows: any[] = Array.isArray(j.assignments) ? j.assignments : [];
-      console.log('🟢 Assignments count:', rows.length);
       if (rows.length > 0) {
-              console.log('🟢 First assignment data:', rows[0]);
-      console.log('🟢 Notes field in first assignment:', rows[0].notes);
       }
       const mapped = rows.map((r) => {
         const startIso: string = r.start_ts || ''
@@ -2783,8 +2736,6 @@ export default function EinsatzplanPage() {
           foto_extra_url: r.tracking_foto_extra_url || null,
         }
       });
-      console.log('🟢 Mapped data:', mapped.length, 'items');
-      console.log('🟢 First mapped item:', mapped[0]);
       
       // Overlay today's tracking status for finished assignments to show proper coloring (e.g., "beendet")
       let mappedWithToday = mapped;
@@ -2822,10 +2773,8 @@ export default function EinsatzplanPage() {
       
       // Check for Sept 2 assignments specifically
       const sept2Assignments = mapped.filter(m => m.date.includes('2025-09-02'));
-      console.log('🟢 Sept 2 assignments in fetched data:', sept2Assignments.length, sept2Assignments.map(a => ({ id: a.id, date: a.date, promotor: a.promotor })));
       
       setEinsatzplanData(mappedWithToday);
-      console.log('🟢 State updated with', mapped.length, 'assignments');
       
       // Extract unique markets from assignments (using location_text)
       const markets = new Set<string>();
@@ -3815,7 +3764,6 @@ Import EP
                                 bulkAssignPromotor(einsatz.id, selectedBulkPromotor.name, selectedBulkPromotor.id);
                               } else if (aiMode) {
                                 // AI mode: fetch recommendations instead of opening detail modal
-                                console.log('🧠 [CLIENT] AI mode click detected', { einsatzId: einsatz.id, aiMode });
                                 setSelectedEinsatz(einsatz);
                                 fetchAiRecommendations(einsatz.id);
                               } else {
@@ -4179,14 +4127,11 @@ Import EP
                         <button
                         onClick={() => {
                           const newAiMode = !aiMode;
-                          console.log('🧠 [CLIENT] Brain button clicked', { currentAiMode: aiMode, newAiMode });
                           setAiMode(newAiMode);
                           if (!aiMode) {
                             setAiRecommendations([]);
                             setAiError(null);
-                            console.log('🧠 [CLIENT] AI mode activated, cleared previous data');
                           } else {
-                            console.log('🧠 [CLIENT] AI mode deactivated');
                           }
                         }}
                         className={`p-2 rounded-lg border transition-colors ${

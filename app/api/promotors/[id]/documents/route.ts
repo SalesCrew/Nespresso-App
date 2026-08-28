@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
+import { requireSelfOrAdmin } from '@/lib/auth/routeGuards';
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const server = createSupabaseServerClient();
-  const { data: auth } = await server.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const userId = params.id;
+  const auth = await requireSelfOrAdmin(userId);
+  if (!auth.ok) return auth.response;
   const svc = createSupabaseServiceClient();
   const { data, error } = await svc
     .from('documents')

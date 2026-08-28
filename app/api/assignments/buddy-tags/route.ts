@@ -8,17 +8,16 @@ export async function GET(req: Request) {
     // Use server client for auth check
     const server = await createSupabaseServerClientAsync()
     const { data: auth, error: authError } = await server.auth.getUser()
-    
+
     if (authError || !auth?.user) {
       console.error('Auth error in buddy tags API:', authError?.message || 'No user');
       return NextResponse.json({ buddy_tags: [] })
     }
-    
-    console.log('Fetching buddy tags for user:', auth.user.id)
-    
+
+
     // Use service client to bypass RLS for data fetch
     const svc = createSupabaseServiceClient()
-    
+
     const { data: invites, error: invErr } = await svc
       .from('assignment_invitations')
       .select('id, assignment_id, user_id, role, status, invited_at, responded_at, acknowledged_at, replacement_for, is_buddy_tag')
@@ -26,8 +25,7 @@ export async function GET(req: Request) {
       .eq('is_buddy_tag', true)
       .eq('status', 'invited')
       .order('invited_at', { ascending: false })
-    
-    console.log('Buddy tags query result:', { invites, error: invErr })
+
     if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
 
     const assignmentIds = [...new Set((invites || []).map((i: any) => i.assignment_id))]
@@ -59,7 +57,7 @@ export async function GET(req: Request) {
 
     const participantsByAssignment = new Map()
     const userProfilesMap = new Map(userProfiles.map((u: any) => [u.user_id, u]))
-    
+
     ;(participants || []).forEach((p: any) => {
       const profile = userProfilesMap.get(p.user_id)
       if (profile) {
@@ -75,7 +73,7 @@ export async function GET(req: Request) {
     const result = (invites || []).map((inv: any) => {
       const a = byId.get(inv.assignment_id)
       const leadParticipant = participantsByAssignment.get(inv.assignment_id)
-      
+
       return {
         id: inv.id,
         assignment_id: inv.assignment_id,
@@ -100,8 +98,7 @@ export async function GET(req: Request) {
         } : null
       }
     })
-    
-    console.log('Returning buddy tags:', result.length, 'items');
+
 
     return NextResponse.json({ buddy_tags: result })
   } catch (e: any) {

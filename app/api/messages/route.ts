@@ -1,28 +1,25 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
-import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/auth/routeGuards';
 
 export async function POST(req: Request) {
   try {
-    const server = await createSupabaseServerClientAsync();
-    const { data: { user }, error: authError } = await server.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAdmin();
+    if (!auth.ok) return auth.response;
+    const user = auth.user;
 
     const body = await req.json().catch(() => ({}));
-    const { 
-      message_text, 
-      message_type = 'normal', 
-      recipient_ids = [], 
+    const {
+      message_text,
+      message_type = 'normal',
+      recipient_ids = [],
       scheduled_send_time = null,
-      send_immediately = true 
+      send_immediately = true
     } = body;
 
     if (!message_text || !Array.isArray(recipient_ids) || recipient_ids.length === 0) {
-      return NextResponse.json({ 
-        error: 'message_text and recipient_ids are required' 
+      return NextResponse.json({
+        error: 'message_text and recipient_ids are required'
       }, { status: 400 });
     }
 
@@ -34,15 +31,6 @@ export async function POST(req: Request) {
     const sent_at = now.toISOString(); // Always set sent_at
 
     // Create the message
-    console.log('📝 Creating message with:', {
-      sender_id: user.id,
-      message_text,
-      message_type,
-      scheduled_send_time,
-      status,
-      sent_at
-    });
-    
     const { data: message, error: messageError } = await svc
       .from('messages')
       .insert({
@@ -61,15 +49,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: messageError.message }, { status: 500 });
     }
 
-    console.log('✅ Message created:', message);
-
     // Create recipient records
     const recipients = recipient_ids.map((recipient_id: string) => ({
       message_id: message.id,
       recipient_user_id: recipient_id
     }));
-
-    console.log('👥 Creating recipients:', recipients);
 
     const { error: recipientsError } = await svc
       .from('message_recipients')
@@ -80,12 +64,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: recipientsError.message }, { status: 500 });
     }
 
-    console.log('✅ Recipients created successfully');
-
-    return NextResponse.json({ 
+    return NextResponse.json({
       message: message,
       recipients_count: recipient_ids.length,
-      success: true 
+      success: true
     });
 
   } catch (e: any) {
@@ -96,12 +78,8 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   try {
-    const server = await createSupabaseServerClientAsync();
-    const { data: { user }, error: authError } = await server.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAdmin();
+    if (!auth.ok) return auth.response;
 
     const svc = createSupabaseServiceClient();
 

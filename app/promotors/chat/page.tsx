@@ -354,31 +354,23 @@ export default function PromotorChatPage() {
   };
 
   // Convert real conversations to Contact format (filter to only show admins and groups)
-  console.log('[Promotor Chat] Raw conversations:', chatIntegration.conversations.length);
-  console.log('[Promotor Chat] Current user ID:', currentUserId);
-  console.log('[Promotor Chat] First conversation:', chatIntegration.conversations[0]);
   
   const contacts: Contact[] = chatIntegration.conversations
     .filter(conv => {
-      console.log('[Promotor Chat] Filtering conversation:', conv.id, 'type:', conv.type, 'participants:', conv.participants);
       
       // Show only groups and direct chats with admins (no other promotors)
       if (conv.type === 'group') {
-        console.log('[Promotor Chat] Group conversation, including');
         return true;
       }
       
       // For direct chats, check if other participant is admin
       // Skip filtering if currentUserId not loaded yet
       if (!currentUserId) {
-        console.log('[Promotor Chat] No currentUserId yet, skipping conversation');
         return false;
       }
       
       const otherParticipant = conv.participants.find(p => p.user_id !== currentUserId);
-      console.log('[Promotor Chat] Other participant:', otherParticipant);
       const isAdminChat = otherParticipant?.role && ['admin_staff', 'admin_of_admins'].includes(otherParticipant.role);
-      console.log('[Promotor Chat] Is admin chat?', isAdminChat);
       return isAdminChat;
     })
     .map(conv => {
@@ -388,7 +380,6 @@ export default function PromotorChatPage() {
         ? otherParticipant.display_name 
         : (conv.name || 'Unknown');
       
-      console.log('[Promotor Chat] Mapped conversation:', conv.id, 'to contact:', displayName);
       
       // Format last message based on type
       let lastMessageText = conv.last_message?.text || '';
@@ -435,7 +426,6 @@ export default function PromotorChatPage() {
       };
     });
   
-  console.log('[Promotor Chat] Final contacts count:', contacts.length);
 
   useEffect(() => {
     if (!showReadOnlyTooltip) return;
@@ -453,10 +443,8 @@ export default function PromotorChatPage() {
   // Stub functions for features not yet integrated with Socket.IO
   // These are no-ops to prevent errors in UI code paths we're keeping for later
   const setAllMessages = (updater: any) => {
-    console.log('[Chat] setAllMessages called - feature not yet integrated with Socket.IO');
   };
   const setContacts = (updater: any) => {
-    console.log('[Chat] setContacts called - feature not yet integrated with Socket.IO');
   };
 
   // Get messages for the selected conversation from real data
@@ -464,12 +452,6 @@ export default function PromotorChatPage() {
     ? (chatIntegration.messages[String(selectedChat.id)] || []).map(msg => {
         // Debug photo messages
         if (msg.message_type === 'photo') {
-          console.log('[Message Mapping] Photo message:', {
-            id: msg.id,
-            message_type: msg.message_type,
-            file_url: msg.file_url,
-            hasFileUrl: !!msg.file_url
-          });
         }
         
         return {
@@ -798,7 +780,6 @@ export default function PromotorChatPage() {
 
     // Check if conversation is read-only
     if (selectedChat.readOnly) {
-      console.log('Cannot send message: conversation is read-only');
       return; // Silently prevent sending in read-only chats
     }
 
@@ -1078,7 +1059,6 @@ export default function PromotorChatPage() {
       }
     } else {
       // For other actions, just log for now (functionality will be added later)
-      console.log('Context action:', action, 'for message:', contextMenu.messageId);
     }
     closeContextMenu();
   };

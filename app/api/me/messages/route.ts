@@ -7,7 +7,6 @@ export async function GET() {
     const server = await createSupabaseServerClientAsync();
     const { data: { user }, error: authError } = await server.auth.getUser();
 
-    console.log('Auth check - user:', user?.id, 'error:', authError?.message);
 
     if (authError || !user) {
       console.error('Auth failed:', authError?.message || 'No user');
@@ -18,25 +17,21 @@ export async function GET() {
     const svc = createSupabaseServiceClient();
 
     // Simple direct query to get messages for this user
-    console.log('Fetching messages for user:', user.id);
-    
+
     // Get all recipient records for this user
     const { data: recipientRecords, error: recipError } = await svc
       .from('message_recipients')
       .select('*')
       .eq('recipient_user_id', user.id);
-    
-    console.log('Found recipient records:', recipientRecords?.length || 0);
-    
+
+
     if (!recipientRecords || recipientRecords.length === 0) {
-      console.log('No messages for this user');
       return NextResponse.json({ messages: [] });
     }
-    
+
     // Get the message IDs
     const messageIds = recipientRecords.map(r => r.message_id);
-    console.log('Message IDs to fetch:', messageIds);
-    
+
     // Get the actual messages (sent status, but filter by scheduled_send_time)
     const { data: messages, error: msgError } = await svc
       .from('messages')
@@ -44,14 +39,13 @@ export async function GET() {
       .in('id', messageIds)
       .eq('status', 'sent')
       .order('created_at', { ascending: false });
-    
-    console.log('Found messages:', messages?.length || 0);
-    
+
+
     if (msgError) {
       console.error('Error fetching messages:', msgError);
       return NextResponse.json({ error: msgError.message }, { status: 500 });
     }
-    
+
     // Filter out messages that are scheduled for the future
     // Use UTC time for both comparisons to avoid timezone issues
     const nowUTC = new Date().toISOString();
@@ -61,9 +55,8 @@ export async function GET() {
       // If scheduled_send_time is in the past or now, show it (compare UTC strings)
       return msg.scheduled_send_time <= nowUTC;
     });
-    
-    console.log('Messages after time filtering:', visibleMessages?.length || 0);
-    
+
+
     // Combine message data with recipient data
     const formattedMessages = visibleMessages.map(msg => {
       const recipientData = recipientRecords.find(r => r.message_id === msg.id);
@@ -80,7 +73,6 @@ export async function GET() {
       };
     });
 
-    console.log('Returning messages:', formattedMessages);
 
     return NextResponse.json({ messages: formattedMessages });
 

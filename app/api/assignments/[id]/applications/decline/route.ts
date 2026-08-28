@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
+import { requireAdmin } from '@/lib/auth/routeGuards'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
+  const auth = await requireAdmin()
+  if (!auth.ok) return auth.response
+
   try {
     const body = await req.json().catch(() => ({}))
     const user_id = body?.user_id as string

@@ -1,13 +1,20 @@
 import { NextResponse } from 'next/server';
+import { requireAdmin } from '@/lib/auth/routeGuards';
 
 export async function GET() {
-  const diagnostics = {
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'not found' }, { status: 404 });
+  }
+
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
+
+  const diagnostics: Record<string, any> = {
     timestamp: new Date().toISOString(),
     environment: {
       nodeEnv: process.env.NODE_ENV,
       hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
       hasSupabaseKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      supabaseUrlPreview: process.env.NEXT_PUBLIC_SUPABASE_URL?.substring(0, 30) + '...',
     },
     deployment: {
       vercelEnv: process.env.VERCEL_ENV,
@@ -24,16 +31,15 @@ export async function GET() {
         'Content-Type': 'application/json',
       },
     });
-    
+
     diagnostics.supabase = {
       healthCheckStatus: response.status,
       healthCheckOk: response.ok,
       canReachSupabase: true,
     };
-  } catch (error: any) {
+  } catch {
     diagnostics.supabase = {
       canReachSupabase: false,
-      error: error.message,
     };
   }
 

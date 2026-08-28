@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 
+function viennaDate(value: string | Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Vienna',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(value));
+}
+
 // PATCH: Approve or decline a special status request
 export async function PATCH(
   request: NextRequest,
@@ -10,13 +19,13 @@ export async function PATCH(
   try {
     const supabase = createSupabaseServerClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
+
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const service = createSupabaseServiceClient();
-    
+
     // Check if user is admin
     const { data: profile } = await service
       .from('user_profiles')
@@ -29,7 +38,7 @@ export async function PATCH(
     }
 
     const { action, end_date } = await request.json();
-    
+
     if (!action || !['approve', 'decline'].includes(action)) {
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
@@ -58,19 +67,16 @@ export async function PATCH(
         .eq('id', params.id);
 
       // 2. Create/update active special status with end_date if provided
-      console.log('🔵 Creating active special status for user:', requestData.user_id);
-      console.log('🔵 End date received:', end_date);
-      
       // First, delete any existing active status for this user (to avoid unique constraint)
       const { error: deleteError } = await service
         .from('active_special_status')
         .delete()
         .eq('user_id', requestData.user_id);
-      
+
       if (deleteError) {
-        console.error('⚠️ Error deleting old status (may not exist):', deleteError);
+        return NextResponse.json({ error: 'Failed to replace active status' }, { status: 500 });
       }
-      
+
       // Then, insert new active status
       const activeStatusData: any = {
         user_id: requestData.user_id,
@@ -78,24 +84,19 @@ export async function PATCH(
         is_active: true,
         started_at: new Date().toISOString()
       };
-      
+
       if (end_date) {
         activeStatusData.ended_at = end_date;
-        console.log('✅ Setting ended_at to:', end_date);
       }
-      
-      console.log('🔵 Inserting active status:', activeStatusData);
-      const { data: insertedStatus, error: insertError } = await service
+      const { error: insertError } = await service
         .from('active_special_status')
         .insert(activeStatusData)
         .select();
-      
+
       if (insertError) {
         console.error('❌ Error inserting active status:', insertError);
         return NextResponse.json({ error: insertError.message }, { status: 500 });
       }
-      
-      console.log('✅ Active status created:', insertedStatus);
 
       // 3. Update today's assignments for this user
       const { data: todaysAssignments } = await service
@@ -104,9 +105,9 @@ export async function PATCH(
         .eq('user_id', requestData.user_id);
 
       if (todaysAssignments) {
-        const today = new Date().toISOString().split('T')[0];
+        const today = viennaDate(new Date());
         const todayAssignmentIds = todaysAssignments
-          .filter((ap: any) => ap.assignments.start_ts.startsWith(today))
+          .filter((ap: any) => viennaDate(ap.assignments.start_ts) === today)
           .map((ap: any) => ap.assignment_id);
 
         if (todayAssignmentIds.length > 0) {

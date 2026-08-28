@@ -145,7 +145,6 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
           name: p.name, 
           region: p.region || 'wien-noe-bgl' // Use actual region from API
         })) : [];
-        console.log('✅ Loaded promotors for admin dashboard:', list.length, 'promotors');
         
         // Prepare active promotors data and count their past assignments
         const activePromsData = await Promise.all((data?.promotors || []).map(async (promotor: any) => {
@@ -176,8 +175,6 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
         }));
         
         setActivePromotorsData(activePromsData);
-        console.log('✅ Loaded active promotors:', activePromsData.length);
-        console.log('✅ First promotor:', list[0]);
         setAllPromotors(list);
       } catch (error) {
         console.error('Error loading promotors:', error);
@@ -366,18 +363,15 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
   const enhanceMessage = async () => {
     if (!messageText.trim() || isEnhancing) return;
     
-    console.log('🤖 Starting AI enhancement for text:', messageText.substring(0, 100) + '...');
     setIsEnhancing(true);
     
     try {
-      console.log('📤 Sending request to /api/ai/enhance-message');
       const res = await fetch('/api/ai/enhance-message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: messageText })
       })
       
-      console.log('📥 Response status:', res.status);
       
       if (!res.ok) {
         const errorText = await res.text();
@@ -388,14 +382,8 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
         });
       } else {
         const data = await res.json().catch(() => ({}));
-        console.log('📝 Enhancement response:', {
-          hasText: !!data?.text,
-          enhancedLength: data?.text?.length || 0,
-          enhancedPreview: data?.text ? data.text.substring(0, 100) + '...' : 'No text'
-        });
         
         if (data?.text) {
-          console.log('✅ Setting enhanced text');
           setMessageText(data.text);
         } else {
           console.warn('⚠️ No enhanced text in response');
@@ -404,7 +392,6 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
     } catch (error) {
       console.error('❌ Error enhancing text:', error);
     } finally {
-      console.log('🏁 AI enhancement process completed');
       setIsEnhancing(false);
     }
   };
@@ -451,7 +438,6 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
         setEnableTwoStep(false);
     setShowScheduleModal(false);
         
-        console.log('Message scheduled successfully');
       } else {
         console.error('Failed to schedule message');
       }
@@ -1338,7 +1324,6 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Sending message:", messageForm);
     setShowMessageModal(false);
     setMessageForm({ recipient: "all", subject: "", message: "" });
   };
@@ -1448,10 +1433,8 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
       }
 
       const releaseData = await releaseResponse.json();
-      console.log('Released assignments:', releaseData);
 
       // Then, approve the krankenstand request with the calculated end date
-      console.log('🔵 Approving krankenstand with end_date:', endDate.toISOString());
       const approveResponse = await fetch(`/api/special-status/requests/${releaseModalData.requestId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1462,7 +1445,6 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
       });
 
       const approveData = await approveResponse.json();
-      console.log('🔵 Approve response:', approveData);
 
       if (!approveResponse.ok) {
         console.error('❌ Approval failed:', approveData);
@@ -1505,7 +1487,6 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
   };
 
   const submitDeclineReason = () => {
-    console.log("Declined request:", selectedRequestId, "Reason:", declineReason);
     // Here you would typically call an API to decline the request with reason
     setShowDeclineModal(false);
     setDeclineReason('');
@@ -2491,12 +2472,6 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
                               return promotor?.id;
                             }).filter(Boolean);
                             
-                            console.log('📤 Sending message with data:', {
-                              message_text: messageText,
-                              message_type: enableTwoStep ? 'confirmation_required' : 'normal',
-                              recipient_ids: promotorIds,
-                              send_immediately: true
-                            });
                             
                             const response = await fetch('/api/messages', {
                               method: 'POST',
@@ -2516,7 +2491,6 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
                               setEnableTwoStep(false);
                               // Refresh message history since a new message was sent
                               await loadMessageHistory();
-                              console.log('Message sent successfully');
                             } else {
                               console.error('Failed to send message');
                             }
@@ -4034,16 +4008,12 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
               <div className="flex-1 overflow-auto [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                 <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                 {(() => {
-                  console.log('🔍 Modal render - allPromotors:', allPromotors.length);
-                  console.log('🔍 Modal render - activeRegionFilter:', activeRegionFilter);
-                  console.log('🔍 Modal render - promotorSelectionSearch:', promotorSelectionSearch);
                   
                   const filtered = allPromotors.filter(promotor => 
                   (activeRegionFilter === "all" || promotor.region === activeRegionFilter) &&
                   promotor.name.toLowerCase().includes(promotorSelectionSearch.toLowerCase())
                   );
                   
-                  console.log('🔍 Modal render - filtered promotors:', filtered.length);
                   return filtered;
                 })().map((promotor) => {
                   const isSelected = selectedPromotors.includes(promotor.name);

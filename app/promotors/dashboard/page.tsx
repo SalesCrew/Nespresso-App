@@ -111,9 +111,6 @@ export default function DashboardPage() {
   const loadMessages = async () => {
     try {
       setMessagesLoading(true);
-      console.log('🔄 Loading messages...');
-      console.log('📍 API URL:', '/api/me/messages');
-      
       const response = await fetch('/api/me/messages', {
         method: 'GET',
         headers: {
@@ -122,15 +119,9 @@ export default function DashboardPage() {
         cache: 'no-store'
       });
       
-      console.log('📡 Response status:', response.status);
-      console.log('📡 Response headers:', response.headers);
-      
       const data = await response.json();
-      console.log('📦 Raw response data:', data);
-      
+
       if (response.ok) {
-        console.log('✅ Messages loaded:', data.messages?.length || 0);
-        console.log('📬 Messages data:', data.messages);
         setMessages(data.messages || []);
       } else {
         console.error('❌ Failed to load messages, status:', response.status);
@@ -1659,9 +1650,6 @@ export default function DashboardPage() {
                               setBitteLesen2Uploading(prev => ({ ...prev, [message.id]: true }));
                               
                               try {
-                                console.log('Starting file upload for message:', message.id);
-                                console.log('Files to upload:', messageFiles.map(f => f.name));
-                                
                                 // Initialize Supabase client
                                 const supabase = createSupabaseBrowserClient();
                                 
@@ -1678,11 +1666,8 @@ export default function DashboardPage() {
                                   })
                                 });
 
-                                console.log('Upload URL response status:', uploadResponse.status);
-
                                 if (!uploadResponse.ok) {
                                   const errorData = await uploadResponse.json();
-                                  console.error('Upload URL error:', errorData);
                                   throw new Error(`Failed to get upload URLs: ${errorData.error || 'Unknown error'}`);
                                 }
 
@@ -1690,13 +1675,9 @@ export default function DashboardPage() {
                                 const uploadedFiles = [];
 
                                 // Upload each file
-                                console.log('Upload URLs received:', uploads);
                                 for (let i = 0; i < uploads.length; i++) {
                                   const upload = uploads[i];
                                   const file = messageFiles[i];
-
-                                  console.log(`Uploading file ${i + 1}/${uploads.length}:`, file.name);
-                                  console.log('Upload URL:', upload.uploadUrl);
 
                                   // Use Supabase client upload method instead of raw fetch
                                   const { error: uploadError } = await supabase.storage
@@ -1704,7 +1685,6 @@ export default function DashboardPage() {
                                     .uploadToSignedUrl(upload.path, upload.token, file);
 
                                   if (!uploadError) {
-                                    console.log(`✅ File ${file.name} uploaded successfully`);
                                     uploadedFiles.push({
                                       filename: upload.filename,
                                       path: upload.path,
@@ -1715,14 +1695,19 @@ export default function DashboardPage() {
                                   }
                                 }
 
-                                console.log('Successfully uploaded files:', uploadedFiles.length, 'out of', uploads.length);
+                                if (uploadedFiles.length !== uploads.length) {
+                                  throw new Error('Nicht alle Dateien konnten hochgeladen werden.');
+                                }
 
                                 // Confirm uploads in database
-                                await fetch(`/api/me/messages/${message.id}/upload`, {
+                                const confirmResponse = await fetch(`/api/me/messages/${message.id}/upload`, {
                                   method: 'PATCH',
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify({ uploadedFiles })
                                 });
+                                if (!confirmResponse.ok) {
+                                  throw new Error('Der Upload konnte nicht bestätigt werden.');
+                                }
 
                                 // Complete the process
                                 await markMessageAsAcknowledged(message.id);

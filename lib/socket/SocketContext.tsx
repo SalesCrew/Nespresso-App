@@ -27,14 +27,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Get current session
       const { data: { session } } = await supabase.auth.getSession();
       
-      console.log('[Socket.IO] Session check:', {
-        hasSession: !!session,
-        hasToken: !!session?.access_token,
-        tokenPreview: session?.access_token?.substring(0, 20)
-      });
       
       if (!session?.access_token) {
-        console.log('No session token available for Socket.IO connection');
         return;
       }
 
@@ -45,7 +39,6 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                        ? 'http://localhost:3000' 
                        : 'https://salescrew-app-production.up.railway.app');
       
-      console.log('[Socket.IO] Using URL:', rawUrl);
       
       if (!rawUrl) {
         console.error('[Socket.IO] NEXT_PUBLIC_SOCKET_URL is not defined! Socket will not initialize.');
@@ -65,12 +58,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       socketInstance.on('connect', () => {
-        console.log('Socket.IO connected');
         setIsConnected(true);
       });
 
       socketInstance.on('disconnect', () => {
-        console.log('Socket.IO disconnected');
         setIsConnected(false);
       });
 
@@ -122,12 +113,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           });
 
           newSocket.on('connect', () => {
-            console.log('Socket.IO reconnected with new token');
             setIsConnected(true);
           });
 
           newSocket.on('disconnect', () => {
-            console.log('Socket.IO disconnected');
             setIsConnected(false);
           });
 

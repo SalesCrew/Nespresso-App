@@ -7,7 +7,7 @@ export async function POST(request: NextRequest) {
     // Use server client for auth check
     const server = createSupabaseServerClient();
     const { data: auth, error: authError } = await server.auth.getUser();
-    
+
     if (authError || !auth?.user) {
       console.error('Auth error in acknowledge-all API:', authError?.message || 'No user');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -16,8 +16,7 @@ export async function POST(request: NextRequest) {
     // Use service client for data operations
     const supabase = createSupabaseServiceClient();
 
-    console.log('Acknowledging invitations for user:', auth.user.id);
-    
+
     // Update all unacknowledged invitations for this user
     const { data, error } = await supabase
       .from('assignment_invitations')
@@ -32,7 +31,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    console.log('Successfully acknowledged', data?.length || 0, 'invitations');
     return NextResponse.json({ success: true, acknowledged: data?.length || 0 });
 
   } catch (error) {

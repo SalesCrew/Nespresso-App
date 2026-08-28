@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createSupabaseBrowserClient, createSupabaseRecoveryBrowserClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,8 +66,8 @@ export default function SalesCrewLoginPage() {
       <div className="container mx-auto px-4 py-12 max-w-md">
         {/* Back Button */}
         <div className="mb-8">
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             onClick={() => router.push('/')}
             className="text-gray-600 hover:text-gray-900"
           >
@@ -90,7 +91,7 @@ export default function SalesCrewLoginPage() {
               Admin-Zugang für interne Mitarbeiter
             </p>
           </CardHeader>
-          
+
           <CardContent className="pt-0">
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-4">
@@ -106,7 +107,7 @@ export default function SalesCrewLoginPage() {
                     className="!border-0 !ring-0 !ring-offset-0 focus-visible:!ring-2 focus-visible:!ring-green-500 bg-gray-50 text-sm"
                   />
                 </div>
-                
+
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-2">
                     Passwort
@@ -131,7 +132,7 @@ export default function SalesCrewLoginPage() {
                 </div>
               </div>
 
-              <Button 
+              <Button
                 type="submit"
                 className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg"
               >
@@ -167,8 +168,11 @@ export default function SalesCrewLoginPage() {
             <Coffee className="h-4 w-4" />
             <span>SalesCrew × Nespresso</span>
           </div>
+          <Link href="/datenschutz" className="mt-3 inline-block text-xs text-gray-600 underline underline-offset-2">
+            Datenschutz
+          </Link>
         </div>
       </div>
     </div>
   );
-} 
+}

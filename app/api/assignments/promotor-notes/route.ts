@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { requireAdmin, requireUser } from '@/lib/auth/routeGuards';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 
 export async function POST(req: NextRequest) {
-  const server = createSupabaseServerClient();
-  const { data: auth } = await server.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
 
   const svc = createSupabaseServiceClient();
 
   try {
     const { assignment_id, note } = await req.json();
-    
+
     if (!assignment_id) {
       return NextResponse.json({ error: 'assignment_id is required' }, { status: 400 });
     }
@@ -19,12 +18,12 @@ export async function POST(req: NextRequest) {
     // Upsert the promotor note
     const { data, error } = await svc
       .from('einsatznotiz_promotor')
-      .upsert({ 
-        assignment_id, 
+      .upsert({
+        assignment_id,
         note,
         updated_at: new Date().toISOString()
-      }, { 
-        onConflict: 'assignment_id' 
+      }, {
+        onConflict: 'assignment_id'
       })
       .select()
       .single();
@@ -37,7 +36,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, data });
   } catch (error: any) {
     console.error('Unexpected error saving promotor note:', error);
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: 'Internal server error',
       details: error.message || 'Unknown error'
     }, { status: 500 });
@@ -45,9 +44,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const server = createSupabaseServerClient();
-  const { data: auth } = await server.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
 
   const svc = createSupabaseServiceClient();
   const url = new URL(req.url);
@@ -55,6 +53,16 @@ export async function GET(req: NextRequest) {
 
   if (!assignmentId) {
     return NextResponse.json({ error: 'assignment_id is required' }, { status: 400 });
+  }
+
+  if (!auth.isAdmin) {
+    const { data: participant } = await svc
+      .from('assignment_participants')
+      .select('assignment_id')
+      .eq('assignment_id', assignmentId)
+      .eq('user_id', auth.user.id)
+      .maybeSingle();
+    if (!participant) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 
   try {
@@ -72,7 +80,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ note: data || null });
   } catch (error: any) {
     console.error('Unexpected error fetching promotor note:', error);
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: 'Internal server error',
       details: error.message || 'Unknown error'
     }, { status: 500 });

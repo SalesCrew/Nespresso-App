@@ -1,22 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { recordDataAccess } from '@/lib/audit/dataAccess';
+import { requireSelfOrAdmin } from '@/lib/auth/routeGuards';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { recomputeOnboarding } from '@/lib/onboarding/recompute';
-import { requireAdmin } from '@/lib/supabase/queries';
-
-function isSelfOrAdmin(requestingUserId: string, targetUserId: string, isAdmin: boolean) {
-  return isAdmin || requestingUserId === targetUserId;
-}
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const server = createSupabaseServerClient();
-  const { data: auth } = await server.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-
-  const { ok: isAdmin } = await requireAdmin();
-  if (!isSelfOrAdmin(auth.user.id, params.id, isAdmin)) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-  }
+  const auth = await requireSelfOrAdmin(params.id);
+  if (!auth.ok) return auth.response;
 
   const svc = createSupabaseServiceClient();
 
@@ -36,27 +26,23 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     application = appRow || null;
   }
 
-  return NextResponse.json({ profile: profile || null, application });
+  await recordDataAccess({
+    actorUserId: auth.user.id,
+    action: 'promotor_profile_read',
+    resourceType: 'promotor_profile',
+    resourceId: params.id,
+    subjectUserId: params.id,
+    metadata: { includes_financial_data: true, includes_identity_data: true },
+  });
+  return NextResponse.json(
+    { profile: profile || null, application },
+    { headers: { 'Cache-Control': 'private, no-store' } }
+  );
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const server = createSupabaseServerClient();
-  const { data: auth } = await server.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  
-  console.log('PATCH /api/promotors/[id] - Debug info:');
-  console.log('- Current user ID:', auth.user.id);
-  console.log('- Target promotor ID:', params.id);
-  
-  const adminResult = await requireAdmin();
-  console.log('- requireAdmin result:', adminResult);
-  
-  if (!isSelfOrAdmin(auth.user.id, params.id, adminResult.ok)) {
-    console.log('- isSelfOrAdmin check failed');
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-  }
-  
-  console.log('- Authorization passed, proceeding with update');
+  const auth = await requireSelfOrAdmin(params.id);
+  if (!auth.ok) return auth.response;
 
   const raw = await req.json().catch(() => ({} as any));
   const allowed = {
@@ -75,6 +61,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     bank_bic: typeof raw.bank_bic === 'string' ? raw.bank_bic : undefined,
     bank_holder: typeof raw.bank_holder === 'string' ? raw.bank_holder : undefined,
     bank_name: typeof raw.bank_name === 'string' ? raw.bank_name : undefined,
+    profile_picture_url: typeof raw.profile_picture_url === 'string' ? raw.profile_picture_url.slice(0, 1000) : undefined,
   } as any;
 
   const email: string | undefined = typeof raw.email === 'string' ? raw.email : undefined;
@@ -99,9 +86,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       delete alt.bank_name;
       alt.bankname = bankNameValue;
       const retry = await svc.from('promotor_profiles').update(alt).eq('user_id', params.id);
-      if (retry.error) return NextResponse.json({ error: retry.error.message }, { status: 500 });
+      if (retry.error) return NextResponse.json({ error: 'profile update failed' }, { status: 500 });
     } else {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: 'profile update failed' }, { status: 500 });
     }
   }
   // If email was provided, update the linked application email (source of truth for UI)
@@ -124,6 +111,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
   // Recompute onboarding after profile change
   try { await recomputeOnboarding(svc as any, params.id); } catch {}
+  await recordDataAccess({
+    actorUserId: auth.user.id,
+    action: 'promotor_profile_updated',
+    resourceType: 'promotor_profile',
+    resourceId: params.id,
+    subjectUserId: params.id,
+    metadata: { changed_field_count: Object.keys(updates).length - 1 },
+  });
   return NextResponse.json({ ok: true });
 }
 

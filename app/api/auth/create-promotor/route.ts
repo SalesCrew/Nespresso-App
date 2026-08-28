@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/auth/routeGuards';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { z } from 'zod';
 
@@ -11,10 +11,8 @@ const payloadSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  // Require an authenticated session but not strict admin during early provisioning
-  const server = createSupabaseServerClient();
-  const { data: session } = await server.auth.getUser();
-  if (!session.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
 
   const body = await req.json().catch(() => null);
   const parsed = payloadSchema.safeParse(body);

@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
+import { requireAdmin } from '@/lib/auth/routeGuards';
+import { recordDataAccess } from '@/lib/audit/dataAccess';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 
 export async function GET() {
-  const server = await createSupabaseServerClientAsync();
-  const { data: auth } = await server.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
   const svc = createSupabaseServiceClient();
 
   // Pull promotor base identities
@@ -17,16 +17,11 @@ export async function GET() {
 
   // Pull canonical promotor_profiles and join back to applications for fallback
   const userIds = (users || []).map((u: { user_id: string }) => u.user_id);
-  console.log('Loading promotor_profiles for userIds:', userIds);
   const { data: profiles, error: profilesError } = await svc
     .from('promotor_profiles')
     .select('*')
     .in('user_id', userIds);
-  console.log('Promotor profiles loaded:', profiles?.length || 0, 'profiles');
-  console.log('Profiles error:', profilesError);
-  if (profiles) {
-    console.log('Sample profile:', profiles[0]);
-  }
+  if (profilesError) return NextResponse.json({ error: 'Failed to load promotor profiles' }, { status: 500 });
   const appIds = (profiles || []).map((p: any) => p.application_id).filter(Boolean) as string[];
   const { data: applications } = appIds.length
     ? await svc.from('applications').select('*').in('id', appIds)
@@ -62,18 +57,25 @@ export async function GET() {
         iban: profile?.bank_iban ?? '',
         bic: profile?.bank_bic ?? ''
       },
-      clothingInfo: { 
-        height: profile?.height ?? app?.height ?? '', 
-        size: profile?.clothing_size ?? app?.clothingSize ?? app?.clothing_size ?? app?.clothingsize ?? '' 
+      clothingInfo: {
+        height: profile?.height ?? app?.height ?? '',
+        size: profile?.clothing_size ?? app?.clothingSize ?? app?.clothing_size ?? app?.clothingsize ?? ''
       },
-      personalData: { 
-        birth_date: profile?.birth_date ?? profile?.birthDate ?? app?.birthDate ?? app?.birth_date ?? '', 
-        social_security_number: profile?.social_security_number ?? profile?.socialSecurityNumber ?? app?.socialSecurityNumber ?? '', 
+      personalData: {
+        birth_date: profile?.birth_date ?? profile?.birthDate ?? app?.birthDate ?? app?.birth_date ?? '',
+        social_security_number: profile?.social_security_number ?? profile?.socialSecurityNumber ?? app?.socialSecurityNumber ?? '',
         citizenship: profile?.citizenship ?? app?.citizenship ?? '',
         working_days: profile?.working_days ?? app?.workingDays ?? []
       },
       applicationId: profile?.application_id || null,
     };
+  });
+
+  await recordDataAccess({
+    actorUserId: auth.user.id,
+    action: 'promotor_directory_read',
+    resourceType: 'promotor_profile_collection',
+    metadata: { record_count: cards.length, includes_financial_data: true },
   });
 
   return NextResponse.json({ promotors: cards });

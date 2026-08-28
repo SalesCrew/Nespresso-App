@@ -465,12 +465,10 @@ export default function SchulungenVideosPage() {
           localStorage.removeItem('currentTrainingStep')
         }}
         onPause={(progress, watchedPercentage) => {
-          console.log(`Video paused at ${progress}% with ${watchedPercentage}% watched`)
           setShowVideoPlayer(false)
           // Keep localStorage for resuming
         }}
         onNextStep={() => {
-          console.log("Moving to PDF reader")
           setShowVideoPlayer(false)
           setShowPDFReader(true)
           setCurrentTrainingStep(2)
@@ -494,12 +492,10 @@ export default function SchulungenVideosPage() {
           setCurrentTrainingStep(1)
         }}
         onPause={(progress, readPercentage) => {
-          console.log(`PDF paused at ${progress}% with ${readPercentage}% read`)
           setShowPDFReader(false)
           // Keep localStorage for resuming
         }}
         onNextStep={() => {
-          console.log("Moving to quiz")
           setShowPDFReader(false)
           setShowQuiz(true)
           setCurrentTrainingStep(3)
@@ -524,12 +520,10 @@ export default function SchulungenVideosPage() {
           setCurrentTrainingStep(2)
         }}
         onPause={(progress, completedPercentage) => {
-          console.log(`Quiz paused at ${progress}% with ${completedPercentage}% completed`)
           setShowQuiz(false)
           // Keep localStorage for resuming
         }}
         onComplete={() => {
-          console.log("Training completed successfully!")
           // Clear all training state
           setShowQuiz(false)
           setSelectedSchulung(null)

@@ -12,23 +12,22 @@ export async function GET(req: Request) {
     // Use server client for auth check
     const server = await createSupabaseServerClientAsync()
     const { data: auth, error: authError } = await server.auth.getUser()
-    
+
     if (authError || !auth?.user) {
       console.error('Auth error in invites API:', authError?.message || 'No user');
       // Return empty invites instead of 401 to avoid breaking the UI
       return NextResponse.json({ invites: [] })
     }
-    
-    console.log('Fetching invites for user:', auth.user.id, 'with status:', status, 'invitation_ids:', invitationIds)
-    
+
+
     // Use service client to bypass RLS for data fetch
     const svc = createSupabaseServiceClient()
-    
+
     // Use service client to join assignment details robustly
     let query = svc
       .from('assignment_invitations')
       .select('id, assignment_id, user_id, role, status, invited_at, responded_at, acknowledged_at, replacement_for, is_buddy_tag')
-    
+
     // If invitation_ids are provided, fetch those specific invitations
     if (invitationIds) {
       const ids = invitationIds.split(',').filter(id => id.trim());
@@ -36,20 +35,19 @@ export async function GET(req: Request) {
     } else {
       // Otherwise filter by user
       query = query.eq('user_id', auth.user.id)
-      
+
       // Only filter by status if it's provided
       if (status) {
         query = query.eq('status', status)
       }
-      
+
       // Always exclude verstanden and rejected_handled status, and buddy tags from normal invitations
       query = query.neq('status', 'verstanden').neq('status', 'rejected_handled').eq('is_buddy_tag', false)
     }
-    
+
     const { data: invites, error: invErr } = await query
       .order('invited_at', { ascending: false })
-    
-    console.log('Invites query result:', { invites, error: invErr })
+
     if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
 
     const assignmentIds = [...new Set((invites || []).map((i: any) => i.assignment_id))]
@@ -83,7 +81,7 @@ export async function GET(req: Request) {
 
     const participantsByAssignment = new Map()
     const userProfilesMap = new Map(userProfiles.map((u: any) => [u.user_id, u]))
-    
+
     ;(participants || []).forEach((p: any) => {
       const profile = userProfilesMap.get(p.user_id)
       if (profile) {
@@ -100,7 +98,7 @@ export async function GET(req: Request) {
       const a = byId.get(inv.assignment_id)
       const leadParticipant = participantsByAssignment.get(inv.assignment_id)
       const isBuddyTag = !!leadParticipant && inv.role === 'buddy'
-      
+
       return {
         id: inv.id,
         assignment_id: inv.assignment_id,
@@ -125,8 +123,7 @@ export async function GET(req: Request) {
         } : null
       }
     })
-    
-    console.log('Returning invites:', result.length, 'items');
+
 
     return NextResponse.json({ invites: result })
   } catch (e: any) {

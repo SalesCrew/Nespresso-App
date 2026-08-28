@@ -17,21 +17,8 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
     redirect("/auth/salescrew/login");
   }
 
-  // If profile is missing but user is authenticated, allow access for now
-  // This prevents a loop if the profile hasn't been provisioned yet
   if (!profile) {
-    return (
-      <div className="min-h-screen bg-gray-50/30">
-        <SocketProvider>
-          <NotificationCenterProvider>
-            <AdminTooltipAuto delayMs={2000} />
-            <AdminToastListener currentUserId={user.id} />
-            <AdminNotificationStack />
-            {children}
-          </NotificationCenterProvider>
-        </SocketProvider>
-      </div>
-    );
+    redirect("/auth/salescrew/login");
   }
 
   // Only admins may access admin routes

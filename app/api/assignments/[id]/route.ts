@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { normalizeForMatch } from '@/lib/matchers/marketMatcher'
+import { requireAdmin } from '@/lib/auth/routeGuards'
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
+    const auth = await requireAdmin()
+    if (!auth.ok) return auth.response
     const body = await req.json().catch(() => ({} as any))
-    console.log('🟢 [API] PATCH /assignments/[id] received body:', body)
     const svc = createSupabaseServiceClient()
 
     // Load previous state to detect manual market link
@@ -49,10 +51,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     // Handle status updates - EXACTLY like assigned/buddy_tag
     if (body.status) {
       const status = String(body.status)
-      
+
       // Check if it's a special status
-      if (status === 'Krankenstand' || status === 'Notfall' || status === 'Urlaub' || 
-          status === 'Zeitausgleich' || status === 'Markierte' || status === 'Bestätigt' || 
+      if (status === 'Krankenstand' || status === 'Notfall' || status === 'Urlaub' ||
+          status === 'Zeitausgleich' || status === 'Markierte' || status === 'Bestätigt' ||
           status === 'Geplant') {
         // Special status - save to special_status DIRECTLY
         const specialMap: Record<string, string> = {
@@ -72,7 +74,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         else if (status === 'Verplant') updates.status = 'assigned'
         else if (status === 'Buddy Tag') updates.status = 'buddy_tag'
         else updates.status = status
-        
+
         // Clear special_status when setting regular status
         updates.special_status = null
       }
@@ -82,8 +84,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       return NextResponse.json({ error: 'No valid fields provided' }, { status: 400 })
     }
 
-    console.log('🟢 Updating assignment with:', updates)
-
     const { data, error } = await svc
       .from('assignments')
       .update(updates)
@@ -91,24 +91,20 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       .select('*')
       .single()
     if (error) {
-      console.error('🔴 Assignment update error:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
     // EXTRA SAFETY: If we're setting special_status, do a direct update JUST for that field
     if (updates.special_status !== undefined) {
-      console.log('🔴 DOING EXTRA UPDATE FOR special_status:', updates.special_status)
       const { error: specialError } = await svc
         .from('assignments')
         .update({ special_status: updates.special_status })
         .eq('id', params.id)
-      
+
       if (specialError) {
-        console.error('🔴 Special status update error:', specialError)
+        return NextResponse.json({ error: specialError.message }, { status: 500 })
       }
     }
-
-    console.log('🟢 Assignment updated successfully:', data)
 
     // Best-effort: if matched_market_id was set manually here, remember address on market
     try {
@@ -188,6 +184,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   try {
+    const auth = await requireAdmin()
+    if (!auth.ok) return auth.response
     const svc = createSupabaseServiceClient()
 
     const { error } = await svc

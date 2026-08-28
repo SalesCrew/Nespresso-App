@@ -1,17 +1,22 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/supabase/queries';
+import { requireAdmin } from '@/lib/auth/routeGuards';
 
 export async function GET() {
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'not found' }, { status: 404 });
+  }
+
   try {
     const result = await requireAdmin();
+    if (!result.ok) return result.response;
     return NextResponse.json({
       success: true,
-      result: result
+      role: result.role
     });
-  } catch (error: any) {
+  } catch {
     return NextResponse.json({
       success: false,
-      error: error.message
+      error: 'diagnostic failed'
     }, { status: 500 });
   }
 }

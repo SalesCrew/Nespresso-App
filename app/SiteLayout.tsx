@@ -13,6 +13,7 @@ import {
   Send,
   Eye,
   EyeOff,
+  ShieldCheck,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -35,7 +36,7 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
   const [isInChat, setIsInChat] = useState(false);
   const lastScrollY = useRef(0);
   const [unreadCount, setUnreadCount] = useState(0);
-  
+
   // KI Assistant states
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
@@ -80,7 +81,7 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
       setIsInChat(false);
     } else {
       // Fallback, or determine based on a default route
-      setActiveTab("home"); 
+      setActiveTab("home");
       setIsFooterVisible(true); // Ensure footer is visible on other pages
       setIsInChat(false);
     }
@@ -103,7 +104,7 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
         const name = profileName || metaName || 'Promotor';
         setDisplayName(name);
         try { localStorage.setItem('displayName', name); } catch {}
-        
+
         // Load profile picture from promotor_profiles
         const { data: promotorProfile } = await supabase
           .from('promotor_profiles')
@@ -194,7 +195,7 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
     );
 
     const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    
+
     const updateColorMode = (isDark: boolean) => {
       if (isDark) {
         document.documentElement.style.setProperty(
@@ -208,10 +209,10 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
         );
       }
     };
-    
+
     updateColorMode(darkModeMediaQuery.matches);
     darkModeMediaQuery.addEventListener('change', (e) => updateColorMode(e.matches));
-    
+
     return () => {
       darkModeMediaQuery.removeEventListener('change', (e) => updateColorMode(e.matches));
     };
@@ -263,13 +264,12 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
     setChatMessages([...newMessages, { role: "ai", content: "TYPING_INDICATOR" }]);
 
     try {
-      console.log('🤖 Sending message to Eddie API:', userMessage);
       const response = await fetch('/api/ai/eddie-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           message: userMessage,
-          conversationId: conversationId 
+          conversationId: conversationId
         })
       });
 
@@ -280,8 +280,6 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
       }
 
       const data = await response.json();
-      console.log('✅ Eddie response received:', data);
-
       // Update conversationId if received from server
       if (data.conversationId) {
         setConversationId(data.conversationId);
@@ -290,9 +288,9 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
       // Replace typing indicator with actual response
       setChatMessages([
         ...newMessages,
-        { 
-          role: "ai", 
-          content: data.response || "Entschuldigung, ich konnte keine Antwort generieren." 
+        {
+          role: "ai",
+          content: data.response || "Entschuldigung, ich konnte keine Antwort generieren."
         }
       ]);
     } catch (error) {
@@ -300,9 +298,9 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
       // Replace typing indicator with error message
       setChatMessages([
         ...newMessages,
-        { 
-          role: "ai", 
-          content: "Entschuldigung, ich bin gerade nicht verfügbar. Versuchen Sie es später erneut." 
+        {
+          role: "ai",
+          content: "Entschuldigung, ich bin gerade nicht verfügbar. Versuchen Sie es später erneut."
         }
       ]);
     }
@@ -377,7 +375,7 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
                           // Optionally reauthenticate by signing in with current password if needed by your policy
                           const { error } = await supabase.auth.updateUser({ password: newPassword });
                           if (error) throw error;
-                          
+
                           setPwSuccess('Passwort geändert.');
                           setTimeout(() => setOpenPwPopover(false), 1000);
                         } catch (err: any) {
@@ -389,6 +387,16 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
                       {pwSaving ? 'Speichere…' : 'Ändern'}
                     </Button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenPwPopover(false);
+                      router.push('/promotors/datenschutz');
+                    }}
+                    className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded-md border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    <ShieldCheck className="h-4 w-4" /> Datenschutz &amp; meine Rechte
+                  </button>
                 </div>
               </PopoverContent>
             </Popover>
@@ -398,7 +406,7 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
 
 
       {/* Darkening overlay for when KI assistant chat is shown */}
-      <div 
+      <div
         className={`fixed inset-0 bg-black transition-opacity duration-500 z-[35] ${
           chatOpen ? 'opacity-40' : 'opacity-0 pointer-events-none'
         }`}
@@ -412,7 +420,7 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
 
       {/* KI Assistant Floating Button */}
       {!isInTrainingSession && !isInChat && (
-        <button 
+        <button
           className="fixed bottom-20 right-4 w-14 h-14 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg flex items-center justify-center z-40 hover:shadow-xl transition-shadow"
           onClick={() => {
             setChatOpen(true);
@@ -442,26 +450,26 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
               />
               <h3 className="text-white font-medium">Frag Eddie!</h3>
             </div>
-            <button 
-              onClick={() => setChatOpen(false)} 
+            <button
+              onClick={() => setChatOpen(false)}
               className="text-white hover:bg-blue-600 rounded-full p-1"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
-          
+
           {/* Chat Messages */}
           <div className="flex-1 overflow-y-auto p-3 pb-16 scrollbar-thin scrollbar-track-transparent hover:scrollbar-thumb-blue-600 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-blue-500/50 [&::-webkit-scrollbar-thumb:hover]:bg-blue-500">
             <div className="space-y-3">
               {chatMessages.map((message, index) => (
-                <div 
-                  key={index} 
+                <div
+                  key={index}
                   className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  <div 
+                  <div
                     className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                      message.role === 'user' 
-                        ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100' 
+                      message.role === 'user'
+                        ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
                         : 'bg-blue-400 text-white'
                     }`}
                   >
@@ -485,17 +493,17 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
           {/* Chat Input */}
           <div className="absolute bottom-3 left-3 right-3 z-20">
             <form onSubmit={sendMessage} className="relative">
-              <input 
+              <input
                 type="text"
-                value={chatInput} 
-                onChange={(e) => setChatInput(e.target.value)} 
-                placeholder="Frag Eddie egal was..." 
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Frag Eddie egal was..."
                 className="w-full pr-12 py-2 px-5 rounded-full outline-none text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 placeholder:text-xs"
-                style={{ 
-                  border: 'none', 
-                  boxShadow: '0 3px 8px rgba(0,0,0,0.18)', 
-                  WebkitAppearance: 'none', 
-                  MozAppearance: 'none', 
+                style={{
+                  border: 'none',
+                  boxShadow: '0 3px 8px rgba(0,0,0,0.18)',
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'none',
                   appearance: 'none',
                   // Ensure consistent light control styling on iOS/Safari which can auto-darken inputs
                   colorScheme: 'light',
@@ -505,9 +513,9 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
                   WebkitTextFillColor: 'inherit'
                 }}
               />
-              <Button 
-                type="submit" 
-                size="icon" 
+              <Button
+                type="submit"
+                size="icon"
                 className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center"
                 disabled={!chatInput.trim()}
               >
@@ -593,4 +601,4 @@ export default function SiteLayout({ children }: SiteLayoutProps) {
       {/* Password change popover is handled near the settings icon via Popover */}
     </div>
   );
-} 
+}

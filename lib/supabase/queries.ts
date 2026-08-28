@@ -17,19 +17,10 @@ export async function getCurrentUserAndProfile() {
 
 export async function requireAdmin() {
   const { user, profile } = await getCurrentUserAndProfile();
-  
-  console.log('requireAdmin debug:');
-  console.log('- user:', user?.id);
-  console.log('- profile:', profile);
-  
   if (!user || !profile) {
-    console.log('- result: unauthorized (no user or profile)');
     return { ok: false as const, reason: 'unauthorized' as const };
   }
   const isAdmin = profile.role === 'admin_of_admins' || profile.role === 'admin_staff';
-  
-  console.log('- isAdmin check:', isAdmin, 'role:', profile.role);
-  
   return isAdmin
     ? { ok: true as const, user, profile }
     : { ok: false as const, reason: 'forbidden' as const };

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServiceClient } from '@/lib/supabase/service';
 
 // POST: Pin a conversation
 export async function POST(
@@ -29,7 +30,8 @@ export async function POST(
     }
 
     // Pin the conversation
-    const { error: updateError } = await supabase
+    const service = createSupabaseServiceClient();
+    const { error: updateError } = await service
       .from('chat_conversations')
       .update({
         is_pinned: true,

@@ -228,7 +228,7 @@ type AnmeldestatusStoredEntry = {
   const [marketFilter, setMarketFilter] = useState("all");
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [onboardingFilters, setOnboardingFilters] = useState<string[]>([]);
-  
+
 
 
   // Notes functionality
@@ -239,7 +239,7 @@ type AnmeldestatusStoredEntry = {
   const [copiedItems, setCopiedItems] = useState<Record<string, boolean>>({});
   const notesRef = useRef<HTMLDivElement>(null);
   const notesSaveTimeouts = useRef<{[key: string]: NodeJS.Timeout}>({});
-  
+
   // Magic touch functionality (copied from admin/statistiken)
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
   const [magicTouchCategories, setMagicTouchCategories] = useState<Record<number, string>>({});
@@ -253,7 +253,7 @@ type AnmeldestatusStoredEntry = {
     { name: 'Motivierend (unzufrieden)', color: '#eadaff', bgColor: '#eadaff', borderColor: '#ddd6fe', icon: <Activity className="h-3 w-3" /> },
     { name: 'Verschlechterung', color: '#ffe3e3', bgColor: '#ffe3e3', borderColor: '#fecaca', icon: <AlertCircle className="h-3 w-3" /> }
   ];
-  
+
   // Dienstvertrag functionality
   const [showDienstvertragPopup, setShowDienstvertragPopup] = useState(false);
   const [showDienstvertragContent, setShowDienstvertragContent] = useState(false);
@@ -293,7 +293,7 @@ type AnmeldestatusStoredEntry = {
   const [ibanCopied, setIbanCopied] = useState<Record<number, boolean>>({});
   const [accountHolderCopied, setAccountHolderCopied] = useState<Record<number, boolean>>({});
   const [bicCopied, setBicCopied] = useState<Record<number, boolean>>({});
-  
+
   // Market filter states
   const [marketDropdownOpen, setMarketDropdownOpen] = useState(false);
   const [availableMarkets, setAvailableMarkets] = useState<string[]>([]);
@@ -302,13 +302,13 @@ type AnmeldestatusStoredEntry = {
   // Status confirmation modal state
   const [showStatusConfirmation, setShowStatusConfirmation] = useState(false);
   const [statusChangePromotorId, setStatusChangePromotorId] = useState<number | null>(null);
-  
+
   // Document management state
   const [documentStatuses, setDocumentStatuses] = useState<Record<string, string>>({});
-  
+
   // Track if Strafregister is deactivated
   const [strafregisterDeactivated, setStrafregisterDeactivated] = useState(false);
-  
+
   // Track which documents have files submitted (variable based on actual submissions)
   const [documentsWithFiles, setDocumentsWithFiles] = useState<Record<string, boolean>>({});
   const [regionDropdownOpen, setRegionDropdownOpen] = useState(false);
@@ -330,7 +330,7 @@ type AnmeldestatusStoredEntry = {
   const [promotorStammdaten, setPromotorStammdaten] = useState<Record<number, any>>({});
   const [openStammdatenPreviewFor, setOpenStammdatenPreviewFor] = useState<number | null>(null);
   const [openKrankenstandFor, setOpenKrankenstandFor] = useState<number | null>(null);
-  
+
   // Access credentials modal
   const [showAccessCredentials, setShowAccessCredentials] = useState(false);
   const [accessCredentials, setAccessCredentials] = useState<any>(null);
@@ -373,7 +373,7 @@ type AnmeldestatusStoredEntry = {
   const [anmeldestatusSelections, setAnmeldestatusSelections] = useState<Record<string, string>>({});
   const [anmeldestatusManualOverrides, setAnmeldestatusManualOverrides] = useState<Record<string, boolean>>({});
   const [anmeldestatusSavingByRowKey, setAnmeldestatusSavingByRowKey] = useState<Record<string, boolean>>({});
-  
+
   // Edit states for promotor details
   const [editingBankData, setEditingBankData] = useState<Record<string, boolean>>({});
   const [editingClothingData, setEditingClothingData] = useState<Record<string, boolean>>({});
@@ -384,10 +384,10 @@ type AnmeldestatusStoredEntry = {
   const [editBankForm, setEditBankForm] = useState<Record<string, any>>({});
   const [editClothingForm, setEditClothingForm] = useState<Record<string, any>>({});
   const [editWorkingDaysForm, setEditWorkingDaysForm] = useState<Record<string, string[]>>({});
-  
+
   // Onboarding steps per promotor
   const [onboardingSteps, setOnboardingSteps] = useState<Record<string, any[]>>({});
-  
+
   // Stammdatenblatt (submitted onboarding data)
   const [submittedOnboardingData, setSubmittedOnboardingData] = useState<any[]>([
     {
@@ -622,13 +622,12 @@ Dein Nespresso Team`;
   // Edit handlers for promotor details
   const handleEditBankData = async (promotorId: string) => {
     const isEditing = editingBankData[promotorId];
-    
+
     if (isEditing) {
       // Save changes
       try {
       setSavingBankData(prev => ({ ...prev, [promotorId]: true }));
         const formData = editBankForm[promotorId];
-        console.log('Updating bank data for promotor:', promotorId, formData);
         const response = await fetch(`/api/promotors/${promotorId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -641,14 +640,13 @@ Dein Nespresso Team`;
             social_security_number: formData.social_security_number
           })
         });
-        
-        console.log('Response status:', response.status);
+
         if (!response.ok) {
           const errorText = await response.text();
           console.error('API Error:', errorText);
           throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
-        
+
         if (response.ok) {
           // Update local state
           const { accountHolder, bankName, iban, bic, social_security_number } = formData || {};
@@ -683,7 +681,7 @@ Dein Nespresso Team`;
       if (promotor) {
         setEditBankForm(prev => ({
           ...prev,
-          [promotorId]: { 
+          [promotorId]: {
             ...promotor.bankDetails,
             // Prefill SV number from personal data for editing
             social_security_number: promotor.personalData?.social_security_number || ''
@@ -691,25 +689,23 @@ Dein Nespresso Team`;
         }));
       }
     }
-    
+
     setEditingBankData(prev => ({ ...prev, [promotorId]: !isEditing }));
   };
 
 
   const handleEditClothingData = async (promotorId: string) => {
     const isEditing = editingClothingData[promotorId];
-    
+
     if (isEditing) {
       // Save changes
       try {
       setSavingClothingData(prev => ({ ...prev, [promotorId]: true }));
         const formData = editClothingForm[promotorId];
-        console.log('Updating clothing data for promotor:', promotorId, formData);
-        
+
         // Debug: Check current user session
         const supabase = createSupabaseBrowserClient();
         const { data: { user } } = await supabase.auth.getUser();
-        console.log('Current browser session user:', user?.id);
         const response = await fetch(`/api/promotors/${promotorId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -718,18 +714,17 @@ Dein Nespresso Team`;
             clothing_size: formData.size
           })
         });
-        
-        console.log('Response status:', response.status);
+
         if (!response.ok) {
           const errorText = await response.text();
           console.error('API Error:', errorText);
           throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
-        
+
         if (response.ok) {
           // Update local state
-          setPromotors(prev => prev.map(p => 
-            p.id === promotorId 
+          setPromotors(prev => prev.map(p =>
+            p.id === promotorId
               ? { ...p, clothingInfo: formData }
               : p
           ));
@@ -752,20 +747,19 @@ Dein Nespresso Team`;
         }));
       }
     }
-    
+
     setEditingClothingData(prev => ({ ...prev, [promotorId]: !isEditing }));
   };
 
   const handleEditWorkingDays = async (promotorId: string) => {
     const isEditing = editingWorkingDays[promotorId];
-    
+
     if (isEditing) {
       // Save changes
       try {
       setSavingWorkingDays(prev => ({ ...prev, [promotorId]: true }));
         const formData = editWorkingDaysForm[promotorId];
-        console.log('Updating working days for promotor:', promotorId, formData);
-        
+
         const response = await fetch(`/api/promotors/${promotorId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -773,18 +767,17 @@ Dein Nespresso Team`;
             working_days: formData
           })
         });
-        
-        console.log('Response status:', response.status);
+
         if (!response.ok) {
           const errorText = await response.text();
           console.error('API Error:', errorText);
           throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
-        
+
         if (response.ok) {
           // Update local state
-          setPromotors(prev => prev.map(p => 
-            p.id === promotorId 
+          setPromotors(prev => prev.map(p =>
+            p.id === promotorId
               ? { ...p, workingDays: formData }
               : p
           ));
@@ -807,7 +800,7 @@ Dein Nespresso Team`;
         }));
       }
     }
-    
+
     setEditingWorkingDays(prev => ({ ...prev, [promotorId]: !isEditing }));
   };
 
@@ -944,27 +937,23 @@ Dein Nespresso Team`;
         // Check assignment history for each promotor to determine New Joiner status
         const userIds = normalized.map((p: any) => p.id);
         let assignmentHistory: Map<string, boolean> = new Map();
-        
+
         try {
-          console.log('Checking assignment history for userIds:', userIds);
           const historyRes = await fetch('/api/promotors/assignment-history', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ user_ids: userIds })
           });
-          
+
           if (historyRes.ok) {
             const historyData = await historyRes.json();
             const userIdsWithHistory = historyData.user_ids_with_history || [];
-            console.log('Users with assignment history:', userIdsWithHistory);
-            
+
             // Create map of users who have assignment history
             userIdsWithHistory.forEach((userId: string) => {
-              console.log('Setting assignmentHistory for user:', userId);
               assignmentHistory.set(userId, true);
             });
-            
-            console.log('Final assignmentHistory map:', Array.from(assignmentHistory.entries()));
+
           } else {
             console.error('Failed to fetch assignment history:', historyRes.status);
           }
@@ -1041,24 +1030,24 @@ Dein Nespresso Team`;
   useEffect(() => {
     const fetchMarkets = async () => {
       if (!promotors.length) return;
-      
+
       try {
         // Fetch all assignments to extract unique markets
         const res = await fetch('/api/assignments');
         if (!res.ok) return;
-        
+
         const data = await res.json();
         const assignments = data.assignments || [];
-        
+
         // Extract unique markets from assignment metadata or title
         const marketsSet = new Set<string>();
         const promotorMarketsMap: Record<string, string[]> = {};
-        
+
         assignments.forEach((assignment: any) => {
           const market = assignment.metadata?.market || assignment.title || '';
           if (market && market.trim()) {
             marketsSet.add(market.trim());
-            
+
             // Associate market with promotor (lead_user_id)
             if (assignment.lead_user_id) {
               if (!promotorMarketsMap[assignment.lead_user_id]) {
@@ -1070,14 +1059,14 @@ Dein Nespresso Team`;
             }
           }
         });
-        
+
         setAvailableMarkets(Array.from(marketsSet).sort());
         setPromotorMarkets(promotorMarketsMap);
       } catch (error) {
         console.error('Failed to fetch markets:', error);
       }
     };
-    
+
     fetchMarkets();
   }, [promotors]);
 
@@ -1234,13 +1223,13 @@ Dein Nespresso Team`;
   const getMagicTouchStyle = (promotorId: number) => {
     const selectedCategory = magicTouchCategories[promotorId];
     if (!selectedCategory) return {};
-    
+
     // If Neutral is selected, return empty object to use default styling
     if (selectedCategory === 'Neutral') return {};
-    
+
     const category = categories.find(c => c.name === selectedCategory);
     if (!category) return {};
-    
+
     // Convert hex to rgba with 80% opacity for background
     const hexToRgba = (hex: string, alpha: number) => {
       const r = parseInt(hex.slice(1, 3), 16);
@@ -1248,8 +1237,8 @@ Dein Nespresso Team`;
       const b = parseInt(hex.slice(5, 7), 16);
       return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     };
-    
-    return { 
+
+    return {
       backgroundColor: hexToRgba(category.bgColor, 0.8),
       borderColor: category.borderColor,
       boxShadow: `0 1px 3px 0 ${category.borderColor}40, 0 1px 2px 0 ${category.borderColor}60`
@@ -1359,7 +1348,7 @@ Dein Nespresso Team`;
         loadPromotorKpi(p.id);
       }
     });
-  }, [promotors, loadPromotorKpi]); 
+  }, [promotors, loadPromotorKpi]);
 
   // Status indicator
   const getStatusIcon = (status: string) => {
@@ -1375,7 +1364,7 @@ Dein Nespresso Team`;
     const matchesRegion = regionFilter === "all" || promotor.region === regionFilter;
     const matchesStatus = statusFilter === "all" || promotor.status === statusFilter;
     const matchesMarket = marketFilter === "all" || (promotorMarkets[promotor.id] && promotorMarkets[promotor.id].includes(marketFilter));
-    
+
     // Onboarding filter: if any filters are active, check if promotor has all selected steps completed
     const matchesOnboarding = onboardingFilters.length === 0 || (() => {
       const steps = onboardingSteps[promotor.id] || [];
@@ -1384,7 +1373,7 @@ Dein Nespresso Team`;
         return step?.status === 'done';
       });
     })();
-    
+
     return matchesSearch && matchesRegion && matchesStatus && matchesMarket && matchesOnboarding;
   }).sort((a, b) => {
     // Sort by status: active first, newjoiner second, inactive last
@@ -1452,7 +1441,7 @@ Dein Nespresso Team`;
     const now = new Date();
     const diffTime = Math.abs(now.getTime() - date.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     if (diffDays === 1) return "Heute";
     if (diffDays === 2) return "Gestern";
     return `vor ${diffDays - 1} Tagen`;
@@ -2061,11 +2050,11 @@ Dein Nespresso Team`;
     try {
       setLoadingCredentials(true);
       const response = await fetch(`/api/promotors/${promotorId}/access-credentials`);
-      
+
       if (response.ok) {
         const data = await response.json();
         setAccessCredentials(data.credentials);
-        
+
         // Initialize edit form with current data
         if (data.credentials) {
           setEditCredentialsForm({
@@ -2105,23 +2094,23 @@ Dein Nespresso Team`;
   // Toggle edit mode for credentials
   const toggleEditCredentials = async (service: string) => {
     const isCurrentlyEditing = editingCredentials[service];
-    
+
     if (isCurrentlyEditing) {
       // Save changes
       try {
         const formData = editCredentialsForm[service];
         if (!formData) return;
-        
+
         const updateData: any = {};
         updateData[`${service}_email`] = formData.email;
         updateData[`${service}_password`] = formData.password;
-        
+
         const response = await fetch(`/api/promotors/${detailedViewOpen}/access-credentials`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(updateData)
         });
-        
+
         if (response.ok) {
           // Reload credentials to get fresh data
           await loadAccessCredentials(detailedViewOpen!);
@@ -2132,7 +2121,7 @@ Dein Nespresso Team`;
         console.error('Error saving credentials:', error);
       }
     }
-    
+
     setEditingCredentials(prev => ({
       ...prev,
       [service]: !prev[service]
@@ -2152,7 +2141,7 @@ Dein Nespresso Team`;
       await supabase.storage
         .from('profilbilder-promotoren')
         .remove([filePath])
-      
+
       // Upload new profile picture
       const { error: uploadError } = await supabase.storage
         .from('profilbilder-promotoren')
@@ -2166,16 +2155,15 @@ Dein Nespresso Team`;
       const { data: urlData } = supabase.storage
         .from('profilbilder-promotoren')
         .getPublicUrl(filePath)
-      
+
       const urlWithTimestamp = `${urlData.publicUrl}?t=${Date.now()}`
 
-      // Update promotor_profiles with new URL
-      const { error: updateError } = await supabase
-        .from('promotor_profiles')
-        .update({ profile_picture_url: urlWithTimestamp })
-        .eq('user_id', promotorUserId)
-
-      if (updateError) throw updateError
+      const updateResponse = await fetch(`/api/promotors/${promotorUserId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_picture_url: urlWithTimestamp }),
+      })
+      if (!updateResponse.ok) throw new Error('Profilfoto konnte nicht gespeichert werden')
 
       alert('Profilfoto erfolgreich hochgeladen!')
       await loadPromotors() // Reload to show new picture
@@ -2382,10 +2370,10 @@ Dein Nespresso Team`;
       // IBAN is already visible, copy it
       try {
         await navigator.clipboard.writeText(promotor.bankDetails.iban);
-        
+
         // Show copied state
         setIbanCopied(prev => ({ ...prev, [promotorId]: true }));
-        
+
         // Hide copied state after 2 seconds
         setTimeout(() => {
           setIbanCopied(prev => ({ ...prev, [promotorId]: false }));
@@ -2396,12 +2384,12 @@ Dein Nespresso Team`;
     } else {
       // Show full IBAN
       setIbanVisible(prev => ({ ...prev, [promotorId]: true }));
-      
+
       // Clear any existing timeout for this promotor
       if (ibanTimeouts[promotorId]) {
         clearTimeout(ibanTimeouts[promotorId]);
       }
-      
+
       // Set timeout to hide IBAN after 3 seconds
       const timeout = setTimeout(() => {
         setIbanVisible(prev => ({ ...prev, [promotorId]: false }));
@@ -2411,7 +2399,7 @@ Dein Nespresso Team`;
           return newTimeouts;
         });
       }, 3000);
-      
+
       setIbanTimeouts(prev => ({ ...prev, [promotorId]: timeout }));
     }
   };
@@ -2422,10 +2410,10 @@ Dein Nespresso Team`;
 
     try {
       await navigator.clipboard.writeText(promotor.bankDetails.accountHolder);
-      
+
       // Show copied state
       setAccountHolderCopied(prev => ({ ...prev, [promotorId]: true }));
-      
+
       // Hide copied state after 2 seconds
       setTimeout(() => {
         setAccountHolderCopied(prev => ({ ...prev, [promotorId]: false }));
@@ -2441,10 +2429,10 @@ Dein Nespresso Team`;
 
     try {
       await navigator.clipboard.writeText(promotor.bankDetails.bic);
-      
+
       // Show copied state
       setBicCopied(prev => ({ ...prev, [promotorId]: true }));
-      
+
       // Hide copied state after 2 seconds
       setTimeout(() => {
         setBicCopied(prev => ({ ...prev, [promotorId]: false }));
@@ -2466,8 +2454,8 @@ Dein Nespresso Team`;
   const handleStatusChange = () => {
     if (statusChangePromotorId) {
       // In a real app, this would update the database
-      setPromotors(prev => prev.map(promotor => 
-        promotor.id === statusChangePromotorId 
+      setPromotors(prev => prev.map(promotor =>
+        promotor.id === statusChangePromotorId
           ? { ...promotor, status: 'inactive' }
           : promotor
       ));
@@ -2488,7 +2476,7 @@ Dein Nespresso Team`;
       if (marketDropdownRef.current && !marketDropdownRef.current.contains(event.target as Node)) {
         setMarketDropdownOpen(false);
       }
-      
+
       // Close magic touch dropdown
       if (!event.target || !(event.target as HTMLElement).closest('.magic-touch-dropdown')) {
         setOpenDropdown(null);
@@ -2510,17 +2498,17 @@ Dein Nespresso Team`;
     <>
       {/* Vercel-style skeleton animation styles */}
       <style dangerouslySetInnerHTML={{ __html: skeletonStyles }} />
-      
+
       <div className="min-h-screen bg-gray-50/30">
       {/* Approval Dialog (mounted once at root) */}
-      <Dialog open={approveOpen} onOpenChange={(open) => { 
-        setApproveOpen(open); 
-        if (!open) { 
-          setShowEmailTemplate(false); 
-          setCopiedEmail(false); 
-          setApproveError(null); 
-          setApproveResultPw(null); 
-        } 
+      <Dialog open={approveOpen} onOpenChange={(open) => {
+        setApproveOpen(open);
+        if (!open) {
+          setShowEmailTemplate(false);
+          setCopiedEmail(false);
+          setApproveError(null);
+          setApproveResultPw(null);
+        }
       }}>
         <DialogContent>
           {!showEmailTemplate ? (
@@ -2569,7 +2557,7 @@ Dein Nespresso Team`;
                 </div>
                 <p className="mt-4 text-xs text-gray-500">Klicken um E-Mail-Text zu kopieren</p>
               </div>
-              
+
               {/* Copy confirmation icon */}
               {copiedEmail && (
                 <div className="absolute inset-0 flex items-center justify-center bg-white/90 rounded-lg">
@@ -2629,18 +2617,18 @@ Dein Nespresso Team`;
               <button
                 onClick={() => setShowStammdatenblatt(false)}
                 className={`flex items-center space-x-2 px-3 py-2 text-sm border rounded-lg transition-all duration-200 ${
-                  !showStammdatenblatt 
-                    ? 'bg-gray-100 text-gray-900 border-gray-300 scale-[1.02] shadow-sm' 
+                  !showStammdatenblatt
+                    ? 'bg-gray-100 text-gray-900 border-gray-300 scale-[1.02] shadow-sm'
                     : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
                 }`}
               >
                 <span>Promotoren</span>
               </button>
-              <button 
+              <button
                 onClick={() => setShowStammdatenblatt(true)}
                 className={`flex items-center space-x-2 px-3 py-2 text-sm border rounded-lg transition-all duration-200 ${
-                  showStammdatenblatt 
-                    ? 'bg-gray-100 text-gray-900 border-gray-300 scale-[1.02] shadow-sm' 
+                  showStammdatenblatt
+                    ? 'bg-gray-100 text-gray-900 border-gray-300 scale-[1.02] shadow-sm'
                     : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
                 }`}
               >
@@ -2666,7 +2654,7 @@ Dein Nespresso Team`;
                     className="pl-10 bg-white border-gray-200 focus:border-gray-200 focus-visible:ring-0 focus-visible:ring-offset-0"
                   />
                 </div>
-                
+
                 <div className="flex gap-3">
                   {/* Region Filter Dropdown */}
                   <div className="relative" ref={regionDropdownRef}>
@@ -2677,7 +2665,7 @@ Dein Nespresso Team`;
                       <span>{regionFilter === "all" ? "Alle Regionen" : regionNames[regionFilter as keyof typeof regionNames]}</span>
                       <ChevronDown className={`h-4 w-4 text-gray-300 transition-transform duration-200 ${regionDropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
-                    
+
                     {regionDropdownOpen && (
                       <div className="absolute top-full mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg z-50 overflow-hidden">
                         <div className="py-1">
@@ -2687,8 +2675,8 @@ Dein Nespresso Team`;
                               setRegionDropdownOpen(false);
                             }}
                             className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                              regionFilter === "all" 
-                                ? "bg-gray-50 text-gray-900" 
+                              regionFilter === "all"
+                                ? "bg-gray-50 text-gray-900"
                                 : "text-gray-600 hover:bg-gray-50"
                             }`}
                           >
@@ -2702,8 +2690,8 @@ Dein Nespresso Team`;
                                 setRegionDropdownOpen(false);
                               }}
                               className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                                regionFilter === key 
-                                  ? "bg-gray-50 text-gray-900" 
+                                regionFilter === key
+                                  ? "bg-gray-50 text-gray-900"
                                   : `text-gray-600 ${getRegionHoverClass(key)}`
                               }`}
                             >
@@ -2724,7 +2712,7 @@ Dein Nespresso Team`;
                       <span>{statusFilter === "all" ? "Alle Status" : statusFilter === "active" ? "Aktiv" : statusFilter === "newjoiner" ? "New Joiner" : "Inaktiv"}</span>
                       <ChevronDown className={`h-4 w-4 text-gray-300 transition-transform duration-200 ${statusDropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
-                    
+
                     {statusDropdownOpen && (
                       <div className="absolute top-full mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg z-50 overflow-hidden">
                         <div className="py-1">
@@ -2734,8 +2722,8 @@ Dein Nespresso Team`;
                               setStatusDropdownOpen(false);
                             }}
                             className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                              statusFilter === "all" 
-                                ? "bg-gray-50 text-gray-900" 
+                              statusFilter === "all"
+                                ? "bg-gray-50 text-gray-900"
                                 : "text-gray-600 hover:bg-gray-50"
                             }`}
                           >
@@ -2747,8 +2735,8 @@ Dein Nespresso Team`;
                               setStatusDropdownOpen(false);
                             }}
                             className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                              statusFilter === "active" 
-                                ? "bg-gray-50 text-gray-900" 
+                              statusFilter === "active"
+                                ? "bg-gray-50 text-gray-900"
                                 : "text-gray-600 hover:bg-green-100/50"
                             }`}
                           >
@@ -2760,8 +2748,8 @@ Dein Nespresso Team`;
                               setStatusDropdownOpen(false);
                             }}
                             className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                              statusFilter === "newjoiner" 
-                                ? "bg-gray-50 text-gray-900" 
+                              statusFilter === "newjoiner"
+                                ? "bg-gray-50 text-gray-900"
                                 : "text-gray-600 hover:bg-blue-100/50"
                             }`}
                           >
@@ -2773,8 +2761,8 @@ Dein Nespresso Team`;
                               setStatusDropdownOpen(false);
                             }}
                             className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                              statusFilter === "inactive" 
-                                ? "bg-gray-50 text-gray-900" 
+                              statusFilter === "inactive"
+                                ? "bg-gray-50 text-gray-900"
                                 : "text-gray-600 hover:bg-red-100/50"
                             }`}
                           >
@@ -2790,14 +2778,14 @@ Dein Nespresso Team`;
               {/* Stammdatenblatt Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredSubmittedData.map((submission) => (
-                  <Card 
-                    key={submission.id} 
+                  <Card
+                    key={submission.id}
                     className="group hover:shadow-xl hover:shadow-gray-900/5 transition-all duration-300 border-0 bg-white/80 backdrop-blur-sm relative overflow-hidden"
                   >
                     {/* Subtle gradient border effect */}
                     <div className="absolute inset-0 bg-gradient-to-br from-gray-200/20 via-transparent to-gray-200/20 rounded-lg"></div>
                     <div className="absolute inset-[1px] bg-white rounded-lg"></div>
-                    
+
                     <CardContent className="relative p-5 space-y-4">
                       {/* Header */}
                       <div className="flex items-center space-x-3 pb-3 border-b border-gray-100">
@@ -2898,7 +2886,7 @@ Dein Nespresso Team`;
                       <div className="grid grid-cols-3 gap-2">
                         <div className="text-center">
                           <span className="text-xs text-gray-500 block mb-1">Führerschein</span>
-                          <div 
+                          <div
                             className={`w-5 h-5 rounded-full mx-auto flex items-center justify-center text-xs font-bold text-white ${!submission.drivingLicense ? 'bg-gray-400' : ''}`}
                             style={submission.drivingLicense ? {background: 'linear-gradient(135deg, #22C55E, #105F2D)'} : {}}
                           >
@@ -2907,7 +2895,7 @@ Dein Nespresso Team`;
                         </div>
                         <div className="text-center">
                           <span className="text-xs text-gray-500 block mb-1">Auto</span>
-                          <div 
+                          <div
                             className={`w-5 h-5 rounded-full mx-auto flex items-center justify-center text-xs font-bold text-white ${!submission.carAvailable ? 'bg-gray-400' : ''}`}
                             style={submission.carAvailable ? {background: 'linear-gradient(135deg, #22C55E, #105F2D)'} : {}}
                           >
@@ -2916,7 +2904,7 @@ Dein Nespresso Team`;
                         </div>
                         <div className="text-center">
                           <span className="text-xs text-gray-500 block mb-1">Fahrbereit</span>
-                          <div 
+                          <div
                             className={`w-5 h-5 rounded-full mx-auto flex items-center justify-center text-xs font-bold text-white ${!submission.willingToDrive ? 'bg-gray-400' : ''}`}
                             style={submission.willingToDrive ? {background: 'linear-gradient(135deg, #22C55E, #105F2D)'} : {}}
                           >
@@ -2956,7 +2944,7 @@ Dein Nespresso Team`;
                           submission.spontaneity === "nie" ? "text-red-700 bg-red-50" :
                           "text-gray-600 bg-gray-50"
                         }`}>
-                          {submission.spontaneity === "oft" ? "Oft spontan" : 
+                          {submission.spontaneity === "oft" ? "Oft spontan" :
                            submission.spontaneity === "selten" ? "Selten spontan" :
                            submission.spontaneity === "nie" ? "Nie spontan" : "Unbekannt"}
                         </span>
@@ -3030,7 +3018,7 @@ Dein Nespresso Team`;
                 className="pl-10 bg-white border-gray-200 focus:border-gray-200 focus-visible:ring-0 focus-visible:ring-offset-0"
               />
             </div>
-            
+
             <div className="flex gap-3 ml-auto">
               {/* Onboarding Filter Button */}
               <div className="flex items-center gap-1 px-2 py-1.5 bg-white border border-gray-200 rounded-lg">
@@ -3048,14 +3036,14 @@ Dein Nespresso Team`;
                       tooltip={config.tooltip}
                       isActive={isActive}
                       onClick={() => {
-                        setOnboardingFilters(prev => 
+                        setOnboardingFilters(prev =>
                           prev.includes(config.key)
                             ? prev.filter(k => k !== config.key)
                             : [...prev, config.key]
                         );
                       }}
                     >
-                      <IconComponent 
+                      <IconComponent
                         className={`h-3.5 w-3.5 pointer-events-none ${
                           isActive ? 'text-white' : 'text-gray-400'
                         }`}
@@ -3064,7 +3052,7 @@ Dein Nespresso Team`;
                   );
                 })}
               </div>
-              
+
               {/* Region Filter Dropdown */}
               <div className="relative" ref={regionDropdownRef}>
                 <button
@@ -3074,7 +3062,7 @@ Dein Nespresso Team`;
                   <span>{regionFilter === "all" ? "Alle Regionen" : regionNames[regionFilter as keyof typeof regionNames]}</span>
                   <ChevronDown className={`h-4 w-4 text-gray-300 transition-transform duration-200 ${regionDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
-                
+
                 {regionDropdownOpen && (
                   <div className="absolute top-full mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg z-50 overflow-hidden">
                     <div className="py-1">
@@ -3084,8 +3072,8 @@ Dein Nespresso Team`;
                           setRegionDropdownOpen(false);
                         }}
                         className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                          regionFilter === "all" 
-                            ? "bg-gray-50 text-gray-900" 
+                          regionFilter === "all"
+                            ? "bg-gray-50 text-gray-900"
                             : "text-gray-600 hover:bg-gray-50"
                         }`}
                       >
@@ -3099,8 +3087,8 @@ Dein Nespresso Team`;
                             setRegionDropdownOpen(false);
                           }}
                           className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                            regionFilter === key 
-                              ? "bg-gray-50 text-gray-900" 
+                            regionFilter === key
+                              ? "bg-gray-50 text-gray-900"
                               : `text-gray-600 ${getRegionHoverClass(key)}`
                           }`}
                         >
@@ -3111,7 +3099,7 @@ Dein Nespresso Team`;
                   </div>
                 )}
               </div>
-              
+
               {/* Status Filter Dropdown */}
               <div className="relative" ref={statusDropdownRef}>
                 <button
@@ -3121,7 +3109,7 @@ Dein Nespresso Team`;
                   <span>{statusFilter === "all" ? "Alle Status" : statusFilter === "active" ? "Aktiv" : statusFilter === "newjoiner" ? "New Joiner" : "Inaktiv"}</span>
                   <ChevronDown className={`h-4 w-4 text-gray-300 transition-transform duration-200 ${statusDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
-                
+
                 {statusDropdownOpen && (
                   <div className="absolute top-full mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg z-50 overflow-hidden">
                     <div className="py-1">
@@ -3131,8 +3119,8 @@ Dein Nespresso Team`;
                           setStatusDropdownOpen(false);
                         }}
                         className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                          statusFilter === "all" 
-                            ? "bg-gray-50 text-gray-900" 
+                          statusFilter === "all"
+                            ? "bg-gray-50 text-gray-900"
                             : "text-gray-600 hover:bg-gray-50"
                         }`}
                       >
@@ -3144,8 +3132,8 @@ Dein Nespresso Team`;
                           setStatusDropdownOpen(false);
                         }}
                         className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                          statusFilter === "active" 
-                            ? "bg-gray-50 text-gray-900" 
+                          statusFilter === "active"
+                            ? "bg-gray-50 text-gray-900"
                             : "text-gray-600 hover:bg-green-100/50"
                         }`}
                       >
@@ -3157,8 +3145,8 @@ Dein Nespresso Team`;
                           setStatusDropdownOpen(false);
                         }}
                         className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                          statusFilter === "newjoiner" 
-                            ? "bg-gray-50 text-gray-900" 
+                          statusFilter === "newjoiner"
+                            ? "bg-gray-50 text-gray-900"
                             : "text-gray-600 hover:bg-blue-100/50"
                         }`}
                       >
@@ -3170,8 +3158,8 @@ Dein Nespresso Team`;
                           setStatusDropdownOpen(false);
                         }}
                         className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                          statusFilter === "inactive" 
-                            ? "bg-gray-50 text-gray-900" 
+                          statusFilter === "inactive"
+                            ? "bg-gray-50 text-gray-900"
                             : "text-gray-600 hover:bg-red-100/50"
                         }`}
                       >
@@ -3181,7 +3169,7 @@ Dein Nespresso Team`;
                   </div>
                 )}
               </div>
-              
+
               {/* Removed Market Filter Dropdown per request */}
             </div>
           </div>
@@ -3211,7 +3199,7 @@ Dein Nespresso Team`;
               // Real Promotor Cards
               filteredPromotors.map((promotor) => (
               <div key={promotor.id} className="relative">
-                <Card 
+                <Card
                   className="group shadow-md hover:shadow-lg transition-all duration-300 border-0 bg-white/80 backdrop-blur-sm relative overflow-hidden cursor-pointer"
                   style={getMagicTouchStyle(promotor.id)}
                   onClick={() => toggleDetailedView(promotor.id)}
@@ -3219,7 +3207,7 @@ Dein Nespresso Team`;
                   {/* Subtle gradient border effect */}
                   <div className="absolute inset-0 bg-gradient-to-br from-gray-200/20 via-transparent to-gray-200/20 rounded-lg"></div>
                   <div className="absolute inset-[1px] bg-white rounded-lg"></div>
-                
+
                 <CardContent className="relative p-6 space-y-5">
                   {/* Header */}
                   <div className="flex items-start justify-between">
@@ -3285,10 +3273,10 @@ Dein Nespresso Team`;
                     <div className="bg-slate-50/30 border border-slate-200/40 rounded-lg p-2.5 backdrop-blur-sm relative overflow-hidden">
                       {/* Subtle gradient overlay */}
                       <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent rounded-lg"></div>
-                      
+
                       <div className="relative grid grid-cols-3 gap-3">
                         <div className="text-center">
-                          <p 
+                          <p
                             className={`text-sm font-semibold transition-colors ${getKpiColor("mcet", kpiByPromotor[promotor.id]?.mcet ?? 0)}`}
                             style={getKpiStyle(getKpiColor("mcet", kpiByPromotor[promotor.id]?.mcet ?? 0))}
                           >
@@ -3297,7 +3285,7 @@ Dein Nespresso Team`;
                           <p className="text-xs text-gray-500 font-medium">MC/ET</p>
                         </div>
                         <div className="text-center border-l border-r border-slate-200/40">
-                          <p 
+                          <p
                             className={`text-sm font-semibold transition-colors ${getKpiColor("tma", kpiByPromotor[promotor.id]?.tma ?? 0)}`}
                             style={getKpiStyle(getKpiColor("tma", kpiByPromotor[promotor.id]?.tma ?? 0))}
                           >
@@ -3306,7 +3294,7 @@ Dein Nespresso Team`;
                           <p className="text-xs text-gray-500 font-medium">TMA</p>
                         </div>
                         <div className="text-center">
-                          <p 
+                          <p
                             className={`text-sm font-semibold transition-colors ${getKpiColor("vlshare", kpiByPromotor[promotor.id]?.vlshare ?? 0)}`}
                             style={getKpiStyle(getKpiColor("vlshare", kpiByPromotor[promotor.id]?.vlshare ?? 0))}
                           >
@@ -3343,22 +3331,22 @@ Dein Nespresso Team`;
                           { key: 'dienstvertrag', icon: FileSignature, label: 'Vertrag' },
                           { key: 'bank_details', icon: CreditCard, label: 'Bank' },
                         ];
-                        
+
                         return stepConfig.map((config) => {
                           const step = steps.find((s: any) => s.step_key === config.key);
                           const isDone = step?.status === 'done';
                           const IconComponent = config.icon;
-                          
+
                           return (
                             <div
                               key={config.key}
                               className={`flex-1 flex items-center justify-center rounded-lg py-2 transition-all duration-300 ${
                                 isDone
-                            ? 'bg-gradient-to-r from-green-500/60 to-green-800/60' 
+                            ? 'bg-gradient-to-r from-green-500/60 to-green-800/60'
                                   : 'bg-gray-200'
                               }`}
                             >
-                              <IconComponent 
+                              <IconComponent
                                 className={`h-4 w-4 ${
                                   isDone ? 'text-white' : 'text-gray-400'
                                 }`}
@@ -3387,7 +3375,7 @@ Dein Nespresso Team`;
                       </span>
                     </div>
                   </div>
-                  
+
                   {/* Notes Icon */}
                   <button
                     onClick={(e) => {
@@ -3406,11 +3394,11 @@ Dein Nespresso Team`;
 
               {/* Notes Panel */}
               {notesOpen === promotor.id && (
-                <div 
+                <div
                   ref={notesRef}
                   className={`absolute top-1/2 -translate-y-1/2 w-80 h-80 bg-transparent z-20 ${
-                  notesPosition[promotor.id] === 'left' 
-                    ? 'right-full' 
+                  notesPosition[promotor.id] === 'left'
+                    ? 'right-full'
                     : 'left-full'
                   }`}
                 >
@@ -3436,7 +3424,7 @@ Dein Nespresso Team`;
       {detailedViewOpen && (
         <>
           {/* Backdrop */}
-          <div 
+          <div
             className="fixed inset-0 bg-black/60 transition-opacity duration-300 z-[60]"
             onClick={() => {
               if (!showDienstvertragPopup && !showDienstvertragContent) {
@@ -3482,7 +3470,7 @@ Dein Nespresso Team`;
                         >
                           <FileText className="h-5 w-5" />
                         </button>
-                        
+
                         {/* Access Credentials Toggle */}
                         <button
                           onClick={(e) => {
@@ -3495,7 +3483,7 @@ Dein Nespresso Team`;
                         >
                           <Key className="h-5 w-5" />
                         </button>
-                        
+
                       <button
                         onClick={() => {
                           if (!showDienstvertragPopup && !showDienstvertragContent) {
@@ -3517,7 +3505,7 @@ Dein Nespresso Team`;
                           />
                         </div>
                       )}
-                      
+
                       {/* Dropdown-like Stammdaten preview */}
                       {openStammdatenPreviewFor === promotor.id && (
                         <div className="absolute top-14 right-6 z-[80] w-[380px] max-w-[90vw]">
@@ -3599,7 +3587,7 @@ Dein Nespresso Team`;
                                       <div className="grid grid-cols-3 gap-2">
                                         <div className="text-center">
                                           <span className="text-xs text-gray-500 block mb-1">Führerschein</span>
-                                          <div 
+                                          <div
                                             className={`w-5 h-5 rounded-full mx-auto flex items-center justify-center text-xs font-bold text-white ${!s.drivingLicense ? 'bg-gray-400' : ''}`}
                                             style={s.drivingLicense ? {background: 'linear-gradient(135deg, #22C55E, #105F2D)'} : {}}
                                           >
@@ -3608,7 +3596,7 @@ Dein Nespresso Team`;
                                         </div>
                                         <div className="text-center">
                                           <span className="text-xs text-gray-500 block mb-1">Auto</span>
-                                          <div 
+                                          <div
                                             className={`w-5 h-5 rounded-full mx-auto flex items-center justify-center text-xs font-bold text-white ${!s.carAvailable ? 'bg-gray-400' : ''}`}
                                             style={s.carAvailable ? {background: 'linear-gradient(135deg, #22C55E, #105F2D)'} : {}}
                                           >
@@ -3617,7 +3605,7 @@ Dein Nespresso Team`;
                                         </div>
                                         <div className="text-center">
                                           <span className="text-xs text-gray-500 block mb-1">Fahrbereit</span>
-                                          <div 
+                                          <div
                                             className={`w-5 h-5 rounded-full mx-auto flex items-center justify-center text-xs font-bold text-white ${!s.willingToDrive ? 'bg-gray-400' : ''}`}
                                             style={s.willingToDrive ? {background: 'linear-gradient(135deg, #22C55E, #105F2D)'} : {}}
                                           >
@@ -3681,10 +3669,10 @@ Dein Nespresso Team`;
                           </div>
                         </div>
                       )}
-                      
+
                       <div className="flex items-center space-x-4">
                         <div className="relative">
-                          <Avatar 
+                          <Avatar
                             className="h-16 w-16 ring-4 ring-white/20 cursor-pointer hover:opacity-80 transition-opacity"
                             onClick={() => setShowPhotoMenu(!showPhotoMenu)}
                           >
@@ -3693,7 +3681,7 @@ Dein Nespresso Team`;
                             {promotor.name.split(' ').map((n: string) => (n as string)[0]).join('')}
                           </AvatarFallback>
                         </Avatar>
-                          
+
                           {/* Photo Menu */}
                           {showPhotoMenu && (
                             <div className="absolute left-20 top-0 z-50 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
@@ -3709,7 +3697,7 @@ Dein Nespresso Team`;
                               </button>
                             </div>
                           )}
-                          
+
                           {/* Hidden File Input */}
                           <input
                             ref={photoInputRef}
@@ -3719,7 +3707,7 @@ Dein Nespresso Team`;
                             className="hidden"
                           />
                         </div>
-                        
+
                         <div className="flex-1">
                           <h2 className="text-2xl font-bold">{promotor.name}</h2>
                           <p className="text-white/80">{promotor.email}</p>
@@ -3727,7 +3715,7 @@ Dein Nespresso Team`;
                             <Badge className={`${getRegionPillColors(promotor.region)} border text-xs`}>
                               {regionNames[promotor.region as keyof typeof regionNames]}
                             </Badge>
-                            <span 
+                            <span
                               className={`text-sm font-medium cursor-pointer hover:underline ${
                               promotor.status === 'active' ? 'text-green-300' : promotor.status === 'newjoiner' ? 'text-blue-300' : 'text-gray-400'
                               }`}
@@ -3743,7 +3731,7 @@ Dein Nespresso Team`;
                     {/* Content */}
                     <div className="p-6 overflow-y-auto max-h-[calc(95vh-140px)] [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-                        
+
                         {/* Left Column - Personal & Contact */}
                         <div className="space-y-6">
                           {/* Personal Information */}
@@ -3754,7 +3742,7 @@ Dein Nespresso Team`;
                                 Persönliche Daten
                               </h3>
                                                              <div className="space-y-3 text-sm">
-                                 <div 
+                                 <div
                                    className="flex items-center space-x-2 cursor-pointer"
                                    onClick={() => copyToClipboard(promotor.phone, 'phone', promotor.id)}
                                  >
@@ -3765,7 +3753,7 @@ Dein Nespresso Team`;
                                    )}
                                    <span>{promotor.phone}</span>
                                  </div>
-                                 <div 
+                                 <div
                                    className="flex items-center space-x-2 cursor-pointer"
                                    onClick={() => copyToClipboard(promotor.email, 'email', promotor.id)}
                                  >
@@ -3776,7 +3764,7 @@ Dein Nespresso Team`;
                                    )}
                                    <span>{promotor.email}</span>
                                  </div>
-                                <div 
+                                <div
                                   className="flex items-center space-x-2 cursor-pointer"
                                   onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(promotor.address)}`, '_blank')}
                                 >
@@ -3805,7 +3793,7 @@ Dein Nespresso Team`;
                               <div className="space-y-3">
                                 {[
                                   "Pass",
-                                  "Führerschein", 
+                                  "Führerschein",
                                   "Strafregister Bescheinigung",
                                   "Staatsbürgerschaftsnachweis",
                                   "Arbeitserlaubnis",
@@ -3903,10 +3891,10 @@ Dein Nespresso Team`;
                               </div>
                               <div className="flex justify-center space-x-2">
                                 {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((day) => {
-                                  const isSelected = editingWorkingDays[promotor.id] 
+                                  const isSelected = editingWorkingDays[promotor.id]
                                     ? (editWorkingDaysForm[promotor.id] || []).includes(day)
                                     : (promotor.personalData?.working_days || promotor.workingDays || []).includes(day);
-                                  
+
                                   return (
                                     <div
                                       key={day}
@@ -3947,7 +3935,7 @@ Dein Nespresso Team`;
                                 {(() => {
                                   const contracts = Array.isArray(promotorContracts) ? promotorContracts : [];
                                   const activeContract = contracts.find((c: any) => c.is_active);
-                                  
+
                                   return (
                                     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-3">
                                       <div className="flex items-center justify-between mb-2">
@@ -3962,7 +3950,7 @@ Dein Nespresso Team`;
                                         <div>Datei: {activeContract?.file_name || activeContract?.file_path?.split('/').pop() || '/'}</div>
                                         <div>Zuletzt hinterlegt: {activeContract?.created_at ? new Date(activeContract.created_at).toLocaleDateString('de-DE') : '/'}</div>
                                       </div>
-                                      <button 
+                                      <button
                                         className="w-full p-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white text-sm font-medium rounded-lg transition-all duration-200"
                                         onClick={() => {
                                           setSelectedPromotorForContract(String(promotor.id));
@@ -4000,7 +3988,7 @@ Dein Nespresso Team`;
                               ) : (
                               <div className="grid grid-cols-3 gap-4">
                                 <div className="text-center p-3 bg-gray-50 rounded-lg">
-                                  <p 
+                                  <p
                                       className={`text-lg font-bold ${getKpiColor("mcet", kpiByPromotor[promotor.id]?.mcet ?? 0)}`}
                                       style={getKpiStyle(getKpiColor("mcet", kpiByPromotor[promotor.id]?.mcet ?? 0))}
                                   >
@@ -4009,7 +3997,7 @@ Dein Nespresso Team`;
                                   <p className="text-xs text-gray-500 font-medium">MC/ET</p>
                                 </div>
                                 <div className="text-center p-3 bg-gray-50 rounded-lg">
-                                  <p 
+                                  <p
                                       className={`text-lg font-bold ${getKpiColor("tma", kpiByPromotor[promotor.id]?.tma ?? 0)}`}
                                       style={getKpiStyle(getKpiColor("tma", kpiByPromotor[promotor.id]?.tma ?? 0))}
                                   >
@@ -4018,7 +4006,7 @@ Dein Nespresso Team`;
                                   <p className="text-xs text-gray-500 font-medium">TMA</p>
                                 </div>
                                 <div className="text-center p-3 bg-gray-50 rounded-lg">
-                                  <p 
+                                  <p
                                       className={`text-lg font-bold ${getKpiColor("vlshare", kpiByPromotor[promotor.id]?.vlshare ?? 0)}`}
                                       style={getKpiStyle(getKpiColor("vlshare", kpiByPromotor[promotor.id]?.vlshare ?? 0))}
                                   >
@@ -4041,8 +4029,8 @@ Dein Nespresso Team`;
                               <div className="relative h-48">
                                 <div className="space-y-2 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden pr-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                                 {[
-                                  { 
-                                    name: "Grundlagen des Verkaufs", 
+                                  {
+                                    name: "Grundlagen des Verkaufs",
                                     status: "erledigt",
                                     components: {
                                       video: { required: true, completed: true },
@@ -4050,8 +4038,8 @@ Dein Nespresso Team`;
                                       quiz: { required: true, completed: true }
                                     }
                                   },
-                                  { 
-                                    name: "Produktpräsentation", 
+                                  {
+                                    name: "Produktpräsentation",
                                     status: "unterbrochen",
                                     components: {
                                       video: { required: true, completed: true },
@@ -4059,8 +4047,8 @@ Dein Nespresso Team`;
                                       quiz: { required: true, completed: false }
                                     }
                                   },
-                                  { 
-                                    name: "Kundeneinwände behandeln", 
+                                  {
+                                    name: "Kundeneinwände behandeln",
                                     status: "nicht erledigt",
                                     components: {
                                       video: { required: false, completed: false },
@@ -4068,8 +4056,8 @@ Dein Nespresso Team`;
                                       quiz: { required: true, completed: false }
                                     }
                                   },
-                                  { 
-                                    name: "Teamarbeit & Kommunikation", 
+                                  {
+                                    name: "Teamarbeit & Kommunikation",
                                     status: "erledigt",
                                     components: {
                                       video: { required: true, completed: true },
@@ -4077,8 +4065,8 @@ Dein Nespresso Team`;
                                       quiz: { required: true, completed: true }
                                     }
                                   },
-                                  { 
-                                    name: "Digitale Tools & Apps", 
+                                  {
+                                    name: "Digitale Tools & Apps",
                                     status: "nicht erledigt",
                                     components: {
                                       video: { required: true, completed: false },
@@ -4127,12 +4115,12 @@ Dein Nespresso Team`;
                                             const IconComponent = indicator.icon;
                                             return (
                                               <div key={indicator.key} className="relative">
-                                                <IconComponent 
+                                                <IconComponent
                                                   className={`h-3 w-3 ${
-                                                    indicator.completed 
-                                                      ? 'text-green-500' 
+                                                    indicator.completed
+                                                      ? 'text-green-500'
                                                       : 'text-gray-300'
-                                                  }`} 
+                                                  }`}
                                                 />
                                                 {indicator.completed && (
                                                   <Check className="h-1.5 w-1.5 text-green-500 absolute -top-0.5 -right-0.5 bg-white rounded-full" />
@@ -4172,11 +4160,11 @@ Dein Nespresso Team`;
                                   <span className="text-sm font-bold text-gray-900">{promotor.onboardingProgress}%</span>
                                 </div>
                                 <div className="w-full bg-gray-200 rounded-full h-3">
-                                  <div 
+                                  <div
                                     className={`h-full rounded-full transition-all duration-500 ${
                                       promotor.onboardingProgress >= 75
-                        ? 'bg-gradient-to-r from-green-500 to-green-800' 
-                                        : promotor.onboardingProgress >= 50 
+                        ? 'bg-gradient-to-r from-green-500 to-green-800'
+                                        : promotor.onboardingProgress >= 50
                                         ? 'bg-gradient-to-r from-yellow-400 to-orange-500'
                         : 'bg-gradient-to-r from-red-600 to-red-500'
                                     }`}
@@ -4184,7 +4172,7 @@ Dein Nespresso Team`;
                                   ></div>
                                 </div>
                                 <div className="text-xs text-gray-500">
-                                  {promotor.onboardingProgress === 100 ? 'Onboarding abgeschlossen' : 
+                                  {promotor.onboardingProgress === 100 ? 'Onboarding abgeschlossen' :
                                    promotor.onboardingProgress >= 75 ? 'Fast abgeschlossen' :
                                    promotor.onboardingProgress >= 50 ? 'In Bearbeitung' : 'Gerade begonnen'}
                                 </div>
@@ -4237,7 +4225,7 @@ Dein Nespresso Team`;
                                       />
                                     ) : (
                                       <div className="flex items-center space-x-2">
-                                        <p 
+                                        <p
                                           className="text-sm font-medium text-gray-900 cursor-pointer"
                                           onClick={() => handleAccountHolderClick(promotor.id)}
                                         >
@@ -4288,7 +4276,7 @@ Dein Nespresso Team`;
                                     />
                                   ) : (
                                     <div className="flex items-center space-x-2">
-                                      <p 
+                                      <p
                                         className="text-sm font-mono font-medium text-gray-900 tracking-wider cursor-pointer"
                                         onClick={() => handleIbanClick(promotor.id)}
                                       >
@@ -4319,7 +4307,7 @@ Dein Nespresso Team`;
                                       />
                                     ) : (
                                       <div className="flex items-center space-x-2">
-                                        <p 
+                                        <p
                                           className="text-sm font-mono font-medium text-gray-900 tracking-wider cursor-pointer"
                                           onClick={() => handleBicClick(promotor.id)}
                                         >
@@ -4348,11 +4336,6 @@ Dein Nespresso Team`;
                                     ) : (
                                       <p className="text-sm font-medium text-gray-900">
                                         {(() => {
-                                          console.log('Debug SV Nummer for promotor:', promotor.id, {
-                                            personalData: promotor.personalData,
-                                            socialSecurityNumber: promotor.personalData?.social_security_number,
-                                            fullPromotor: promotor
-                                          });
                                           return promotor.personalData?.social_security_number || 'Keine Daten';
                                         })()}
                                       </p>
@@ -4595,7 +4578,7 @@ Dein Nespresso Team`;
                              </CardContent>
                            </Card>
 
-                          
+
                         </div>
                       </div>
                     </div>
@@ -4610,7 +4593,7 @@ Dein Nespresso Team`;
       {/* Dienstvertrag Popup */}
       {showDienstvertragPopup && (
         <>
-          <div 
+          <div
             className="fixed inset-0 bg-black/30 z-[75] backdrop-blur-sm"
             onClick={() => {
               setShowDienstvertragPopup(false);
@@ -4633,7 +4616,7 @@ Dein Nespresso Team`;
                 </button>
               </div>
             </div>
-            
+
             <div className="p-6 space-y-6 max-h-[calc(85vh-120px)] overflow-y-auto [&::-webkit-scrollbar]:hidden" style={{scrollbarWidth: 'none', msOverflowStyle: 'none'}}>
               <div className="space-y-4">
                 <h4 className="text-lg font-semibold text-gray-900">Dienstvertrag einspielen</h4>
@@ -4759,7 +4742,7 @@ Dein Nespresso Team`;
       {/* Dienstvertrag Content Popup */}
       {showDienstvertragContent && (
         <>
-          <div 
+          <div
             className="fixed inset-0 bg-black/40 z-[75] backdrop-blur-sm"
             onClick={() => setShowDienstvertragContent(false)}
           ></div>
@@ -4768,7 +4751,7 @@ Dein Nespresso Team`;
             <div className="sticky top-0 text-white p-4 rounded-t-lg" style={{background: 'linear-gradient(135deg, #22C55E, #105F2D)'}}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
-                  <button 
+                  <button
                     onClick={() => {
                       setShowDienstvertragContent(false);
                       setShowDienstvertragPopup(true);
@@ -4799,7 +4782,7 @@ Dein Nespresso Team`;
                       )}
                     </>
                   )}
-                  <button 
+                  <button
                     onClick={() => setShowDienstvertragContent(false)}
                     className="p-2 hover:bg-white/20 rounded-lg transition-colors"
                   >
@@ -4808,7 +4791,7 @@ Dein Nespresso Team`;
                 </div>
               </div>
             </div>
-            
+
             {/* Content */}
             <div className="overflow-y-auto max-h-[calc(90vh-120px)] p-8 [&::-webkit-scrollbar]:hidden" style={{scrollbarWidth: 'none', msOverflowStyle: 'none'}}>
               {loadingContractPreview ? (
@@ -5355,7 +5338,7 @@ Dein Nespresso Team`;
       {/* Status Confirmation Modal */}
       {showStatusConfirmation && (
         <>
-          <div 
+          <div
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[90] flex items-center justify-center p-4"
             onClick={() => setShowStatusConfirmation(false)}
           ></div>
@@ -5393,7 +5376,7 @@ Dein Nespresso Team`;
         {/* Access Credentials Modal */}
         {showAccessCredentials && (
           <>
-            <div 
+            <div
               className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] flex items-center justify-center p-4"
               onClick={() => setShowAccessCredentials(false)}
             ></div>
@@ -5413,7 +5396,7 @@ Dein Nespresso Team`;
                   </button>
                 </div>
               </div>
-              
+
               {/* Content */}
               <div className="p-6 max-h-[calc(80vh-120px)] overflow-y-auto [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                 {loadingCredentials ? (
@@ -5428,7 +5411,7 @@ Dein Nespresso Team`;
                         <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
                         Hübner
                       </h4>
-                      
+
                       <div className="space-y-3 text-sm">
                         <div className="space-y-1">
                           <span className="text-gray-500 text-xs uppercase tracking-wide font-medium">E-Mail</span>
@@ -5474,11 +5457,11 @@ Dein Nespresso Team`;
                           )}
                         </button>
                       </h4>
-                      
+
                       <div className="space-y-3 text-sm">
                         <div className="space-y-1">
                           <span className="text-gray-500 text-xs uppercase tracking-wide font-medium">E-Mail</span>
-                          <div 
+                          <div
                             className="bg-white rounded-md px-3 py-2 border border-gray-200"
                             style={editingCredentials.demotool ? { boxShadow: '0 4px 20px rgba(34, 197, 94, 0.3)' } : {}}
                           >
@@ -5504,7 +5487,7 @@ Dein Nespresso Team`;
                         </div>
                         <div className="space-y-1">
                           <span className="text-gray-500 text-xs uppercase tracking-wide font-medium">Passwort</span>
-                          <div 
+                          <div
                             className="bg-white rounded-md px-3 py-2 border border-gray-200 flex items-center justify-between"
                             style={editingCredentials.demotool ? { boxShadow: '0 4px 20px rgba(34, 197, 94, 0.3)' } : {}}
                           >
@@ -5523,8 +5506,8 @@ Dein Nespresso Team`;
                               <>
                                 <p className="font-mono text-gray-900 flex-1">
                                   {accessCredentials?.demotool_password ? (
-                                    passwordVisibility.demotool ? 
-                                      accessCredentials.demotool_password : 
+                                    passwordVisibility.demotool ?
+                                      accessCredentials.demotool_password :
                                       '••••••••••••'
                                   ) : (
                                     <span className="text-gray-400 italic font-sans">Kein Passwort hinterlegt</span>
@@ -5568,11 +5551,11 @@ Dein Nespresso Team`;
                           )}
                         </button>
                       </h4>
-                      
+
                       <div className="space-y-3 text-sm">
                         <div className="space-y-1">
                           <span className="text-gray-500 text-xs uppercase tracking-wide font-medium">E-Mail</span>
-                          <div 
+                          <div
                             className="bg-white rounded-md px-3 py-2 border border-gray-200"
                             style={editingCredentials.tma ? { boxShadow: '0 4px 20px rgba(34, 197, 94, 0.3)' } : {}}
                           >
@@ -5598,7 +5581,7 @@ Dein Nespresso Team`;
                         </div>
                         <div className="space-y-1">
                           <span className="text-gray-500 text-xs uppercase tracking-wide font-medium">Passwort</span>
-                          <div 
+                          <div
                             className="bg-white rounded-md px-3 py-2 border border-gray-200 flex items-center justify-between"
                             style={editingCredentials.tma ? { boxShadow: '0 4px 20px rgba(34, 197, 94, 0.3)' } : {}}
                           >
@@ -5617,8 +5600,8 @@ Dein Nespresso Team`;
                               <>
                                 <p className="font-mono text-gray-900 flex-1">
                                   {accessCredentials?.tma_password ? (
-                                    passwordVisibility.tma ? 
-                                      accessCredentials.tma_password : 
+                                    passwordVisibility.tma ?
+                                      accessCredentials.tma_password :
                                       '••••••••••••'
                                   ) : (
                                     <span className="text-gray-400 italic font-sans">Kein Passwort hinterlegt</span>
@@ -5649,7 +5632,7 @@ Dein Nespresso Team`;
                           <div className="w-2 h-2 bg-orange-500 rounded-full mr-2"></div>
                           Boost App
                       </h4>
-                      
+
                       <div className="space-y-3 text-sm">
                         <div className="space-y-1">
                           <span className="text-gray-500 text-xs uppercase tracking-wide font-medium">E-Mail</span>
@@ -5686,4 +5669,4 @@ Dein Nespresso Team`;
       </div>
     </>
   );
-} 
+}

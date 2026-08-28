@@ -4,6 +4,12 @@
       "src": "package.json",
       "use": "@vercel/next"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/special-status/apply-daily",
+      "schedule": "0 6 * * *"
+    }
   ]
 }
 
