@@ -3,6 +3,10 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { prepareEinsatzPhoto } from "@/lib/einsatz/preparePhoto"
+import {
+  BrowserLocationError,
+  requestCurrentAssignmentLocation,
+} from "@/lib/location/browserGeolocation"
 import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 import {
   Calendar,
@@ -98,6 +102,8 @@ export default function EinsatzPage() {
   const [showEarlyStartModal, setShowEarlyStartModal] = useState(false);
   const [earlyStartReason, setEarlyStartReason] = useState("");
   const [minutesEarly, setMinutesEarly] = useState(0);
+  const [isStartingEinsatz, setIsStartingEinsatz] = useState(false);
+  const [locationGate, setLocationGate] = useState<{ code: string; message: string } | null>(null);
 
   // Active einsatz functionality
   const [abweichendePauseSubmitted, setAbweichendePauseSubmitted] = useState(false);
@@ -1294,8 +1300,12 @@ const loadProcessState = async () => {
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
   };
   
-  const handleStartEinsatz = async () => {
+  const handleStartEinsatz = async (): Promise<boolean> => {
+    if (!displayedAssignment?.id || isStartingEinsatz) return false;
+    setIsStartingEinsatz(true);
+
     try {
+      const currentLocation = await requestCurrentAssignmentLocation();
       // Get Austrian local time as ISO string WITHOUT timezone conversion
       const now = new Date();
       // Use sv-SE locale which gives YYYY-MM-DD HH:mm:ss format
@@ -1310,52 +1320,66 @@ const loadProcessState = async () => {
         hour12: false
       }).replace(' ', 'T') + '.000Z';  // Add T and fake Z to make it look like ISO but with Austrian time
       
-      // Update assignment tracking with actual start time and early start reason if applicable
-      if (displayedAssignment?.id) {
-        const updateData: any = {
-          assignment_id: displayedAssignment.id,
-          actual_start_time: austrianTimeString,
-          status: 'gestartet'
-        };
-        
-        // Add early start reason if this was an early start
-        console.log('🔵 [START] Checking early start reason:', earlyStartReason, 'Minutes early:', minutesEarly);
-        if (earlyStartReason.trim()) {
-          updateData.early_start_reason = earlyStartReason.trim();
-          updateData.minutes_early_start = minutesEarly;
-          console.log('✅ [START] Added early start reasoning to API call');
-        } else {
-          console.log('ℹ️ [START] No early start reasoning to add');
-        }
-        
-        const response = await fetch('/api/assignments/today', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updateData)
-        });
-        
-        if (!response.ok) {
-          console.error('Failed to update start time');
-        } else {
-          console.log('✅ Successfully updated start time for assignment:', displayedAssignment.id);
-          // Clear early start reason after successful submission
-          setEarlyStartReason("");
-          setMinutesEarly(0);
-        }
+      const updateData: Record<string, unknown> = {
+        assignment_id: displayedAssignment.id,
+        actual_start_time: austrianTimeString,
+        status: 'gestartet',
+        location: currentLocation,
+      };
+
+      if (earlyStartReason.trim()) {
+        updateData.early_start_reason = earlyStartReason.trim();
+        updateData.minutes_early_start = minutesEarly;
       }
-      
-      setEinsatzStatus("started");
-      setIsSwiped(true); // Set swiped to true
-    } catch (error) {
-      console.error('Error starting einsatz:', error);
-      // Still update UI even if API fails
+
+      const response = await fetch('/api/assignments/today', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updateData)
+      });
+      const responseData = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        if (typeof responseData.code === 'string' && (
+          responseData.code.startsWith('LOCATION_')
+          || responseData.code.startsWith('MARKET_')
+        )) {
+          setLocationGate({
+            code: responseData.code,
+            message: responseData.error || 'Der Standort konnte nicht geprüft werden.',
+          });
+          setSwipePosition(0);
+          setIsSwipeAnimating(false);
+          setIsSwiped(false);
+          return false;
+        }
+        throw new Error(responseData.error || 'Der Einsatz konnte nicht gestartet werden.');
+      }
+
+      setLocationGate(null);
+      setEarlyStartReason("");
+      setMinutesEarly(0);
       setEinsatzStatus("started");
       setIsSwiped(true);
+      return true;
+    } catch (error) {
+      console.error('Error starting einsatz:', error);
+      setSwipePosition(0);
+      setIsSwipeAnimating(false);
+      setIsSwiped(false);
+      if (error instanceof BrowserLocationError) {
+        setLocationGate({ code: error.code, message: error.message });
+        return false;
+      }
+      alert(error instanceof Error ? error.message : 'Der Einsatz konnte nicht gestartet werden.');
+      return false;
+    } finally {
+      setIsStartingEinsatz(false);
     }
   };
 
   const handleSwipeStart = () => {
-    if (!isSwiped) {
+    if (!isSwiped && !isStartingEinsatz) {
       // Check if this is an early start (15+ minutes before actual assignment start time)
       const now = new Date();
       
@@ -1376,24 +1400,25 @@ const loadProcessState = async () => {
           setShowEarlyStartModal(true);
         } else {
           // Normal start
-          handleStartEinsatz();
+          void handleStartEinsatz();
         }
       } else {
         // No assignment start time - just start normally
-        handleStartEinsatz();
+        void handleStartEinsatz();
       }
     }
   };
 
   // Touch and mouse handlers for swipe gesture
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (isSwiped || isStartingEinsatz) return;
     const touch = e.touches[0];
     setSwipeStartX(touch.clientX);
     setIsSwipeAnimating(false);
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (isSwiped) return;
+    if (isSwiped || isStartingEinsatz) return;
     
     const touch = e.touches[0];
     const currentX = touch.clientX;
@@ -1410,7 +1435,7 @@ const loadProcessState = async () => {
   };
 
   const handleTouchEnd = () => {
-    if (isSwiped) return;
+    if (isSwiped || isStartingEinsatz) return;
     
     const containerWidth = swipeContainerRef.current?.offsetWidth || 0;
     const buttonWidth = 48;
@@ -1421,7 +1446,6 @@ const loadProcessState = async () => {
       // Swipe completed - trigger start
       setSwipePosition(maxSwipe);
       setIsSwipeAnimating(true);
-      setIsSwiped(true);
       setTimeout(() => {
         handleSwipeStart();
       }, 300); // Match animation duration
@@ -1437,7 +1461,7 @@ const loadProcessState = async () => {
 
   const handleMouseDown = (e: React.MouseEvent) => {
     const isDesktopPointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-    if (!isDesktopPointer || e.button !== 0 || isSwiped) return;
+    if (!isDesktopPointer || e.button !== 0 || isSwiped || isStartingEinsatz) return;
 
     e.preventDefault();
     const mouseStartX = e.clientX;
@@ -1447,7 +1471,7 @@ const loadProcessState = async () => {
     setIsSwipeAnimating(false);
     
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      if (isSwiped) return;
+      if (isSwiped || isStartingEinsatz) return;
       
       const deltaX = moveEvent.clientX - mouseStartX;
       if (Math.abs(deltaX) > 4) didDrag = true;
@@ -1464,7 +1488,7 @@ const loadProcessState = async () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
 
-      if (isSwiped) return;
+      if (isSwiped || isStartingEinsatz) return;
 
       if (!didDrag) {
         setSwipePosition(0);
@@ -1481,7 +1505,6 @@ const loadProcessState = async () => {
       if (currentSwipePosition >= threshold) {
         setSwipePosition(maxSwipe);
         setIsSwipeAnimating(true);
-        setIsSwiped(true);
         setTimeout(() => {
           handleSwipeStart();
         }, 300);
@@ -1502,8 +1525,13 @@ const loadProcessState = async () => {
     if (earlyStartReason.trim()) {
       setShowEarlyStartModal(false);
       // Don't clear earlyStartReason here - let handleStartEinsatz use it and clear it after API success
-      handleStartEinsatz();
+      void handleStartEinsatz();
     }
+  };
+
+  const retryLocationCheck = () => {
+    setLocationGate(null);
+    void handleStartEinsatz();
   };
 
   const handleAbweichendePause = async () => {
@@ -2365,7 +2393,7 @@ const loadProcessState = async () => {
               <div className="mt-4">
                 <div 
                   ref={swipeContainerRef}
-                  className="relative w-full h-14 bg-gray-100 dark:bg-gray-800 rounded-full p-1 select-none flex items-center justify-center shadow-inner overflow-hidden"
+                  className={`relative w-full h-14 bg-gray-100 dark:bg-gray-800 rounded-full p-1 select-none flex items-center justify-center shadow-inner overflow-hidden ${isStartingEinsatz ? 'pointer-events-none' : ''}`}
                   onTouchStart={handleTouchStart}
                   onTouchMove={handleTouchMove}
                   onTouchEnd={handleTouchEnd}
@@ -2381,13 +2409,15 @@ const loadProcessState = async () => {
                   >
                     <ChevronRight className="h-6 w-6 text-white" />
                   </div>
-                  <span className={`text-sm font-medium transition-opacity duration-300 ${swipePosition > 20 ? 'opacity-0' : 'opacity-100 text-gray-700 dark:text-gray-300'}`}>
-                    Swipe zum Starten
-                  </span>
-                  {isSwiped && (
-                     <span className="text-sm font-medium text-green-500 dark:text-green-400">
-                        Einsatz gestartet!
-                     </span>
+                  {isStartingEinsatz ? (
+                    <span className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Standort wird geprüft...
+                    </span>
+                  ) : (
+                    <span className={`text-sm font-medium transition-opacity duration-300 ${swipePosition > 20 ? 'opacity-0' : 'opacity-100 text-gray-700 dark:text-gray-300'}`}>
+                      Swipe zum Starten
+                    </span>
                   )}
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">Bestätige hier den Beginn deines Einsatzes.</p>
@@ -3625,6 +3655,60 @@ const loadProcessState = async () => {
               </Button>
                 </div>
               )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {locationGate && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"></div>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="location-gate-title"
+            className="fixed left-1/2 top-1/2 z-50 w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-gray-900"
+          >
+            <div className="border-b border-gray-200 p-6 text-center dark:border-gray-700">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-950/50">
+                <MapPin className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              </div>
+              <h2 id="location-gate-title" className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                Standort für den Start prüfen
+              </h2>
+            </div>
+            <div className="space-y-5 p-6">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30">
+                <p className="text-sm leading-6 text-amber-900 dark:text-amber-100">
+                  {locationGate.message}
+                </p>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Der Einsatz kann erst gestartet werden, wenn dein aktueller Standort erfolgreich innerhalb von 300 Metern zum Markt geprüft wurde.
+              </p>
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setLocationGate(null)}
+                  className="flex-1"
+                >
+                  Abbrechen
+                </Button>
+                <Button
+                  type="button"
+                  onClick={retryLocationCheck}
+                  disabled={isStartingEinsatz}
+                  className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  {isStartingEinsatz ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <MapPin className="mr-2 h-4 w-4" />
+                  )}
+                  Erneut prüfen
+                </Button>
+              </div>
             </div>
           </div>
         </>

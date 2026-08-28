@@ -48,6 +48,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import AdminNavigation from "@/components/AdminNavigation";
 import AdminEddieAssistant from "@/components/AdminEddieAssistant";
+import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap";
 import { normalizeForMatch } from "@/lib/matchers/marketMatcher";
 
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
@@ -877,6 +878,22 @@ export default function EinsatzplanPage() {
           minutes_early_start: tracking.minutes_early_start ?? null,
           early_end_reason: tracking.early_end_reason || null,
           minutes_early_end: tracking.minutes_early_end ?? null,
+          market_latitude: tracking.market_latitude ?? null,
+          market_longitude: tracking.market_longitude ?? null,
+          market_geocoded_address: tracking.market_geocoded_address || null,
+          market_geocoded_at: tracking.market_geocoded_at || null,
+          start_latitude: tracking.start_latitude ?? null,
+          start_longitude: tracking.start_longitude ?? null,
+          start_accuracy_meters: tracking.start_accuracy_meters ?? null,
+          start_location_captured_at: tracking.start_location_captured_at || null,
+          start_distance_meters: tracking.start_distance_meters ?? null,
+          start_location_status: tracking.start_location_status || null,
+          end_latitude: tracking.end_latitude ?? null,
+          end_longitude: tracking.end_longitude ?? null,
+          end_accuracy_meters: tracking.end_accuracy_meters ?? null,
+          end_location_captured_at: tracking.end_location_captured_at || null,
+          end_distance_meters: tracking.end_distance_meters ?? null,
+          end_location_status: tracking.end_location_status || null,
           foto_maschine_url: tracking.foto_maschine_url || null,
           foto_kapsellade_url: tracking.foto_kapsellade_url || null,
           foto_pos_gesamt_url: tracking.foto_pos_gesamt_url || null,
@@ -5753,6 +5770,31 @@ Import EP
                       </div>
                     </div>
                   </div>
+
+                  <AssignmentLocationMap
+                    market={{
+                      latitude: assignmentTrackingData.market_latitude,
+                      longitude: assignmentTrackingData.market_longitude,
+                      address: assignmentTrackingData.market_geocoded_address,
+                      geocodedAt: assignmentTrackingData.market_geocoded_at,
+                    }}
+                    start={{
+                      latitude: assignmentTrackingData.start_latitude,
+                      longitude: assignmentTrackingData.start_longitude,
+                      accuracyMeters: assignmentTrackingData.start_accuracy_meters,
+                      capturedAt: assignmentTrackingData.start_location_captured_at,
+                      distanceMeters: assignmentTrackingData.start_distance_meters,
+                      status: assignmentTrackingData.start_location_status,
+                    }}
+                    end={{
+                      latitude: assignmentTrackingData.end_latitude,
+                      longitude: assignmentTrackingData.end_longitude,
+                      accuracyMeters: assignmentTrackingData.end_accuracy_meters,
+                      capturedAt: assignmentTrackingData.end_location_captured_at,
+                      distanceMeters: assignmentTrackingData.end_distance_meters,
+                      status: assignmentTrackingData.end_location_status,
+                    }}
+                  />
 
                   {/* Early End Reasoning */}
                   {assignmentTrackingData.early_end_reason && (

@@ -49,6 +49,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import AdminNavigation from "@/components/AdminNavigation";
 import AdminEddieAssistant from "@/components/AdminEddieAssistant";
+import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap";
 
  export default function AdminDashboard() {
   const router = useRouter();
@@ -1176,6 +1177,22 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
           minutes_early_start: a.minutes_early_start,
           early_end_reason: a.early_end_reason,
           minutes_early_end: a.minutes_early_end,
+          market_latitude: a.market_latitude,
+          market_longitude: a.market_longitude,
+          market_geocoded_address: a.market_geocoded_address,
+          market_geocoded_at: a.market_geocoded_at,
+          start_latitude: a.start_latitude,
+          start_longitude: a.start_longitude,
+          start_accuracy_meters: a.start_accuracy_meters,
+          start_location_captured_at: a.start_location_captured_at,
+          start_distance_meters: a.start_distance_meters,
+          start_location_status: a.start_location_status,
+          end_latitude: a.end_latitude,
+          end_longitude: a.end_longitude,
+          end_accuracy_meters: a.end_accuracy_meters,
+          end_location_captured_at: a.end_location_captured_at,
+          end_distance_meters: a.end_distance_meters,
+          end_location_status: a.end_location_status,
           foto_maschine_url: a.foto_maschine_url,
           foto_kapsellade_url: a.foto_kapsellade_url,
           foto_pos_gesamt_url: a.foto_pos_gesamt_url,
@@ -4421,6 +4438,31 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
                   </div>
                 </div>
 
+                <AssignmentLocationMap
+                  market={{
+                    latitude: selectedAssignmentDetail.market_latitude,
+                    longitude: selectedAssignmentDetail.market_longitude,
+                    address: selectedAssignmentDetail.market_geocoded_address,
+                    geocodedAt: selectedAssignmentDetail.market_geocoded_at,
+                  }}
+                  start={{
+                    latitude: selectedAssignmentDetail.start_latitude,
+                    longitude: selectedAssignmentDetail.start_longitude,
+                    accuracyMeters: selectedAssignmentDetail.start_accuracy_meters,
+                    capturedAt: selectedAssignmentDetail.start_location_captured_at,
+                    distanceMeters: selectedAssignmentDetail.start_distance_meters,
+                    status: selectedAssignmentDetail.start_location_status,
+                  }}
+                  end={{
+                    latitude: selectedAssignmentDetail.end_latitude,
+                    longitude: selectedAssignmentDetail.end_longitude,
+                    accuracyMeters: selectedAssignmentDetail.end_accuracy_meters,
+                    capturedAt: selectedAssignmentDetail.end_location_captured_at,
+                    distanceMeters: selectedAssignmentDetail.end_distance_meters,
+                    status: selectedAssignmentDetail.end_location_status,
+                  }}
+                />
+
                 {/* Early Start Reasoning */}
                 {selectedAssignmentDetail.early_start_reason && (
                   <div className="space-y-2">
@@ -4666,4 +4708,4 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
 
     </div>
   );
-} 
+}
