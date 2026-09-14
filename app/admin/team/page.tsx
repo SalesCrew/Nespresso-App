@@ -4372,9 +4372,15 @@ Dein Nespresso Team`;
                                       <Input
                                         type="text"
                                         value={editBankForm[promotor.id]?.social_security_number || ''}
+                                        inputMode="numeric"
+                                        maxLength={10}
+                                        placeholder="1234TTMMJJ"
                                         onChange={(e) => setEditBankForm(prev => ({
                                           ...prev,
-                                          [promotor.id]: { ...prev[promotor.id], social_security_number: e.target.value }
+                                          [promotor.id]: {
+                                            ...prev[promotor.id],
+                                            social_security_number: e.target.value.replace(/\D/g, '').slice(0, 10),
+                                          }
                                         }))}
                                         className="text-sm font-mono"
                                       />

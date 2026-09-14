@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { recordDataAccess } from '@/lib/audit/dataAccess';
 import { requireAdmin, requireSelfOrAdmin } from '@/lib/auth/routeGuards';
+import {
+  composeSocialSecurityNumber,
+  getSocialSecuritySerial,
+  isValidSocialSecurityNumber,
+  normalizeSocialSecurityNumber,
+} from '@/lib/identity/socialSecurityNumber';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { recomputeOnboarding } from '@/lib/onboarding/recompute';
 
@@ -47,6 +53,48 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!auth.ok) return auth.response;
 
   const raw = await req.json().catch(() => ({} as any));
+  const svc = createSupabaseServiceClient();
+  const hasBirthDateUpdate = typeof raw.birth_date === 'string';
+  const hasSocialSecurityNumberUpdate = typeof raw.social_security_number === 'string';
+  const birthDateUpdate = hasBirthDateUpdate ? raw.birth_date.trim() : undefined;
+  let socialSecurityNumberUpdate = hasSocialSecurityNumberUpdate
+    ? raw.social_security_number
+    : undefined;
+
+  if (hasBirthDateUpdate || hasSocialSecurityNumberUpdate) {
+    const { data: currentProfile, error: currentProfileError } = await svc
+      .from('promotor_profiles')
+      .select('birth_date, social_security_number')
+      .eq('user_id', params.id)
+      .maybeSingle();
+    if (currentProfileError || !currentProfile) {
+      return NextResponse.json({ error: 'profile lookup failed' }, { status: 500 });
+    }
+
+    const effectiveBirthDate = birthDateUpdate ?? currentProfile.birth_date;
+    if (hasSocialSecurityNumberUpdate) {
+      socialSecurityNumberUpdate = normalizeSocialSecurityNumber(
+        socialSecurityNumberUpdate,
+        effectiveBirthDate,
+      );
+    } else if (currentProfile.social_security_number) {
+      socialSecurityNumberUpdate = composeSocialSecurityNumber(
+        getSocialSecuritySerial(currentProfile.social_security_number, currentProfile.birth_date),
+        effectiveBirthDate,
+      );
+    }
+
+    if (
+      socialSecurityNumberUpdate
+      && !isValidSocialSecurityNumber(socialSecurityNumberUpdate, effectiveBirthDate)
+    ) {
+      return NextResponse.json(
+        { error: 'SV-Nummer muss dem Format ####TTMMJJ entsprechen' },
+        { status: 400 },
+      );
+    }
+  }
+
   const allowed = {
     phone: typeof raw.phone === 'string' ? raw.phone : undefined,
     address: typeof raw.address === 'string' ? raw.address : undefined,
@@ -56,8 +104,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     working_days: Array.isArray(raw.working_days) ? raw.working_days : undefined,
     height: typeof raw.height === 'string' ? raw.height : undefined,
     clothing_size: typeof raw.clothing_size === 'string' ? raw.clothing_size : undefined,
-    birth_date: typeof raw.birth_date === 'string' ? raw.birth_date : undefined,
-    social_security_number: typeof raw.social_security_number === 'string' ? raw.social_security_number : undefined,
+    birth_date: birthDateUpdate,
+    social_security_number: socialSecurityNumberUpdate,
     citizenship: typeof raw.citizenship === 'string' ? raw.citizenship : undefined,
     bank_iban: typeof raw.bank_iban === 'string' ? raw.bank_iban : undefined,
     bank_bic: typeof raw.bank_bic === 'string' ? raw.bank_bic : undefined,
@@ -74,7 +122,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: 'no valid fields' }, { status: 400 });
   }
 
-  const svc = createSupabaseServiceClient();
   let { error } = await svc
     .from('promotor_profiles')
     .update(updates)

@@ -6,6 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import {
+  composeSocialSecurityNumber,
+  getBirthDateSvSuffix,
+  getSocialSecuritySerial,
+  isValidSocialSecurityNumber,
+  normalizeSocialSecurityNumber,
+} from "@/lib/identity/socialSecurityNumber"
 import { 
   User, 
   MapPin, 
@@ -199,7 +206,15 @@ export default function OnboardingModal({ isOpen, onComplete, onClose }: Onboard
 
   // Resume from saved state
   const resumeFromStorage = (parsed: any) => {
-    if (parsed.formData) setFormData(parsed.formData)
+    if (parsed.formData) {
+      setFormData({
+        ...parsed.formData,
+        socialSecurityNumber: normalizeSocialSecurityNumber(
+          parsed.formData.socialSecurityNumber,
+          parsed.formData.birthDate,
+        ),
+      })
+    }
     if (parsed.currentStep) setCurrentStep(parsed.currentStep)
     if (parsed.reviewPage) setReviewPage(parsed.reviewPage)
     
@@ -348,6 +363,17 @@ export default function OnboardingModal({ isOpen, onComplete, onClose }: Onboard
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
+  const updateBirthDate = (birthDate: string) => {
+    setFormData(prev => ({
+      ...prev,
+      birthDate,
+      socialSecurityNumber: composeSocialSecurityNumber(
+        getSocialSecuritySerial(prev.socialSecurityNumber, prev.birthDate),
+        birthDate,
+      ),
+    }))
+  }
+
   const isValidEmail = (email: string): boolean => {
     if (!email) return false
     // Basic but robust email pattern
@@ -378,7 +404,9 @@ export default function OnboardingModal({ isOpen, onComplete, onClose }: Onboard
       case 4:
         return formData.phone && isValidEmail(formData.email)
       case 5:
-        const basicData = formData.socialSecurityNumber && formData.birthDate && formData.citizenship && citizenshipConfirmed
+        const basicData = isValidSocialSecurityNumber(formData.socialSecurityNumber, formData.birthDate)
+          && formData.citizenship
+          && citizenshipConfirmed
         if (shouldShowWorkPermit()) {
           return basicData && formData.workPermit !== null
         }
@@ -606,7 +634,7 @@ export default function OnboardingModal({ isOpen, onComplete, onClose }: Onboard
                                 // If day & month already chosen, finalize; else go back to day selection
                                 if (selectedDay && selectedMonth) {
                                   const formatted = `${selectedDay.toString().padStart(2, '0')}.${selectedMonth.toString().padStart(2, '0')}.${year}`;
-                                  updateFormData("birthDate", formatted);
+                                  updateBirthDate(formatted);
                                   setShowBirthDatePicker(false);
                                 } else {
                                   setCalendarStep('day');
@@ -673,7 +701,7 @@ export default function OnboardingModal({ isOpen, onComplete, onClose }: Onboard
                                 // If month and year already selected finalize, otherwise go to month next
                                 if (selectedMonth && selectedYear) {
                                 const formatted = `${day.toString().padStart(2, '0')}.${selectedMonth.toString().padStart(2, '0')}.${selectedYear}`;
-                                updateFormData("birthDate", formatted);
+                                updateBirthDate(formatted);
                                 setShowBirthDatePicker(false);
                                 } else {
                                   setCalendarStep('month');
@@ -691,53 +719,32 @@ export default function OnboardingModal({ isOpen, onComplete, onClose }: Onboard
                 )}
               </div>
               
-              {/* SV-Nummer - now second with auto-filled birthdate prefix */}
+              {/* Austrian SV number: four-digit serial followed by DDMMYY. */}
               <div>
                 <label className="block text-sm text-gray-600 mb-1">SV-Nummer</label>
                 <div className="flex items-center gap-2">
-                  {/* Auto-filled prefix from birthdate (DDMMYY) */}
-                  {formData.birthDate && (() => {
-                    const parts = formData.birthDate.split('.');
-                    if (parts.length === 3) {
-                      const prefix = parts[0] + parts[1] + parts[2].slice(-2);
-                      return (
-                        <div className="px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-700 font-mono">
-                          {prefix}
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
-                  
-                  {/* Editable suffix */}
                   <input
                     type="text"
-                    placeholder={formData.birthDate ? "Restliche Ziffern" : "SV-Nummer"}
-                    value={(() => {
-                      if (!formData.birthDate) return formData.socialSecurityNumber;
-                      const parts = formData.birthDate.split('.');
-                      if (parts.length === 3) {
-                        const prefix = parts[0] + parts[1] + parts[2].slice(-2);
-                        return formData.socialSecurityNumber.startsWith(prefix) 
-                          ? formData.socialSecurityNumber.slice(6) 
-                          : formData.socialSecurityNumber;
-                      }
-                      return formData.socialSecurityNumber;
-                    })()}
+                    inputMode="numeric"
+                    maxLength={4}
+                    aria-label="Erste vier Ziffern der SV-Nummer"
+                    placeholder="1234"
+                    value={getSocialSecuritySerial(formData.socialSecurityNumber, formData.birthDate)}
                     onChange={(e) => {
-                      if (!formData.birthDate) {
-                        updateFormData("socialSecurityNumber", e.target.value);
-                      } else {
-                        const parts = formData.birthDate.split('.');
-                        if (parts.length === 3) {
-                          const prefix = parts[0] + parts[1] + parts[2].slice(-2);
-                          updateFormData("socialSecurityNumber", prefix + e.target.value);
-                        }
-                      }
+                      updateFormData(
+                        "socialSecurityNumber",
+                        composeSocialSecurityNumber(e.target.value, formData.birthDate),
+                      );
                     }}
                     className="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-800 border-0 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
+                  {getBirthDateSvSuffix(formData.birthDate) && (
+                    <div className="px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-700 font-mono">
+                      {getBirthDateSvSuffix(formData.birthDate)}
+                    </div>
+                  )}
                 </div>
+                <p className="mt-1 text-xs text-gray-500">4-stellige Versicherungsnummer, danach das Geburtsdatum.</p>
               </div>
               {/* Citizenship with typeahead + enforced selection */}
               <div className="relative">
@@ -1638,4 +1645,4 @@ export default function OnboardingModal({ isOpen, onComplete, onClose }: Onboard
       `}</style>
     </div>
   )
-} 
+}

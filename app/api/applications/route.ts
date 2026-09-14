@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/routeGuards';
+import { isValidSocialSecurityNumber, normalizeSocialSecurityNumber } from '@/lib/identity/socialSecurityNumber';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { z } from 'zod';
 
@@ -51,6 +52,10 @@ export async function POST(req: NextRequest) {
   const raw = await req.json().catch(() => ({} as any));
   const fullNameComputed = (raw.full_name ?? `${raw.firstName ?? ''} ${raw.lastName ?? ''}`)?.trim?.() ?? '';
   const emailComputed = typeof raw.email === 'string' ? raw.email.trim() : '';
+  const birthDate = typeof raw.birthDate === 'string' ? raw.birthDate.trim() : raw.birthDate ?? null;
+  const socialSecurityNumber = typeof raw.socialSecurityNumber === 'string'
+    ? normalizeSocialSecurityNumber(raw.socialSecurityNumber, birthDate)
+    : raw.socialSecurityNumber ?? null;
   // Do not block the flow; persist even with partial data
   const fullName = fullNameComputed || 'Unbekannt';
   const email = emailComputed || null;
@@ -65,8 +70,8 @@ export async function POST(req: NextRequest) {
     address: raw.address ?? null,
     postalCode: raw.postalCode ?? null,
     city: raw.city ?? null,
-    socialSecurityNumber: raw.socialSecurityNumber ?? null,
-    birthDate: raw.birthDate ?? null,
+    socialSecurityNumber,
+    birthDate,
     citizenship: raw.citizenship ?? null,
     workPermit: raw.workPermit ?? null,
     drivingLicense: raw.drivingLicense ?? null,
@@ -88,6 +93,12 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     const msg = parsed.error.errors.map(e => e.message).join(', ');
     return NextResponse.json({ error: msg || 'Ungültige Daten' }, { status: 400 });
+  }
+  if (
+    parsed.data.socialSecurityNumber
+    && !isValidSocialSecurityNumber(parsed.data.socialSecurityNumber, parsed.data.birthDate)
+  ) {
+    return NextResponse.json({ error: 'SV-Nummer muss dem Format ####TTMMJJ entsprechen' }, { status: 400 });
   }
   const supabase = createSupabaseServiceClient();
   const { data, error } = await supabase.from('applications').insert(parsed.data).select('*').maybeSingle();

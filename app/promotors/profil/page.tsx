@@ -1661,9 +1661,14 @@ export default function ProfilPage() {
                       <Input
                         type="text"
                         value={editablePersonalData.socialSecurityNumber}
-                        onChange={(e) => setEditablePersonalData(prev => ({ ...prev, socialSecurityNumber: e.target.value }))}
+                        inputMode="numeric"
+                        maxLength={10}
+                        onChange={(e) => setEditablePersonalData(prev => ({
+                          ...prev,
+                          socialSecurityNumber: e.target.value.replace(/\D/g, '').slice(0, 10),
+                        }))}
                         className="text-sm font-mono !border-0 !ring-0 !ring-offset-0 focus-visible:!ring-0 focus-visible:!ring-offset-0 bg-gray-50 dark:bg-gray-800 focus:bg-white dark:focus:bg-gray-700 transition-all"
-                        placeholder="1234 DDMMYY"
+                        placeholder="1234TTMMJJ"
                       />
                     ) : (
                       isLoading ? (
