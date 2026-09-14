@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { recordDataAccess } from '@/lib/audit/dataAccess';
-import { requireSelfOrAdmin } from '@/lib/auth/routeGuards';
+import { requireAdmin, requireSelfOrAdmin } from '@/lib/auth/routeGuards';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { recomputeOnboarding } from '@/lib/onboarding/recompute';
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const auth = await requireSelfOrAdmin(params.id);
@@ -120,6 +122,72 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     metadata: { changed_field_count: Object.keys(updates).length - 1 },
   });
   return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
+
+  const promotorId = String(params.id || '').trim();
+  if (!UUID_PATTERN.test(promotorId)) {
+    return NextResponse.json({ error: 'invalid promotor id' }, { status: 400 });
+  }
+
+  const svc = createSupabaseServiceClient();
+  const { data: profile, error: profileError } = await svc
+    .from('user_profiles')
+    .select('user_id, role, deleted')
+    .eq('user_id', promotorId)
+    .maybeSingle();
+  if (profileError) {
+    return NextResponse.json({ error: 'promotor lookup failed' }, { status: 500 });
+  }
+  if (!profile) {
+    return NextResponse.json({ error: 'promotor not found' }, { status: 404 });
+  }
+  if (profile.role !== 'promotor') {
+    return NextResponse.json({ error: 'only promotors can be deleted here' }, { status: 400 });
+  }
+
+  const wasDeleted = profile.deleted === true;
+  if (!wasDeleted) {
+    const { data: updatedProfile, error: updateError } = await svc
+      .from('user_profiles')
+      .update({ deleted: true, updated_at: new Date().toISOString() })
+      .eq('user_id', promotorId)
+      .eq('role', 'promotor')
+      .eq('deleted', false)
+      .select('user_id')
+      .maybeSingle();
+    if (updateError || !updatedProfile) {
+      return NextResponse.json({ error: 'promotor deletion failed' }, { status: 500 });
+    }
+  }
+
+  const { error: banError } = await svc.auth.admin.updateUserById(promotorId, {
+    ban_duration: '876000h',
+  });
+  if (banError) {
+    if (!wasDeleted) {
+      await svc
+        .from('user_profiles')
+        .update({ deleted: false, updated_at: new Date().toISOString() })
+        .eq('user_id', promotorId)
+        .eq('role', 'promotor');
+    }
+    return NextResponse.json({ error: 'login access could not be revoked' }, { status: 500 });
+  }
+
+  await recordDataAccess({
+    actorUserId: auth.user.id,
+    action: 'promotor_soft_deleted',
+    resourceType: 'promotor_profile',
+    resourceId: promotorId,
+    subjectUserId: promotorId,
+    metadata: { existing_records_preserved: true, auth_account_preserved: true },
+  });
+
+  return NextResponse.json({ ok: true, alreadyDeleted: wasDeleted });
 }
 
 

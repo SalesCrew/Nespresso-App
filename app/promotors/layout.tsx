@@ -19,6 +19,10 @@ export default async function PromotorLayout({ children }: PromotorLayoutProps) 
     redirect("/auth/promotors/login");
   }
 
+  if (profile?.deleted === true) {
+    redirect("/auth/clear-session?reason=deleted");
+  }
+
   if (!profile) {
     redirect("/auth/promotors/login");
   }

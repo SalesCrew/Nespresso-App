@@ -47,7 +47,8 @@ import {
   Key,
   ExternalLink,
   ClipboardList,
-  Thermometer
+  Thermometer,
+  Trash2
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -321,6 +322,9 @@ type AnmeldestatusStoredEntry = {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [promotorToDelete, setPromotorToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [deletingPromotor, setDeletingPromotor] = useState(false);
+  const [deletePromotorError, setDeletePromotorError] = useState<string | null>(null);
   const [approveOpen, setApproveOpen] = useState(false);
   const [approveForm, setApproveForm] = useState<{email: string; display_name: string; password: string; applicationId: string | null}>({ email: '', display_name: '', password: '', applicationId: null });
   const [approveError, setApproveError] = useState<string | null>(null);
@@ -615,6 +619,32 @@ Dein Nespresso Team`;
     } finally {
       setSubmitting(false);
       setTimeout(() => setToastMsg(null), 2500);
+    }
+  };
+
+  const handleDeletePromotor = async () => {
+    if (!promotorToDelete || deletingPromotor) return;
+
+    try {
+      setDeletingPromotor(true);
+      setDeletePromotorError(null);
+      const response = await fetch(`/api/promotors/${promotorToDelete.id}`, {
+        method: 'DELETE',
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Promotor konnte nicht gelöscht werden.');
+      }
+
+      setPromotors((current) => current.filter((promotor) => String(promotor.id) !== promotorToDelete.id));
+      setDetailedViewOpen(null);
+      setPromotorToDelete(null);
+      setToastMsg('Promotor gelöscht und Zugang deaktiviert');
+      setTimeout(() => setToastMsg(null), 3000);
+    } catch (error: any) {
+      setDeletePromotorError(error?.message || 'Promotor konnte nicht gelöscht werden.');
+    } finally {
+      setDeletingPromotor(false);
     }
   };
 
@@ -3484,6 +3514,21 @@ Dein Nespresso Team`;
                           <Key className="h-5 w-5" />
                         </button>
 
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeletePromotorError(null);
+                            setPromotorToDelete({ id: String(promotor.id), name: promotor.name });
+                            setDetailedViewOpen(null);
+                          }}
+                          className="p-2 text-red-200 hover:bg-red-500/20 hover:text-red-100 rounded-lg transition-colors"
+                          title="Promotor löschen"
+                          aria-label={`${promotor.name} löschen`}
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+
                       <button
                         onClick={() => {
                           if (!showDienstvertragPopup && !showDienstvertragContent) {
@@ -5664,6 +5709,54 @@ Dein Nespresso Team`;
             </div>
           </>
         )}
+
+        <Dialog
+          open={promotorToDelete !== null}
+          onOpenChange={(open) => {
+            if (!open && !deletingPromotor) {
+              setPromotorToDelete(null);
+              setDeletePromotorError(null);
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Promotor löschen?</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 text-sm text-gray-600">
+              <p>
+                <span className="font-medium text-gray-900">{promotorToDelete?.name}</span> wird aus allen aktiven
+                Promotor-Listen entfernt und kann sich nicht mehr anmelden.
+              </p>
+              <p>Bestehende Leads, Einsätze, Dokumente und Auswertungsdaten bleiben erhalten.</p>
+              {deletePromotorError && (
+                <p role="alert" className="text-red-600">{deletePromotorError}</p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={deletingPromotor}
+                onClick={() => {
+                  setPromotorToDelete(null);
+                  setDeletePromotorError(null);
+                }}
+              >
+                Abbrechen
+              </Button>
+              <Button
+                type="button"
+                disabled={deletingPromotor}
+                onClick={handleDeletePromotor}
+                className="bg-red-600 text-white hover:bg-red-700"
+              >
+                {deletingPromotor ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                Promotor löschen
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <AdminEddieAssistant />
       </div>

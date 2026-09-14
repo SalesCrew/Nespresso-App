@@ -22,7 +22,8 @@ export async function GET(request: NextRequest) {
     const { data: userProfiles, error: usersError } = await svc
       .from('user_profiles')
       .select('user_id, display_name')
-      .eq('role', 'promotor');
+      .eq('role', 'promotor')
+      .eq('deleted', false);
 
     if (usersError) {
       console.error('[/api/chat/promotors] Error fetching user profiles:', usersError);

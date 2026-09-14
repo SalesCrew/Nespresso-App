@@ -36,14 +36,16 @@ export async function POST(req: NextRequest) {
     const { data: profiles } = await svc
       .from('user_profiles')
       .select('user_id, email, display_name')
-      .in('email', emails);
+      .in('email', emails)
+      .eq('deleted', false);
     const emailToUser = new Map((profiles || []).map(p => [String(p.email).toLowerCase(), p.user_id]));
 
     // Prepare name list for fuzzy matching (all promotors)
     const { data: allPromotors } = await svc
       .from('user_profiles')
       .select('user_id, display_name')
-      .eq('role', 'promotor');
+      .eq('role', 'promotor')
+      .eq('deleted', false);
 
     const normalize = (str: string) => (str || '').toLowerCase().trim().replace(/\s+/g, ' ');
     const levenshtein = (a: string, b: string): number => {

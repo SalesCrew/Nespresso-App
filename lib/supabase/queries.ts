@@ -9,7 +9,7 @@ export async function getCurrentUserAndProfile() {
   if (!user) return { user: null, profile: null };
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('user_id, role, display_name')
+    .select('user_id, role, display_name, deleted')
     .eq('user_id', user.id)
     .maybeSingle();
   return { user, profile } as const;

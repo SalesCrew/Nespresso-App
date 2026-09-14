@@ -30,6 +30,25 @@ export default function PromotorLoginPage() {
       alert(error.message);
       return;
     }
+    if (!data.user) {
+      alert("Anmeldung fehlgeschlagen.");
+      return;
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from("user_profiles")
+      .select("role, deleted")
+      .eq("user_id", data.user.id)
+      .maybeSingle();
+    if (profileError || !profile || profile.deleted === true || profile.role !== "promotor") {
+      await supabase.auth.signOut({ scope: "global" });
+      alert(
+        profile?.deleted === true
+          ? "Dieser Zugang wurde deaktiviert. Bitte wende dich an einen Admin."
+          : "Für dieses Konto ist kein Promotor-Zugang verfügbar."
+      );
+      return;
+    }
     // Default: promotor dashboard
     router.push('/promotors/dashboard');
   };

@@ -128,7 +128,8 @@ export async function POST(request: Request) {
     const { data: users, error: usersError } = await service
       .from("user_profiles")
       .select("user_id, display_name, phone")
-      .eq("role", "promotor");
+      .eq("role", "promotor")
+      .eq("deleted", false);
     if (usersError) throw usersError;
 
     const userIds = (users || []).map((user: any) => String(user.user_id));

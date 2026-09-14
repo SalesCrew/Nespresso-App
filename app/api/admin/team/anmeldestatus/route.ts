@@ -39,6 +39,7 @@ async function loadPromotorCandidates(svc: ReturnType<typeof createSupabaseServi
     .from('user_profiles')
     .select('user_id, display_name')
     .eq('role', 'promotor')
+    .eq('deleted', false)
 
   return (users || [])
     .map((u: any) => {
@@ -256,6 +257,7 @@ export async function POST(req: Request) {
           .select('user_id')
           .eq('user_id', requestedUserId)
           .eq('role', 'promotor')
+          .eq('deleted', false)
           .maybeSingle()
         if (error) return NextResponse.json({ error: error.message }, { status: 500 })
         if (!profile?.user_id) {

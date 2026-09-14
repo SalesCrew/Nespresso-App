@@ -17,6 +17,10 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
     redirect("/auth/salescrew/login");
   }
 
+  if (profile?.deleted === true) {
+    redirect("/auth/clear-session?reason=deleted");
+  }
+
   if (!profile) {
     redirect("/auth/salescrew/login");
   }

@@ -30,7 +30,8 @@ export async function GET(req: NextRequest) {
     const { data: users } = await svc
       .from('user_profiles')
       .select('user_id, display_name')
-      .eq('role', 'promotor');
+      .eq('role', 'promotor')
+      .eq('deleted', false);
 
     const userIds = (users || []).map((u: any) => u.user_id);
 

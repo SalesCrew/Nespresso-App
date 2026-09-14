@@ -18,6 +18,7 @@ export async function GET() {
       .from('user_profiles')
       .select('user_id, display_name')
       .eq('role', 'promotor')
+      .eq('deleted', false)
       .order('display_name', { ascending: true });
 
     if (error) {

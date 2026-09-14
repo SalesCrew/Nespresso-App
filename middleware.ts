@@ -76,13 +76,19 @@ export async function middleware(request: NextRequest) {
     || isAdminOnlyApi(pathname, request.method)
     || (targetPromotorId !== null && targetPromotorId !== user.id);
 
-  if (!needsAdmin) return response;
-
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
-    .select("role")
+    .select("role, deleted")
     .eq("user_id", user.id)
     .maybeSingle();
+
+  if (!profileError && profile?.deleted === true) {
+    if (isApi) return apiError(403);
+    return NextResponse.redirect(new URL("/auth/clear-session?reason=deleted", request.url));
+  }
+
+  if (!needsAdmin) return response;
+
   const isAdmin = !profileError && !!profile?.role && ADMIN_ROLES.has(profile.role);
   if (isAdmin) return response;
 
@@ -103,5 +109,6 @@ export const config = {
     "/api/messages",
     "/api/messages/:path*",
     "/api/promotors/:path*",
+    "/promotors/:path*",
   ],
 };

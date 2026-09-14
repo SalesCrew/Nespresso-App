@@ -38,9 +38,11 @@ export async function requireUser(): Promise<RouteAuthResult> {
   const service = createSupabaseServiceClient();
   const { data: profile } = await service
     .from("user_profiles")
-    .select("role")
+    .select("role, deleted")
     .eq("user_id", data.user.id)
     .maybeSingle();
+
+  if (profile?.deleted === true) return authError(403);
 
   const role = (profile?.role as AppRole | undefined) ?? null;
   return {

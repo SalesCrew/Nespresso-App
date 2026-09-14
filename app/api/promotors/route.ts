@@ -12,7 +12,8 @@ export async function GET() {
   const { data: users, error: usersErr } = await svc
     .from('user_profiles')
     .select('user_id, display_name, phone, role')
-    .eq('role', 'promotor');
+    .eq('role', 'promotor')
+    .eq('deleted', false);
   if (usersErr) return NextResponse.json({ error: usersErr.message }, { status: 500 });
 
   // Pull canonical promotor_profiles and join back to applications for fallback

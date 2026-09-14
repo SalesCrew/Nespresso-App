@@ -25,6 +25,7 @@ async function loadPromotorCandidates(svc: ReturnType<typeof createSupabaseServi
     .from('user_profiles')
     .select('user_id, display_name')
     .eq('role', 'promotor')
+    .eq('deleted', false)
 
   return (data || [])
     .map((p: any) => {
