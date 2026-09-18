@@ -9,6 +9,7 @@ import {
 } from '@/lib/identity/socialSecurityNumber';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { recomputeOnboarding } from '@/lib/onboarding/recompute';
+import { isValidDateInput, isValidPhoneNumber } from '@/lib/promotors/personalData';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -54,6 +55,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const raw = await req.json().catch(() => ({} as any));
   const svc = createSupabaseServiceClient();
+  const { data: existingProfile, error: existingProfileError } = await svc
+    .from('promotor_profiles')
+    .select('*')
+    .eq('user_id', params.id)
+    .maybeSingle();
+  if (existingProfileError) {
+    return NextResponse.json({ error: 'profile lookup failed' }, { status: 500 });
+  }
+  if (!existingProfile) {
+    return NextResponse.json({ error: 'Promotorprofil nicht gefunden' }, { status: 404 });
+  }
+
   const hasBirthDateUpdate = typeof raw.birth_date === 'string';
   const hasSocialSecurityNumberUpdate = typeof raw.social_security_number === 'string';
   const birthDateUpdate = hasBirthDateUpdate ? raw.birth_date.trim() : undefined;
@@ -62,24 +75,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     : undefined;
 
   if (hasBirthDateUpdate || hasSocialSecurityNumberUpdate) {
-    const { data: currentProfile, error: currentProfileError } = await svc
-      .from('promotor_profiles')
-      .select('birth_date, social_security_number')
-      .eq('user_id', params.id)
-      .maybeSingle();
-    if (currentProfileError || !currentProfile) {
-      return NextResponse.json({ error: 'profile lookup failed' }, { status: 500 });
-    }
-
-    const effectiveBirthDate = birthDateUpdate ?? currentProfile.birth_date;
+    const effectiveBirthDate = birthDateUpdate ?? existingProfile.birth_date;
     if (hasSocialSecurityNumberUpdate) {
       socialSecurityNumberUpdate = normalizeSocialSecurityNumber(
         socialSecurityNumberUpdate,
         effectiveBirthDate,
       );
-    } else if (currentProfile.social_security_number) {
+    } else if (existingProfile.social_security_number) {
       socialSecurityNumberUpdate = composeSocialSecurityNumber(
-        getSocialSecuritySerial(currentProfile.social_security_number, currentProfile.birth_date),
+        getSocialSecuritySerial(existingProfile.social_security_number, existingProfile.birth_date),
         effectiveBirthDate,
       );
     }
@@ -96,10 +100,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   const allowed = {
-    phone: typeof raw.phone === 'string' ? raw.phone : undefined,
-    address: typeof raw.address === 'string' ? raw.address : undefined,
-    postal_code: typeof raw.postal_code === 'string' ? raw.postal_code : undefined,
-    city: typeof raw.city === 'string' ? raw.city : undefined,
+    phone: typeof raw.phone === 'string' ? raw.phone.trim() : undefined,
+    address: typeof raw.address === 'string' ? raw.address.trim() : undefined,
+    postal_code: typeof raw.postal_code === 'string' ? raw.postal_code.trim() : undefined,
+    city: typeof raw.city === 'string' ? raw.city.trim() : undefined,
     region: typeof raw.region === 'string' ? raw.region : undefined,
     working_days: Array.isArray(raw.working_days) ? raw.working_days : undefined,
     height: typeof raw.height === 'string' ? raw.height : undefined,
@@ -114,61 +118,119 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     profile_picture_url: typeof raw.profile_picture_url === 'string' ? raw.profile_picture_url.slice(0, 1000) : undefined,
   } as any;
 
-  const email: string | undefined = typeof raw.email === 'string' ? raw.email : undefined;
+  const email: string | undefined = typeof raw.email === 'string' ? raw.email.trim() : undefined;
+
+  if (email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return NextResponse.json({ error: 'Ungültige E-Mail-Adresse' }, { status: 400 });
+  }
+  if (allowed.phone && !isValidPhoneNumber(allowed.phone)) {
+    return NextResponse.json({ error: 'Ungültige Telefonnummer' }, { status: 400 });
+  }
+  if (allowed.postal_code && !/^\d{4}$/.test(allowed.postal_code)) {
+    return NextResponse.json({ error: 'Die PLZ muss aus vier Ziffern bestehen' }, { status: 400 });
+  }
+  if (allowed.birth_date && !isValidDateInput(allowed.birth_date)) {
+    return NextResponse.json({ error: 'Ungültiges Geburtsdatum' }, { status: 400 });
+  }
 
   const updates: any = { updated_at: new Date().toISOString() };
   for (const [k, v] of Object.entries(allowed)) if (v !== undefined) updates[k] = v;
-  if (Object.keys(updates).length === 1) {
+  const hasProfileChanges = Object.keys(updates).length > 1;
+  if (!hasProfileChanges && email === undefined) {
     return NextResponse.json({ error: 'no valid fields' }, { status: 400 });
   }
 
-  let { error } = await svc
-    .from('promotor_profiles')
-    .update(updates)
-    .eq('user_id', params.id);
-  if (error) {
-    // Fallback: if project used an alternative column name like 'bankname'
-    // try again by mapping bank_name -> bankname
-    const bankNameValue = (updates as any).bank_name;
-    if (bankNameValue !== undefined && /bank_name/.test(error.message || '')) {
-      const alt: any = { ...updates };
-      delete alt.bank_name;
-      alt.bankname = bankNameValue;
-      const retry = await svc.from('promotor_profiles').update(alt).eq('user_id', params.id);
-      if (retry.error) return NextResponse.json({ error: 'profile update failed' }, { status: 500 });
-    } else {
+  const rollbackProfile = async () => {
+    if (!hasProfileChanges) return;
+    const rollback: Record<string, unknown> = {};
+    for (const key of Object.keys(allowed)) {
+      if (allowed[key] !== undefined) rollback[key] = existingProfile[key];
+    }
+    await svc.from('promotor_profiles').update(rollback).eq('user_id', params.id);
+  };
+
+  let updatedProfile = existingProfile;
+  if (hasProfileChanges) {
+    let updateResult = await svc
+      .from('promotor_profiles')
+      .update(updates)
+      .eq('user_id', params.id)
+      .select('*')
+      .maybeSingle();
+
+    if (updateResult.error) {
+      const bankNameValue = updates.bank_name;
+      if (bankNameValue !== undefined && /bank_name/.test(updateResult.error.message || '')) {
+        const alternativeUpdates = { ...updates };
+        delete alternativeUpdates.bank_name;
+        alternativeUpdates.bankname = bankNameValue;
+        updateResult = await svc
+          .from('promotor_profiles')
+          .update(alternativeUpdates)
+          .eq('user_id', params.id)
+          .select('*')
+          .maybeSingle();
+      }
+    }
+    if (updateResult.error || !updateResult.data) {
       return NextResponse.json({ error: 'profile update failed' }, { status: 500 });
     }
+    updatedProfile = updateResult.data;
   }
-  // If email was provided, update the linked application email (source of truth for UI)
-  if (email) {
-    try {
-      const { data: prof } = await svc
-        .from('promotor_profiles')
-        .select('application_id')
-        .eq('user_id', params.id)
-        .maybeSingle();
-      if (prof?.application_id) {
-        await svc
-          .from('applications')
-          .update({ email })
-          .eq('id', prof.application_id);
+
+  if (email !== undefined) {
+    const { data: authUserResult, error: authUserError } = await svc.auth.admin.getUserById(params.id);
+    if (authUserError || !authUserResult.user) {
+      await rollbackProfile();
+      return NextResponse.json({ error: 'Auth-Benutzer nicht gefunden' }, { status: 500 });
+    }
+
+    const previousAuthEmail = authUserResult.user.email || '';
+    const authEmailChanged = previousAuthEmail.toLowerCase() !== email.toLowerCase();
+    if (authEmailChanged) {
+      const { error: authEmailError } = await svc.auth.admin.updateUserById(params.id, {
+        email,
+        email_confirm: true,
+      });
+      if (authEmailError) {
+        await rollbackProfile();
+        return NextResponse.json({ error: authEmailError.message }, { status: 500 });
       }
-    } catch (e: any) {
-      console.error('Failed to update application email:', e?.message || e);
+    }
+
+    if (existingProfile.application_id) {
+      const { data: updatedApplication, error: applicationEmailError } = await svc
+        .from('applications')
+        .update({ email })
+        .eq('id', existingProfile.application_id)
+        .select('id')
+        .maybeSingle();
+      if (applicationEmailError || !updatedApplication) {
+        if (authEmailChanged && previousAuthEmail) {
+          await svc.auth.admin.updateUserById(params.id, {
+            email: previousAuthEmail,
+            email_confirm: true,
+          });
+        }
+        await rollbackProfile();
+        return NextResponse.json({ error: 'Verknüpfte Bewerbung konnte nicht aktualisiert werden' }, { status: 500 });
+      }
     }
   }
+
   // Recompute onboarding after profile change
-  try { await recomputeOnboarding(svc as any, params.id); } catch {}
+  if (hasProfileChanges) {
+    try { await recomputeOnboarding(svc as any, params.id); } catch {}
+  }
   await recordDataAccess({
     actorUserId: auth.user.id,
     action: 'promotor_profile_updated',
     resourceType: 'promotor_profile',
     resourceId: params.id,
     subjectUserId: params.id,
-    metadata: { changed_field_count: Object.keys(updates).length - 1 },
+    metadata: { changed_field_count: Object.keys(updates).length - 1 + (email !== undefined ? 1 : 0) },
   });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, profile: updatedProfile, email });
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {

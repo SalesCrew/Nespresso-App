@@ -61,6 +61,14 @@ import AdminEddieAssistant from "@/components/AdminEddieAssistant";
 import { createSupabaseServiceClient } from "@/lib/supabase/service";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import KrankenstandHistoryPopover from "@/components/admin/promotors/KrankenstandHistoryPopover";
+import {
+  formatAddress,
+  formatBirthDate,
+  toDateInputValue,
+  validatePersonalData,
+  type PersonalDataErrors,
+  type PersonalDataForm,
+} from "@/lib/promotors/personalData";
 
 function TooltipButton({ tooltip, isActive, onClick, children }: { tooltip: string; isActive: boolean; onClick: () => void; children: React.ReactNode }) {
   const [showTooltip, setShowTooltip] = useState(false);
@@ -331,7 +339,7 @@ type AnmeldestatusStoredEntry = {
   const [approveResultPw, setApproveResultPw] = useState<string | null>(null);
   const [showEmailTemplate, setShowEmailTemplate] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
-  const [promotorStammdaten, setPromotorStammdaten] = useState<Record<number, any>>({});
+  const [promotorStammdaten, setPromotorStammdaten] = useState<Record<string, any>>({});
   const [openStammdatenPreviewFor, setOpenStammdatenPreviewFor] = useState<number | null>(null);
   const [openKrankenstandFor, setOpenKrankenstandFor] = useState<number | null>(null);
 
@@ -380,14 +388,25 @@ type AnmeldestatusStoredEntry = {
 
   // Edit states for promotor details
   const [editingBankData, setEditingBankData] = useState<Record<string, boolean>>({});
+  const [editingPersonalData, setEditingPersonalData] = useState<Record<string, boolean>>({});
   const [editingClothingData, setEditingClothingData] = useState<Record<string, boolean>>({});
   const [editingWorkingDays, setEditingWorkingDays] = useState<Record<string, boolean>>({});
   const [savingBankData, setSavingBankData] = useState<Record<string, boolean>>({});
+  const [savingPersonalData, setSavingPersonalData] = useState<Record<string, boolean>>({});
   const [savingClothingData, setSavingClothingData] = useState<Record<string, boolean>>({});
   const [savingWorkingDays, setSavingWorkingDays] = useState<Record<string, boolean>>({});
   const [editBankForm, setEditBankForm] = useState<Record<string, any>>({});
+  const [editPersonalForm, setEditPersonalForm] = useState<Record<string, PersonalDataForm>>({});
+  const [personalDataErrors, setPersonalDataErrors] = useState<Record<string, PersonalDataErrors>>({});
   const [editClothingForm, setEditClothingForm] = useState<Record<string, any>>({});
   const [editWorkingDaysForm, setEditWorkingDaysForm] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    if (detailedViewOpen !== null) return;
+    setEditingPersonalData({});
+    setEditPersonalForm({});
+    setPersonalDataErrors({});
+  }, [detailedViewOpen]);
 
   // Onboarding steps per promotor
   const [onboardingSteps, setOnboardingSteps] = useState<Record<string, any[]>>({});
@@ -650,6 +669,101 @@ Dein Nespresso Team`;
 
   // Load real applications from backend
   // Edit handlers for promotor details
+  const startEditingPersonalData = (promotor: any) => {
+    setEditPersonalForm(prev => ({
+      ...prev,
+      [promotor.id]: {
+        phone: String(promotor.phone || ''),
+        email: String(promotor.email || ''),
+        addressLine: String(promotor.addressLine || ''),
+        postalCode: String(promotor.postalCode || ''),
+        city: String(promotor.city || ''),
+        birthDate: toDateInputValue(promotor.birthDate),
+      },
+    }));
+    setPersonalDataErrors(prev => ({ ...prev, [promotor.id]: {} }));
+    setEditingPersonalData(prev => ({ ...prev, [promotor.id]: true }));
+  };
+
+  const cancelEditingPersonalData = (promotorId: string) => {
+    setEditingPersonalData(prev => ({ ...prev, [promotorId]: false }));
+    setEditPersonalForm(prev => {
+      const next = { ...prev };
+      delete next[promotorId];
+      return next;
+    });
+    setPersonalDataErrors(prev => ({ ...prev, [promotorId]: {} }));
+  };
+
+  const savePersonalData = async (promotorId: string) => {
+    const form = editPersonalForm[promotorId];
+    if (!form) return;
+
+    const errors = validatePersonalData(form);
+    setPersonalDataErrors(prev => ({ ...prev, [promotorId]: errors }));
+    if (Object.keys(errors).length > 0) return;
+
+    try {
+      setSavingPersonalData(prev => ({ ...prev, [promotorId]: true }));
+      const response = await fetch(`/api/promotors/${promotorId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: form.phone.trim(),
+          email: form.email.trim(),
+          address: form.addressLine.trim(),
+          postal_code: form.postalCode.trim(),
+          city: form.city.trim(),
+          birth_date: form.birthDate,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || 'Stammdaten konnten nicht gespeichert werden.');
+      }
+
+      const address = formatAddress(form.addressLine, form.postalCode, form.city);
+      setPromotors(prev => prev.map(promotor => promotor.id === promotorId ? {
+        ...promotor,
+        phone: form.phone.trim(),
+        email: form.email.trim(),
+        address,
+        addressLine: form.addressLine.trim(),
+        postalCode: form.postalCode.trim(),
+        city: form.city.trim(),
+        birthDate: form.birthDate,
+        personalData: {
+          ...(promotor.personalData || {}),
+          birth_date: form.birthDate,
+        },
+      } : promotor));
+      setPromotorStammdaten(prev => {
+        const existing = prev[promotorId];
+        if (!existing) return prev;
+        return {
+          ...prev,
+          [promotorId]: {
+            ...existing,
+            phone: form.phone.trim(),
+            email: form.email.trim(),
+            address: form.addressLine.trim(),
+            postalCode: form.postalCode.trim(),
+            city: form.city.trim(),
+            birthDate: form.birthDate,
+          },
+        };
+      });
+      setEditingPersonalData(prev => ({ ...prev, [promotorId]: false }));
+      setPersonalDataErrors(prev => ({ ...prev, [promotorId]: {} }));
+      setToastMsg('Stammdaten erfolgreich aktualisiert');
+    } catch (error) {
+      setToastMsg(error instanceof Error ? error.message : 'Fehler beim Speichern der Stammdaten');
+    } finally {
+      setSavingPersonalData(prev => ({ ...prev, [promotorId]: false }));
+      setTimeout(() => setToastMsg(null), 3500);
+    }
+  };
+
   const handleEditBankData = async (promotorId: string) => {
     const isEditing = editingBankData[promotorId];
 
@@ -946,6 +1060,9 @@ Dein Nespresso Team`;
           email: p.email || '',
           phone: p.phone || '',
           address: p.address || '',
+          addressLine: p.addressLine || '',
+          postalCode: p.postalCode || '',
+          city: p.city || '',
           birthDate: p.birthDate || '',
           region: p.region || 'wien-noe-bgl',
           workingDays: Array.isArray(p.workingDays) ? p.workingDays : [],
@@ -998,6 +1115,9 @@ Dein Nespresso Team`;
           email: inc.email,
           phone: inc.phone,
           address: inc.address,
+          addressLine: inc.addressLine,
+          postalCode: inc.postalCode,
+          city: inc.city,
           birthDate: inc.birthDate,
           region: inc.region,
           workingDays: inc.workingDays,
@@ -1119,6 +1239,17 @@ Dein Nespresso Team`;
             if (byName) map[p.id] = byName;
           }
         }
+        if (map[p.id]) {
+          map[p.id] = {
+            ...map[p.id],
+            email: p.email || map[p.id].email || '',
+            phone: p.phone || map[p.id].phone || '',
+            address: p.addressLine || map[p.id].address || '',
+            postalCode: p.postalCode || map[p.id].postalCode || '',
+            city: p.city || map[p.id].city || '',
+            birthDate: p.birthDate || map[p.id].birthDate || '',
+          };
+        }
       });
       if (Object.keys(map).length) setPromotorStammdaten((prev) => ({ ...prev, ...map }));
       // Also enrich promotor cards with contact/address fields from matched stammdaten
@@ -1132,6 +1263,9 @@ Dein Nespresso Team`;
           email: p.email || s.email || '',
           phone: p.phone || s.phone || '',
           address: p.address || mergedAddress,
+          addressLine: p.addressLine || s.address || '',
+          postalCode: p.postalCode || s.postalCode || '',
+          city: p.city || s.city || '',
           birthDate: p.birthDate || s.birthDate || '',
           region: p.region || s.preferredRegion || p.region,
           workingDays: (p.workingDays && p.workingDays.length) ? p.workingDays : (s.workingDays || []),
@@ -1144,6 +1278,9 @@ Dein Nespresso Team`;
           next.email !== p.email ||
           next.phone !== p.phone ||
           next.address !== p.address ||
+          next.addressLine !== p.addressLine ||
+          next.postalCode !== p.postalCode ||
+          next.city !== p.city ||
           next.birthDate !== p.birthDate ||
           next.region !== p.region ||
           (Array.isArray(next.workingDays) && Array.isArray(p.workingDays) && next.workingDays.join(',') !== p.workingDays.join(',')) ||
@@ -3473,6 +3610,10 @@ Dein Nespresso Team`;
               {(() => {
                 const promotor = promotors.find(p => p.id === detailedViewOpen);
                 if (!promotor) return null;
+                const isEditingPersonalData = Boolean(editingPersonalData[promotor.id]);
+                const personalForm = editPersonalForm[promotor.id];
+                const personalErrors = personalDataErrors[promotor.id] || {};
+                const personalAddress = formatAddress(promotor.addressLine, promotor.postalCode, promotor.city) || promotor.address || '';
 
                 return (
                   <>
@@ -3782,49 +3923,158 @@ Dein Nespresso Team`;
                           {/* Personal Information */}
                           <Card className="shadow-sm border-gray-200/60">
                             <CardContent className="p-4">
-                              <h3 className="font-semibold text-gray-900 mb-4 flex items-center">
-                                <User className="h-4 w-4 mr-2 text-blue-500" />
-                                Persönliche Daten
-                              </h3>
-                                                             <div className="space-y-3 text-sm">
-                                 <div
-                                   className="flex items-center space-x-2 cursor-pointer"
-                                   onClick={() => copyToClipboard(promotor.phone, 'phone', promotor.id)}
-                                 >
-                                   {copiedItems[`${promotor.id}-phone`] ? (
-                                     <Check className="h-4 w-4 text-green-500" />
-                                   ) : (
-                                     <Phone className="h-4 w-4 text-gray-400" />
-                                   )}
-                                   <span>{promotor.phone}</span>
-                                 </div>
-                                 <div
-                                   className="flex items-center space-x-2 cursor-pointer"
-                                   onClick={() => copyToClipboard(promotor.email, 'email', promotor.id)}
-                                 >
-                                   {copiedItems[`${promotor.id}-email`] ? (
-                                     <Check className="h-4 w-4 text-green-500" />
-                                   ) : (
-                                     <Mail className="h-4 w-4 text-gray-400" />
-                                   )}
-                                   <span>{promotor.email}</span>
-                                 </div>
-                                <div
-                                  className="flex items-center space-x-2 cursor-pointer"
-                                  onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(promotor.address)}`, '_blank')}
-                                >
-                                  <MapPin className="h-4 w-4 text-gray-400" />
-                                  <span>{promotor.address}</span>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                  <Calendar className="h-4 w-4 text-gray-400" />
-                                  <span>Dabei seit März 2023</span>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                  <Cake className="h-4 w-4 text-gray-400" />
-                                  <span>{promotor.birthDate}</span>
-                                </div>
+                              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                                <h3 className="flex items-center font-semibold text-gray-900">
+                                  <User className="mr-2 h-4 w-4 text-blue-500" />
+                                  Stammdaten
+                                </h3>
+                                {isEditingPersonalData ? (
+                                  <div className="flex items-center gap-2">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => cancelEditingPersonalData(promotor.id)}
+                                      disabled={savingPersonalData[promotor.id]}
+                                    >
+                                      <X className="mr-1 h-4 w-4" />
+                                      Abbrechen
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={() => savePersonalData(promotor.id)}
+                                      disabled={savingPersonalData[promotor.id]}
+                                    >
+                                      {savingPersonalData[promotor.id] ? (
+                                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <Check className="mr-1 h-4 w-4" />
+                                      )}
+                                      Speichern
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => startEditingPersonalData(promotor)}
+                                    title="Stammdaten bearbeiten"
+                                  >
+                                    <Edit2 className="mr-1 h-4 w-4" />
+                                    Bearbeiten
+                                  </Button>
+                                )}
                               </div>
+
+                              {isEditingPersonalData && personalForm ? (
+                                <div className="space-y-3 text-sm">
+                                  <div>
+                                    <label className="mb-1 block text-xs font-medium text-gray-600" htmlFor={`personal-phone-${promotor.id}`}>Telefon</label>
+                                    <Input
+                                      id={`personal-phone-${promotor.id}`}
+                                      type="tel"
+                                      value={personalForm.phone}
+                                      aria-invalid={Boolean(personalErrors.phone)}
+                                      onChange={(event) => setEditPersonalForm(prev => ({ ...prev, [promotor.id]: { ...prev[promotor.id], phone: event.target.value } }))}
+                                    />
+                                    {personalErrors.phone && <p className="mt-1 text-xs text-red-600">{personalErrors.phone}</p>}
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-xs font-medium text-gray-600" htmlFor={`personal-email-${promotor.id}`}>E-Mail</label>
+                                    <Input
+                                      id={`personal-email-${promotor.id}`}
+                                      type="email"
+                                      value={personalForm.email}
+                                      aria-invalid={Boolean(personalErrors.email)}
+                                      onChange={(event) => setEditPersonalForm(prev => ({ ...prev, [promotor.id]: { ...prev[promotor.id], email: event.target.value } }))}
+                                    />
+                                    {personalErrors.email && <p className="mt-1 text-xs text-red-600">{personalErrors.email}</p>}
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-xs font-medium text-gray-600" htmlFor={`personal-address-${promotor.id}`}>Straße und Hausnummer</label>
+                                    <Input
+                                      id={`personal-address-${promotor.id}`}
+                                      value={personalForm.addressLine}
+                                      onChange={(event) => setEditPersonalForm(prev => ({ ...prev, [promotor.id]: { ...prev[promotor.id], addressLine: event.target.value } }))}
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-[100px_minmax(0,1fr)] gap-2">
+                                    <div>
+                                      <label className="mb-1 block text-xs font-medium text-gray-600" htmlFor={`personal-postal-${promotor.id}`}>PLZ</label>
+                                      <Input
+                                        id={`personal-postal-${promotor.id}`}
+                                        inputMode="numeric"
+                                        maxLength={4}
+                                        value={personalForm.postalCode}
+                                        aria-invalid={Boolean(personalErrors.postalCode)}
+                                        onChange={(event) => setEditPersonalForm(prev => ({ ...prev, [promotor.id]: { ...prev[promotor.id], postalCode: event.target.value } }))}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="mb-1 block text-xs font-medium text-gray-600" htmlFor={`personal-city-${promotor.id}`}>Ort</label>
+                                      <Input
+                                        id={`personal-city-${promotor.id}`}
+                                        value={personalForm.city}
+                                        onChange={(event) => setEditPersonalForm(prev => ({ ...prev, [promotor.id]: { ...prev[promotor.id], city: event.target.value } }))}
+                                      />
+                                    </div>
+                                  </div>
+                                  {personalErrors.postalCode && <p className="text-xs text-red-600">{personalErrors.postalCode}</p>}
+                                  <div>
+                                    <label className="mb-1 block text-xs font-medium text-gray-600" htmlFor={`personal-birth-${promotor.id}`}>Geburtsdatum</label>
+                                    <Input
+                                      id={`personal-birth-${promotor.id}`}
+                                      type="date"
+                                      value={personalForm.birthDate}
+                                      aria-invalid={Boolean(personalErrors.birthDate)}
+                                      onChange={(event) => setEditPersonalForm(prev => ({ ...prev, [promotor.id]: { ...prev[promotor.id], birthDate: event.target.value } }))}
+                                    />
+                                    {personalErrors.birthDate && <p className="mt-1 text-xs text-red-600">{personalErrors.birthDate}</p>}
+                                  </div>
+                                  <div className="flex items-center space-x-2 text-gray-600">
+                                    <Calendar className="h-4 w-4 text-gray-400" />
+                                    <span>Dabei seit März 2023</span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="space-y-3 text-sm">
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center space-x-2 text-left"
+                                    onClick={() => copyToClipboard(promotor.phone, 'phone', promotor.id)}
+                                  >
+                                    {copiedItems[`${promotor.id}-phone`] ? <Check className="h-4 w-4 text-green-500" /> : <Phone className="h-4 w-4 text-gray-400" />}
+                                    <span className="break-all">{promotor.phone || 'Keine Angabe'}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center space-x-2 text-left"
+                                    onClick={() => copyToClipboard(promotor.email, 'email', promotor.id)}
+                                  >
+                                    {copiedItems[`${promotor.id}-email`] ? <Check className="h-4 w-4 text-green-500" /> : <Mail className="h-4 w-4 text-gray-400" />}
+                                    <span className="break-all">{promotor.email || 'Keine Angabe'}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center space-x-2 text-left"
+                                    disabled={!personalAddress}
+                                    onClick={() => personalAddress && window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(personalAddress)}`, '_blank')}
+                                  >
+                                    <MapPin className="h-4 w-4 shrink-0 text-gray-400" />
+                                    <span>{personalAddress || 'Keine Angabe'}</span>
+                                  </button>
+                                  <div className="flex items-center space-x-2">
+                                    <Calendar className="h-4 w-4 text-gray-400" />
+                                    <span>Dabei seit März 2023</span>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <Cake className="h-4 w-4 text-gray-400" />
+                                    <span>{formatBirthDate(promotor.birthDate)}</span>
+                                  </div>
+                                </div>
+                              )}
                             </CardContent>
                           </Card>
 

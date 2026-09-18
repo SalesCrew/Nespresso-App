@@ -30,6 +30,14 @@ export async function GET() {
 
   const appById = new Map((applications || []).map((a: any) => [a.id, a]));
   const profileByUser = new Map((profiles || []).map((p: any) => [p.user_id, p]));
+  const { data: authUsers, error: authUsersError } = await svc.auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  });
+  if (authUsersError) return NextResponse.json({ error: 'Failed to load promotor accounts' }, { status: 500 });
+  const authEmailByUserId = new Map(
+    (authUsers?.users || []).map((authUser) => [authUser.id, authUser.email || null]),
+  );
 
   const cards = (users || []).map((u: any) => {
     const profile: any = profileByUser.get(u.user_id) || null;
@@ -44,9 +52,12 @@ export async function GET() {
     return {
       id: u.user_id,
       name: fullName,
-      email: app?.email || null,
+      email: app?.email || authEmailByUserId.get(u.user_id) || null,
       phone: profile?.phone ?? u.phone ?? app?.phone ?? null,
       address,
+      addressLine: profile?.address ?? app?.address ?? '',
+      postalCode: profile?.postal_code ?? app?.postalCode ?? app?.postal_code ?? '',
+      city: profile?.city ?? app?.city ?? '',
       birthDate: profile?.birth_date ?? profile?.birthDate ?? app?.birthDate ?? app?.birth_date ?? null,
       region: profile?.region ?? app?.preferredRegion ?? app?.preferred_region ?? 'wien-noe-bgl',
       workingDays: profile?.working_days ?? app?.workingDays ?? app?.working_days ?? [],
