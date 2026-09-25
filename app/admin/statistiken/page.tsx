@@ -12,6 +12,8 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import AdminNavigation from "@/components/AdminNavigation";
 import AdminEddieAssistant from "@/components/AdminEddieAssistant";
+import MonthlyMetricsAdmin from "@/components/statistiken/MonthlyMetricsAdmin";
+import { parseSalesWorkbook, salesMetrics } from "@/lib/statistics/monthlyKpi";
 
 interface CardData {
   id: string;
@@ -124,50 +126,10 @@ export default function StatistikenPage() {
   const [chartTimeFilter, setChartTimeFilter] = useState<"3months" | "6months" | "1year" | "all">("all");
   const [kpiHistory, setKpiHistory] = useState<any[]>([]);
   const [kpiHistoryLoading, setKpiHistoryLoading] = useState(false);
-  // Prämien UI state
-  const [showPraemienModal, setShowPraemienModal] = useState(false);
-  const [showPraemienImportModal, setShowPraemienImportModal] = useState(false);
-  const [showPraemienExcelFormatInfo, setShowPraemienExcelFormatInfo] = useState(false);
-  const [praemienWave, setPraemienWave] = useState<string | null>(null);
-  const [praemienHighlight, setPraemienHighlight] = useState(false);
-  const [praemienSummary, setPraemienSummary] = useState<{items: any[]; totals: { brutto: number; netto: number}} | null>(null);
-  const [praemienLoading, setPraemienLoading] = useState(false);
-  const [praemienUnmatched, setPraemienUnmatched] = useState<any[]>([]);
-  const [praemienManualMap, setPraemienManualMap] = useState<Record<number, string>>({});
-  const [praemienMatcherIndex, setPraemienMatcherIndex] = useState<number | null>(null);
-  const [praemienMatcherQuery, setPraemienMatcherQuery] = useState('');
-  const [praemienMatcherPos, setPraemienMatcherPos] = useState<{top: number; left: number} | null>(null);
-  const praemienModalRef = useRef<HTMLDivElement>(null);
-  const praemienFileInputRef = useRef<HTMLInputElement>(null);
   const didHydrateKpiDraftRef = useRef(false);
   const skipKpiDraftPersistRef = useRef(true);
   const kpiDraftPersistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const computePraemieTotals = (u: { gutscheine?: number; tma?: number; vertuo?: number; vertuo_pop?: number; aeroccino?: number; vorteilsbox?: number }) => {
-    const g = Number(u.gutscheine || 0);
-    const t = Number(u.tma || 0);
-    const v = Number(u.vertuo || 0);
-    const vp = Number(u.vertuo_pop || 0);
-    const a = Number(u.aeroccino || 0);
-    const vb = Number(u.vorteilsbox || 0);
-    const brutto = t*7.5 + g*3.5 + v*7.5 + vp*7.5 + a*3.5 + vb*0;
-    const netto  = t*6.19 + g*2.89 + v*6.19 + vp*6.19 + a*2.89 + vb*0;
-    return { brutto: Number(brutto.toFixed(2)), netto: Number(netto.toFixed(2)) };
-  };
-
-  // Prefetch prämien button highlight on mount
-  useEffect(() => {
-    (async () => {
-      try {
-        const waveRes = await fetch('/api/admin/kpi-praemien/latest-summary', { cache: 'no-store' });
-        if (waveRes.ok) {
-          const s = await waveRes.json();
-          setPraemienWave(s.waveMonth || null);
-          setPraemienHighlight(Boolean(s.highlight));
-        }
-      } catch {}
-    })();
-  }, []);
 
   // Unique promoter names that actually appear in history
   const historyPromoterNames = useMemo(() => {
@@ -569,40 +531,19 @@ export default function StatistikenPage() {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const data = e.target?.result;
-        const workbook = XLSX.read(data, { type: 'binary' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-
-        // Process the data starting from row 2 (index 1) to skip headers
-        const newCardData: any[] = [];
-
-        for (let i = 1; i < jsonData.length; i++) {
-          const row = jsonData[i] as any[];
-
-          // Extract data from specific columns
-          const name = row[0] || ''; // Column A
-          const email = row[1] || ''; // Column B
-          const mcet = parseFloat(row[8]) || 0; // Column I (index 8)
-          const tma = (parseFloat(row[11]) || 0) * 100; // Column L (index 11) - multiply by 100 to convert from decimal to percentage
-          const vlShare = (parseFloat(row[16]) || 0) * 100; // Column Q (index 16) - multiply by 100 to convert from decimal to percentage
-
-          // Skip empty rows
-          if (!name && !email) continue;
-
-          // Generate ID from name
-          const id = name.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
-
-          newCardData.push({
-            id: id || `card_${i}`,
-            name,
-            email,
-            mcet,
-            tma,
-            vlShare
-          });
-        }
+        const workbook = XLSX.read(e.target?.result, { type: 'binary' });
+        const parsed = parseSalesWorkbook(workbook);
+        const newCardData: CardData[] = parsed.rows.map(row => {
+          const metrics = salesMetrics(row);
+          return {
+            id: `card_${row.sourceRow}`,
+            name: row.name,
+            email: row.email,
+            mcet: metrics.mc_et,
+            tma: metrics.tap_quote,
+            vlShare: metrics.vl_share,
+          };
+        });
 
         if (newCardData.length > 0) {
           // New import should start a fresh draft batch and never inherit stale per-card states.
@@ -666,76 +607,6 @@ export default function StatistikenPage() {
     }
   };
 
-  const handlePraemienFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file && praemienWave) {
-      await processPraemienExcel(file);
-      setShowPraemienImportModal(false);
-    }
-  };
-
-  const handlePraemienDragOver = (event: React.DragEvent) => {
-    event.preventDefault();
-  };
-
-  const handlePraemienDrop = async (event: React.DragEvent) => {
-    event.preventDefault();
-    const files = event.dataTransfer.files;
-    if (files.length > 0) {
-      const file = files[0];
-      if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-          file.type === 'application/vnd.ms-excel' ||
-          file.name.endsWith('.xlsx') ||
-          file.name.endsWith('.xls')) {
-        if (praemienWave) {
-          await processPraemienExcel(file);
-          setShowPraemienImportModal(false);
-        }
-      } else {
-        alert('Bitte wählen Sie eine Excel-Datei (.xlsx oder .xls)');
-      }
-    }
-  };
-
-  const processPraemienExcel = async (file: File) => {
-    try {
-      const wb = await file.arrayBuffer().then(buf => XLSX.read(buf));
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[];
-      const header = rows[0] || [];
-      const dataRows = rows.slice(1);
-      const get = (r: any[], idx: number) => Number.isFinite(Number(r[idx])) ? Number(r[idx]) : parseInt(String(r[idx] || 0), 10) || 0;
-      const mapped = dataRows
-        .filter(r => r && (r[0] || r[1]))
-        .map(r => ({
-          name: (r[0] || '').toString().trim(),
-          email: (r[1] || '').toString().trim(),
-          tma: get(r, 6),
-          gutscheine: get(r, 7),
-          vertuo: get(r, 14),
-          aeroccino: get(r, 15),
-          vertuo_pop: get(r, 17),
-          vorteilsbox: get(r, 23),
-        })) as any[];
-
-      const res = await fetch('/api/admin/kpi-praemien/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ waveMonth: praemienWave, rows: mapped }),
-      });
-
-      if (res.ok) {
-        const result = await res.json().catch(() => ({}));
-        const ref = await fetch(`/api/admin/kpi-praemien?waveMonth=${praemienWave}`, { cache: 'no-store' });
-        if (ref.ok) setPraemienSummary(await ref.json());
-        setPraemienUnmatched(Array.isArray(result?.unmatched) ? result.unmatched : []);
-        setPraemienManualMap({});
-      }
-    } catch (err) {
-      console.error('Import failed', err);
-      alert('Fehler beim Importieren der Datei');
-    }
-  };
 
   const handleEmailCopy = async (email: string) => {
     try {
@@ -1952,37 +1823,19 @@ Liebe Grüße, dein Nespresso Team`;
                 className="flex items-center space-x-2 px-3 py-2 bg-white text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
               >
                 <Download className="h-4 w-4" />
-                <span>Import</span>
+                <span>Feedback-Import</span>
               </button>
-              {/* Prämien button */}
+              {/* Monatszahlen */}
               <button
-                onClick={async () => {
-                  setShowPraemienModal(true);
-                  setPraemienLoading(true);
-                  try {
-                    const waveRes = await fetch('/api/admin/kpi-praemien/latest-summary', { cache: 'no-store' });
-                    if (waveRes.ok) {
-                      const s = await waveRes.json();
-                      setPraemienWave(s.waveMonth || null);
-                      setPraemienHighlight(Boolean(s.highlight));
-                      if (s.waveMonth) {
-                        const res = await fetch(`/api/admin/kpi-praemien?waveMonth=${s.waveMonth}`, { cache: 'no-store' });
-                        if (res.ok) setPraemienSummary(await res.json());
-                      } else {
-                        setPraemienSummary(null);
-                      }
-                    }
-                  } catch (e) {
-                    console.error('Failed to load prämien', e);
-                  } finally {
-                    setPraemienLoading(false);
-                  }
+                onClick={() => {
+                  setSelectedMenu('overview');
+                  setTimeout(() => document.getElementById('monthly-metrics')?.scrollIntoView({ behavior: 'smooth' }), 0);
                 }}
-                className={`flex items-center space-x-2 px-3 py-2 text-sm border rounded-lg transition-all duration-200 ${praemienHighlight ? 'bg-purple-50 text-purple-700 border-purple-500/40 shadow-[0_0_10px_2px_rgba(168,85,247,0.25)]' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
-                title="Prämien importieren & ansehen"
+                className="flex items-center space-x-2 px-3 py-2 text-sm border rounded-lg bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+                title="Monatszahlen und Prämien ansehen"
               >
                 <Gift className="h-4 w-4" />
-                <span>Prämien</span>
+                <span>Monatszahlen</span>
               </button>
               <button
                 onClick={() => setShowCallsModal(true)}
@@ -2024,262 +1877,7 @@ Liebe Grüße, dein Nespresso Team`;
         <main className="p-8">
           {selectedMenu === "overview" && (
             <>
-              {/* Prämien Modal */}
-              {showPraemienModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowPraemienModal(false)}>
-                  <div className="absolute inset-0 bg-black/30" />
-                  <div className="relative w-full max-w-5xl bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()} ref={praemienModalRef}>
-                    {/* Header */}
-                    <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-500 text-white flex items-center justify-center">
-                          <Gift className="h-4 w-4" />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-900">Prämien Übersicht</h3>
-                          <p className="text-xs text-gray-500">Werte für Gutscheine, TMA, Vertuo, Vertuo Pop+, Aeroccino, Vorteilsbox</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500">{praemienWave ? `Wave: ${praemienWave}` : '—'}</span>
-                        <button
-                          onClick={() => setShowPraemienImportModal(true)}
-                          disabled={!praemienWave}
-                          className="inline-flex items-center px-2 py-1 rounded-md text-xs border border-gray-200 bg-gray-50 hover:bg-gray-100 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          <Upload className="h-3.5 w-3.5 mr-1 text-purple-600" />
-                          <span>Excel importieren</span>
-                        </button>
-                      </div>
-                    </div>
-                    {/* Summary */}
-                    <div className="p-4 border-b border-gray-100">
-                      {praemienLoading ? (
-                        <div className="grid grid-cols-3 gap-3">
-                          {[0,1,2].map(i => (
-                            <div key={i} className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex flex-col items-center justify-center text-center">
-                              <div className="h-3 w-24 bg-gray-200 rounded animate-skeleton-fade mb-2"></div>
-                              <div className="h-6 w-20 bg-gray-200 rounded animate-skeleton-fade"></div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-3 gap-3">
-                          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex flex-col items-center justify-center text-center">
-                            <div className="text-xs text-gray-500">Brutto Gesamt</div>
-                            <div className="text-lg font-semibold text-gray-900">
-                              {praemienSummary ? `${praemienSummary.totals.brutto.toFixed(2)} €` : '—'}
-                            </div>
-                          </div>
-                          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex flex-col items-center justify-center text-center">
-                            <div className="text-xs text-gray-500">Netto Gesamt</div>
-                            <div className="text-lg font-semibold text-gray-900">
-                              {praemienSummary ? `${praemienSummary.totals.netto.toFixed(2)} €` : '—'}
-                            </div>
-                          </div>
-                          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex flex-col items-center justify-center text-center">
-                            <div className="text-xs text-gray-500">Datensatzanzahl</div>
-                            <div className="text-lg font-semibold text-gray-900">
-                              {praemienSummary ? praemienSummary.items.length : '—'}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    {/* Table */}
-                    <div className="p-4 max-h-[60vh] overflow-y-auto scrollbar-hide">
-                      {praemienLoading ? (
-                        <div className="space-y-2">
-                          <div className="grid grid-cols-10 text-xs text-gray-500 px-2">
-                            <div className="col-span-3">Promotor</div>
-                            <div className="text-right">Gutscheine</div>
-                            <div className="text-right">TMA</div>
-                            <div className="text-right">Vertuo</div>
-                            <div className="text-right">Pop+</div>
-                            <div className="text-right">Aeroc.</div>
-                            <div className="text-right">Brutto</div>
-                            <div className="text-right">Netto</div>
-                          </div>
-                          <div className="divide-y divide-gray-100 rounded-lg border border-gray-100">
-                            {[0,1,2,3,4,5].map(i => (
-                              <div key={i} className="grid grid-cols-10 items-center px-2 py-2">
-                                <div className="col-span-3">
-                                  <div className="h-4 w-40 bg-gray-200 rounded animate-skeleton-fade mb-1"></div>
-                                  <div className="h-3 w-32 bg-gray-200 rounded animate-skeleton-fade"></div>
-                                </div>
-                                {[...Array(7)].map((_, j) => (
-                                  <div key={j} className="text-right">
-                                    <div className="h-4 w-10 ml-auto bg-gray-200 rounded animate-skeleton-fade"></div>
-                                  </div>
-                                ))}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : !praemienSummary ? (
-                        <div className="text-sm text-gray-500">Keine Daten vorhanden.</div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="grid grid-cols-10 text-xs text-gray-500 px-2">
-                            <div className="col-span-3">Promotor</div>
-                            <div className="text-right">Gutscheine</div>
-                            <div className="text-right">TMA</div>
-                            <div className="text-right">Vertuo</div>
-                            <div className="text-right">Pop+</div>
-                            <div className="text-right">Aeroc.</div>
-                            <div className="text-right">Brutto</div>
-                            <div className="text-right">Netto</div>
-                          </div>
-                          <div className="divide-y divide-gray-100 rounded-lg border border-gray-100">
-                            {praemienSummary.items.map((it: any) => (
-                              <div key={it.id || `${it.user_id}-${it.wave_month}`} className="grid grid-cols-10 items-center text-sm px-2 py-2 hover:bg-gray-50">
-                                <div className="col-span-3">
-                                  <div className="text-gray-900 font-medium">{it.promotor_name || '—'}</div>
-                                  <div className="text-[11px] text-gray-500">{String(it.wave_month).slice(0, 7)}</div>
-                                </div>
-                                <div className="text-right">{it.gutscheine}</div>
-                                <div className="text-right">{it.tma}</div>
-                                <div className="text-right">{it.vertuo}</div>
-                                <div className="text-right">{it.vertuo_pop}</div>
-                                <div className="text-right">{it.aeroccino}</div>
-                                <div className="text-right font-medium text-gray-900">{it.brutto.toFixed(2)} €</div>
-                                <div className="text-right font-medium text-gray-900">{it.netto.toFixed(2)} €</div>
-                              </div>
-                            ))}
-                          </div>
-                          {/* Manual matching for unmatched rows */}
-                          {praemienUnmatched.length > 0 && (
-                            <div className="mt-6">
-                              <div className="mb-2 flex items-center justify-between">
-                                <h4 className="text-sm font-semibold text-gray-900">Nicht zugeordnete Zeilen</h4>
-                                </div>
-                              <div className="rounded-lg border border-amber-200 bg-amber-50/50">
-                                <div className="grid grid-cols-10 text-xs text-gray-600 px-3 py-2 border-b border-amber-200/60">
-                                  <div className="col-span-3">Name / Email</div>
-                                  <div className="text-right">Gutscheine</div>
-                                  <div className="text-right">TMA</div>
-                                  <div className="text-right">Vertuo</div>
-                                  <div className="text-right">Pop+</div>
-                                  <div className="text-right">Aeroc.</div>
-                                  <div className="text-right">Brutto</div>
-                                  <div className="text-right">Netto</div>
-                                </div>
-                                {praemienUnmatched.map((u, idx) => {
-                                  const totals = computePraemieTotals(u);
-                                  return (
-                                  <div key={idx} className="grid grid-cols-10 items-center px-3 py-2 border-t border-amber-100 text-sm relative">
-                                    <button
-                                      onClick={(ev) => {
-                                        const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
-                                        const container = praemienModalRef.current?.getBoundingClientRect();
-                                        const top = (r.bottom - (container?.top || 0)) + 6;
-                                        const left = (r.left - (container?.left || 0));
-                                        setPraemienMatcherIndex(idx);
-                                        setPraemienMatcherQuery('');
-                                        setPraemienMatcherPos({ top, left });
-                                      }}
-                                      className="col-span-3 text-left"
-                                      title="Promotor zuordnen"
-                                    >
-                                      <div className="text-gray-900 underline decoration-dotted underline-offset-2">{u.name || '—'}</div>
-                                      <div className="text-xs text-gray-500">{u.email || '—'}</div>
-                                    </button>
-                                    <div className="text-right">{u.gutscheine || 0}</div>
-                                    <div className="text-right">{u.tma || 0}</div>
-                                    <div className="text-right">{u.vertuo || 0}</div>
-                                    <div className="text-right">{u.vertuo_pop || 0}</div>
-                                    <div className="text-right">{u.aeroccino || 0}</div>
-                                    <div className="text-right font-medium text-gray-900">{totals.brutto.toFixed(2)} €</div>
-                                    <div className="text-right font-medium text-gray-900">{totals.netto.toFixed(2)} €</div>
-                                  </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    {/* Floating matcher popover */}
-                    {praemienMatcherIndex !== null && praemienMatcherPos && (
-                      <div
-                        className="absolute z-50"
-                        style={{ top: praemienMatcherPos.top, left: praemienMatcherPos.left, width: 220 }}
-                      >
-                        <div className="rounded-xl border border-gray-200 bg-white shadow-2xl">
-                          <div className="p-2 border-b border-gray-100">
-                            <input
-                              value={praemienMatcherQuery}
-                              onChange={(e) => setPraemienMatcherQuery(e.target.value)}
-                              placeholder="Promotor suchen…"
-                              className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md bg-white placeholder:text-gray-400 outline-none ring-0 focus:ring-0 focus:outline-none"
-                            />
-                          </div>
-                          <div className="max-h-56 overflow-y-auto scrollbar-hide">
-                            {(availablePromotersData || [])
-                              .filter(p => {
-                                if (!praemienMatcherQuery) return true;
-                                const q = praemienMatcherQuery.toLowerCase();
-                                return p.name.toLowerCase().includes(q);
-                              })
-                              .map(p => (
-                                <button
-                                  key={p.user_id}
-                                  onClick={async () => {
-                                    if (praemienMatcherIndex === null || !praemienWave) return;
-                                    const u = praemienUnmatched[praemienMatcherIndex];
-                                    if (!u) return;
-                                    try {
-                                      const res = await fetch('/api/admin/kpi-praemien/import', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({
-                                          waveMonth: praemienWave,
-                                          rows: [{
-                                            user_id: p.user_id,
-                                            gutscheine: u.gutscheine || 0,
-                                            tma: u.tma || 0,
-                                            vertuo: u.vertuo || 0,
-                                            vertuo_pop: u.vertuo_pop || 0,
-                                            aeroccino: u.aeroccino || 0,
-                                            vorteilsbox: u.vorteilsbox || 0,
-                                          }]
-                                        }),
-                                      });
-                                      if (res.ok) {
-                                        const ref = await fetch(`/api/admin/kpi-praemien?waveMonth=${praemienWave}`, { cache: 'no-store' });
-                                        if (ref.ok) setPraemienSummary(await ref.json());
-                                        setPraemienUnmatched(prev => prev.filter((_, i) => i !== praemienMatcherIndex));
-                                      }
-                                    } catch (e) {
-                                      console.error('Assign failed', e);
-                                    } finally {
-                                      setPraemienMatcherIndex(null);
-                                      setPraemienMatcherPos(null);
-                                      setPraemienMatcherQuery('');
-                                    }
-                                  }}
-                                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
-                                >
-                                  {p.name}
-                                </button>
-                              ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {/* Footer */}
-                    <div className="p-3 border-t border-gray-100 text-right">
-                      <button
-                        onClick={() => setShowPraemienModal(false)}
-                        className="px-3 py-1.5 rounded-md border border-gray-200 bg-white text-sm text-gray-700 hover:bg-gray-50"
-                      >
-                        Schließen
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              <MonthlyMetricsAdmin />
               {/* Promoter Cards Grid */}
               <div className="grid grid-cols-5 gap-4">
                 {cardData.map((card) => (
@@ -3255,7 +2853,7 @@ Liebe Grüße, dein Nespresso Team`;
             <div className="bg-white rounded-lg shadow-lg w-96 max-w-[90vw]">
               {/* Modal Header */}
               <div className="flex items-center justify-between p-6 border-b border-gray-100">
-                <h3 className="text-lg font-semibold text-gray-900">Import Statistiken</h3>
+                <h3 className="text-lg font-semibold text-gray-900">KPI-Feedback vorbereiten</h3>
                 <button
                   onClick={() => setShowImportModal(false)}
                   className="p-1 rounded hover:bg-gray-100 transition-colors"
@@ -3284,23 +2882,23 @@ Liebe Grüße, dein Nespresso Team`;
                     <div className="space-y-1.5 mt-2.5">
                       <div className="flex items-start text-xs">
                         <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte A:</span>
-                        <span className="text-gray-600 ml-2">Name</span>
+                        <span className="text-gray-600 ml-2">Vorname</span>
                       </div>
                       <div className="flex items-start text-xs">
                         <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte B:</span>
-                        <span className="text-gray-600 ml-2">Email</span>
+                        <span className="text-gray-600 ml-2">Nachname</span>
                       </div>
                       <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte I:</span>
-                        <span className="text-gray-600 ml-2">MC/ET</span>
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte C:</span>
+                        <span className="text-gray-600 ml-2">Emailadresse</span>
                       </div>
                       <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte L:</span>
-                        <span className="text-gray-600 ml-2">TMA (%) - wird automatisch mit 100 multipliziert</span>
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalten F-H:</span>
+                        <span className="text-gray-600 ml-2">ET, MC und TMA (daraus werden MC/ET und TMA/TAP-Quote berechnet)</span>
                       </div>
                       <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte Q:</span>
-                        <span className="text-gray-600 ml-2">VL Share (%) - wird automatisch mit 100 multipliziert</span>
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalten P und S:</span>
+                        <span className="text-gray-600 ml-2">VL und VL Up (VL Share wird aus VL/MC berechnet)</span>
                       </div>
                     </div>
                   )}
@@ -3356,124 +2954,6 @@ Liebe Grüße, dein Nespresso Team`;
           </div>
         )}
 
-        {/* Prämien Import Modal */}
-        {showPraemienImportModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-lg w-96 max-w-[90vw]">
-              {/* Modal Header */}
-              <div className="flex items-center justify-between p-6 border-b border-gray-100">
-                <h3 className="text-lg font-semibold text-gray-900">Import Prämien Excel</h3>
-                <button
-                  onClick={() => setShowPraemienImportModal(false)}
-                  className="p-1 rounded hover:bg-gray-100 transition-colors"
-                >
-                  <X className="h-5 w-5 text-gray-400" />
-                </button>
-              </div>
-
-              {/* Modal Content */}
-              <div className="p-6">
-                {/* Excel Format Info */}
-                <div className="mb-6 p-4 bg-blue-50/50 border border-blue-100 rounded-lg">
-                  <button
-                    onClick={() => setShowPraemienExcelFormatInfo(!showPraemienExcelFormatInfo)}
-                    className="w-full flex items-center justify-between text-xs font-semibold text-blue-900 hover:text-blue-700 transition-colors"
-                  >
-                    <span>Excel Format</span>
-                    {showPraemienExcelFormatInfo ? (
-                      <ChevronUp className="h-4 w-4 text-blue-100" style={{ color: 'rgb(191 219 254)' }} />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 text-blue-100" style={{ color: 'rgb(191 219 254)' }} />
-                    )}
-                  </button>
-
-                  {showPraemienExcelFormatInfo && (
-                    <div className="space-y-1.5 mt-2.5">
-                      <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte A:</span>
-                        <span className="text-gray-600 ml-2">Name</span>
-                      </div>
-                      <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte B:</span>
-                        <span className="text-gray-600 ml-2">Email</span>
-                      </div>
-                      <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte G:</span>
-                        <span className="text-gray-600 ml-2">TMA</span>
-                      </div>
-                      <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte H:</span>
-                        <span className="text-gray-600 ml-2">Gutscheine</span>
-                      </div>
-                      <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte O:</span>
-                        <span className="text-gray-600 ml-2">Vertuo</span>
-                      </div>
-                      <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte P:</span>
-                        <span className="text-gray-600 ml-2">Aeroccino</span>
-                      </div>
-                      <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte R:</span>
-                        <span className="text-gray-600 ml-2">Vertuo Pop+</span>
-                      </div>
-                      <div className="flex items-start text-xs">
-                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte X:</span>
-                        <span className="text-gray-600 ml-2">Vorteilsbox (optional)</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Drag and Drop Area */}
-                <div
-                  className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors"
-                  onDragOver={handlePraemienDragOver}
-                  onDrop={handlePraemienDrop}
-                >
-                  <input
-                    ref={praemienFileInputRef}
-                    type="file"
-                    accept=".xlsx,.xls"
-                    onChange={handlePraemienFileSelect}
-                    className="hidden"
-                  />
-                  <div className="space-y-3">
-                    <div className="mx-auto w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
-                      <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">
-                        Excel-Datei hier ablegen oder
-                      </p>
-                      <button
-                        onClick={() => praemienFileInputRef.current?.click()}
-                        className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                      >
-                        Datei auswählen
-                      </button>
-                    </div>
-                    <p className="text-xs text-gray-400">
-                      Unterstützte Formate: .xlsx, .xls
-                    </p>
-                  </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex justify-end space-x-3 mt-6">
-                  <button
-                    onClick={() => setShowPraemienImportModal(false)}
-                    className="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    Abbrechen
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Calls Modal */}
         {showCallsModal && (
