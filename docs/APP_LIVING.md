@@ -117,149 +117,149 @@ The table lists actual exported methods and literal database/storage/RPC referen
 
 | API path | Methods | Database/storage references | RPCs |
 | --- | --- | --- | --- |
-| /app/api/admin/assignments/[id]/outside-breaks | GET | assignment_outside_breaks |  |
-| /app/api/admin/auslastung | GET | user_profiles, promotor_profiles, assignment_participants, active_special_status |  |
-| /app/api/admin/contracts/confirm | POST | contracts |  |
-| /app/api/admin/contracts | POST, PATCH, DELETE | dienstvertrag_files, dienstvertraege, promotor_profiles | activate_dienstvertrag_file |
-| /app/api/admin/contracts/send-dienstvertrag | POST, GET | sent_dienstvertrag |  |
-| /app/api/admin/contracts/upload-url | POST | dienstvertraege |  |
-| /app/api/admin/daily-checkin-status | GET | user_profiles, assignment_daily_checkin |  |
-| /app/api/admin/documents | POST, PATCH, DELETE | documents |  |
-| /app/api/admin/kpi-feedback | GET, POST | user_profiles, kpi_feedback |  |
-| /app/api/admin/kpi-praemien/from-kpis | POST | user_profiles, kpi_monthly_sales, kpi_premium_rates, kpi_praemien |  |
-| /app/api/admin/kpi-praemien/import | POST | user_profiles, kpi_premium_rates, kpi_monthly_sales, kpi_praemien |  |
-| /app/api/admin/kpi-praemien/latest-summary | GET | user_profiles, kpi_monthly_sales, kpi_praemien |  |
-| /app/api/admin/kpi-praemien | GET | user_profiles, kpi_praemien |  |
-| /app/api/admin/maps/config | GET | user_profiles |  |
-| /app/api/admin/markets/[id]/acceptance-addresses | POST, DELETE | user_profiles, markets, assignments |  |
-| /app/api/admin/markets/[id]/photos | DELETE | user_profiles, markets, market-photos |  |
-| /app/api/admin/markets/[id]/photos/upload | POST | user_profiles, markets, market-photos |  |
-| /app/api/admin/markets/[id] | PATCH, DELETE | user_profiles, markets |  |
-| /app/api/admin/markets/import | POST | user_profiles, markets |  |
-| /app/api/admin/markets | GET, POST | user_profiles, markets, market_visits, assignments |  |
-| /app/api/admin/monthly-kpis | GET, POST | user_profiles, kpi_monthly_sales, kpi_praemien |  |
-| /app/api/admin/premium-rates | GET, PUT | user_profiles, kpi_premium_rates |  |
-| /app/api/admin/privacy-requests/[id]/export | GET | privacy_requests, user_profiles, promotor_profiles, documents, dienstvertrag_files, access_credentials, assignment_participants, assignment_daily_checkin, special_status_requests, active_special_status, onboarding_steps, kpi_feedback, kpi_praemien, todo_history, chat_messages, chat_participants, chat_message_reactions, message_recipients, applications, assignments, assignment_tracking, messages, privacy_request_events |  |
-| /app/api/admin/privacy-requests | GET, PATCH | privacy_requests, user_profiles, privacy_request_events |  |
-| /app/api/admin/privacy/legal-holds | GET, POST, DELETE | legal_holds |  |
-| /app/api/admin/privacy/retention-preview | GET |  | get_retention_preview |
-| /app/api/admin/promotor-kpi-history/[userId] | GET | user_profiles, kpi_feedback |  |
-| /app/api/admin/promotors-list | GET | user_profiles |  |
-| /app/api/admin/promotors/[id]/contracts/signed-url | GET | dienstvertrag_files, dienstvertraege |  |
-| /app/api/admin/promotors/[id]/freed-assignments | GET | user_profiles, freed_assignments_log, assignments |  |
-| /app/api/admin/promotors/[id]/kpi | GET | user_profiles, kpi_feedback |  |
-| /app/api/admin/promotors/[id]/profile-stats | GET | user_profiles, assignment_tracking, freed_assignments_log, assignments_with_buddy_info |  |
-| /app/api/admin/statistiken/generate-email | POST | kpi_feedback |  |
-| /app/api/admin/team/access-credentials-import | POST | user_profiles, promotor_profiles, applications, access_credentials |  |
-| /app/api/admin/team/anmeldestatus | GET, POST | user_profiles, anmeldestatus_entries |  |
-| /app/api/admin/whats-todo | GET | assignments, assignment_participants, assignment_invitations, special_status_requests, promotor_profiles, dienstvertrag_files, applications, user_profiles |  |
-| /app/api/ai/eddie-chat | POST | eddie_chat_messages, assignment_participants, assignments, documents, promotor_profiles |  |
-| /app/api/ai/enhance-message | POST |  |  |
-| /app/api/ai/recommend-promotors | POST | assignments, markets, user_profiles, promotor_profiles, assignment_participants |  |
-| /app/api/applications | GET, POST, PATCH, DELETE | applications |  |
-| /app/api/assignments/[id]/applications/decline | POST | assignment_invitations |  |
-| /app/api/assignments/[id]/applications | GET | assignment_invitations, user_profiles |  |
-| /app/api/assignments/[id]/invites/accept | POST | assignment_invitations |  |
-| /app/api/assignments/[id]/invites/acknowledge | POST | assignment_invitations |  |
-| /app/api/assignments/[id]/invites/respond | POST | assignment_invitations |  |
-| /app/api/assignments/[id]/invites/status | GET | assignment_invitations |  |
-| /app/api/assignments/[id]/match-market | POST | assignments, markets |  |
-| /app/api/assignments/[id]/participants/choose | POST, DELETE | assignment_participants, assignments |  |
-| /app/api/assignments/[id] | PATCH, DELETE | assignments, markets |  |
-| /app/api/assignments/[id]/tracking | GET | assignments_with_buddy_info, assignment_tracking, assignment_daily_checkin, assignment_outside_breaks |  |
-| /app/api/assignments/auto-match | POST | user_profiles, markets, assignments |  |
-| /app/api/assignments/buddy-tags | GET | assignment_invitations, assignments, assignment_participants, user_profiles |  |
-| /app/api/assignments/bulk-invite | POST | assignment_invitations, invitation_history |  |
-| /app/api/assignments/import | POST | user_profiles, assignments, assignment_participants, markets |  |
-| /app/api/assignments/invitation-history | GET | invitation_history, assignments, user_profiles |  |
-| /app/api/assignments/invites/acknowledge-all | POST | assignment_invitations |  |
-| /app/api/assignments/invites/counts | GET | assignment_invitations |  |
-| /app/api/assignments/invites/details | GET | assignment_invitations, user_profiles |  |
-| /app/api/assignments/invites/process-state | GET | assignment_invitations |  |
-| /app/api/assignments/invites | GET | assignment_invitations, assignments, assignment_participants, user_profiles |  |
-| /app/api/assignments/invites/unacknowledged-accepted | GET | assignment_invitations, assignment_acknowledgments, assignments |  |
-| /app/api/assignments/invites/unacknowledged-rejected | GET | assignment_invitations, assignment_acknowledgments, assignments |  |
-| /app/api/assignments/process | GET, POST, DELETE | assignment_processes |  |
-| /app/api/assignments/promotor-notes/mark-read | POST | einsatznotiz_promotor |  |
-| /app/api/assignments/promotor-notes | POST, GET | einsatznotiz_promotor, assignment_participants |  |
-| /app/api/assignments/release-multiple | POST | user_profiles, assignment_participants, assignments, freed_assignments_log |  |
-| /app/api/assignments | GET, POST | assignment_participants, assignment_invitations, assignments_with_buddy_info, assignments, assignment_tracking, markets |  |
-| /app/api/assignments/sync-import-promotors | POST | user_profiles, assignments, assignment_participants |  |
-| /app/api/assignments/today | GET, PATCH | markets, user_profiles, todays_assignments, assignments, assignment_participants, assignment_tracking | check_and_update_tracking_status |
-| /app/api/auth/create-promotor | POST | user_profiles, applications, promotor_profiles, onboarding_steps |  |
-| /app/api/chat/admins | GET | user_profiles |  |
-| /app/api/chat/attachments | GET | chat_participants |  |
-| /app/api/chat/conversations/[conversationId]/clear-for-me | POST | chat_participants |  |
-| /app/api/chat/conversations/[conversationId]/mark-read | POST | chat_participants |  |
-| /app/api/chat/conversations/[conversationId]/mark-unread | POST | chat_participants |  |
-| /app/api/chat/conversations/[conversationId]/picture | PATCH | user_profiles, chat_conversations |  |
-| /app/api/chat/conversations/[conversationId]/pin | POST | chat_participants, chat_conversations |  |
-| /app/api/chat/conversations/[conversationId] | GET | chat_conversations, chat_participants, promotor_profiles |  |
-| /app/api/chat/conversations/[conversationId]/unpin | POST | chat_participants, chat_conversations |  |
-| /app/api/chat/conversations | GET, POST | user_profiles, chat_participants, chat_conversations, promotor_profiles, chat_messages |  |
-| /app/api/chat/messages/[conversationId] | GET | chat_participants, chat_messages, chat_message_hidden, user_profiles, chat_message_reactions, chat_polls, chat_poll_options, chat_poll_votes |  |
-| /app/api/chat/messages/delete | POST | chat_participants, chat_messages, user_profiles, chat-attachments, chat_message_hidden |  |
-| /app/api/chat/messages/edit/[messageId] | PUT | chat_messages, user_profiles, chat_message_reactions |  |
-| /app/api/chat/messages/send | POST | chat_participants, chat_messages, chat_conversations |  |
-| /app/api/chat/participants/add | POST | chat_conversations, user_profiles, chat_participants, chat_messages |  |
-| /app/api/chat/participants/remove | POST | chat_conversations, user_profiles, chat_messages, chat_participants |  |
-| /app/api/chat/polls/[pollId]/vote | POST, DELETE | chat_polls, chat_participants, chat_poll_votes |  |
-| /app/api/chat/polls/[pollId]/votes | GET | chat_polls, chat_participants, chat_poll_options, chat_poll_votes |  |
-| /app/api/chat/polls | POST | user_profiles, chat_participants, chat_polls, chat_poll_options, chat_messages, chat_conversations |  |
-| /app/api/chat/promotors | GET | user_profiles, promotor_profiles |  |
-| /app/api/chat/reactions/[messageId] | POST, DELETE | chat_messages, chat_participants, chat_message_reactions |  |
-| /app/api/chat/reactions/[messageId]/users | GET | chat_messages, chat_participants, chat_message_reactions, user_profiles |  |
-| /app/api/debug-auth | GET |  |  |
-| /app/api/diagnostics/auth | GET |  |  |
-| /app/api/me/assignment-tracking | GET | todays_assignments |  |
-| /app/api/me/calendar-assignments | GET | assignment_participants, assignments_with_buddy_info, assignment_tracking |  |
-| /app/api/me/documents | GET | promotor_profiles, applications, documents |  |
-| /app/api/me/einsatz-photos/upload | POST, PATCH | assignment_participants, assignment_tracking |  |
-| /app/api/me/kpi-feedback-history | GET | kpi_feedback |  |
-| /app/api/me/kpi-feedback | GET, PATCH | kpi_feedback |  |
-| /app/api/me/kpi-praemien/average | GET | kpi_praemien |  |
-| /app/api/me/kpi-praemien/best | GET | kpi_praemien |  |
-| /app/api/me/kpi-praemien | GET | kpi_praemien |  |
-| /app/api/me/kpi-praemien/total | GET | kpi_praemien |  |
-| /app/api/me/leaderboard | GET | kpi_feedback |  |
-| /app/api/me/markets/resolve | POST | markets |  |
-| /app/api/me/messages/[id] | PATCH | message_recipients |  |
-| /app/api/me/messages/[id]/upload | POST, PATCH | message_recipients, message-responses, message_responses |  |
-| /app/api/me/messages | GET | message_recipients, messages |  |
-| /app/api/me/monthly-kpis | GET | kpi_monthly_sales |  |
-| /app/api/me/next-assignment | GET | assignment_participants, assignments |  |
-| /app/api/me/privacy-requests | GET, POST | privacy_requests, privacy_request_events |  |
-| /app/api/me/profile-stats | GET | assignment_tracking, freed_assignments_log, assignments_with_buddy_info |  |
-| /app/api/me | GET | user_profiles |  |
-| /app/api/me/todos/complete | POST | todo_history |  |
-| /app/api/me/todos/history | GET | todo_history |  |
-| /app/api/me/work-status | GET | promotor_profiles, assignment_participants |  |
-| /app/api/messages/[id] | DELETE | messages |  |
-| /app/api/messages | POST, GET | messages, message_recipients, messages_with_recipients |  |
-| /app/api/promotors/[id]/access-credentials | GET, PATCH | access_credentials |  |
-| /app/api/promotors/[id]/contracts/confirm | POST | contracts |  |
-| /app/api/promotors/[id]/contracts | GET | dienstvertrag_files, promotor_profiles |  |
-| /app/api/promotors/[id]/contracts/signed-url | GET | dienstvertrag_files, dienstvertraege |  |
-| /app/api/promotors/[id]/contracts/upload-url | POST | contracts |  |
-| /app/api/promotors/[id]/documents/confirm | POST | documents |  |
-| /app/api/promotors/[id]/documents | GET | documents |  |
-| /app/api/promotors/[id]/documents/signed-url | GET | documents |  |
-| /app/api/promotors/[id]/documents/upload-url | POST | documents |  |
-| /app/api/promotors/[id]/notes | GET, POST | promotor_notes |  |
-| /app/api/promotors/[id]/onboarding | GET, PATCH | onboarding_steps |  |
-| /app/api/promotors/[id] | GET, PATCH, DELETE | promotor_profiles, applications, user_profiles |  |
-| /app/api/promotors/[id]/upcoming-assignments | GET | user_profiles, assignment_participants, assignments_with_buddy_info |  |
-| /app/api/promotors/assignment-history | POST | assignment_participants |  |
-| /app/api/promotors/assignments/daily-checkin/pending | GET | assignment_participants, assignment_daily_checkin |  |
-| /app/api/promotors/assignments/daily-checkin | POST | assignment_participants, assignment_daily_checkin |  |
-| /app/api/promotors/assignments/notes/unread | GET | einsatznotiz_promotor, assignments_with_buddy_info |  |
-| /app/api/promotors/assignments/outside-break | POST, GET | assignment_outside_breaks |  |
-| /app/api/promotors/list | GET | user_profiles |  |
-| /app/api/promotors | GET | user_profiles, promotor_profiles, applications |  |
-| /app/api/special-status/active | GET, DELETE | active_special_status, assignment_participants, assignments |  |
-| /app/api/special-status/apply-daily | GET | active_special_status, assignment_participants, assignments |  |
-| /app/api/special-status/requests/[id] | PATCH | user_profiles, special_status_requests, active_special_status, assignment_participants, assignments |  |
-| /app/api/special-status/requests | POST, GET | special_status_requests, user_profiles |  |
+| /api/admin/assignments/[id]/outside-breaks | GET | assignment_outside_breaks |  |
+| /api/admin/auslastung | GET | user_profiles, promotor_profiles, assignment_participants, active_special_status |  |
+| /api/admin/contracts/confirm | POST | contracts |  |
+| /api/admin/contracts | POST, PATCH, DELETE | dienstvertrag_files, dienstvertraege, promotor_profiles | activate_dienstvertrag_file |
+| /api/admin/contracts/send-dienstvertrag | POST, GET | sent_dienstvertrag |  |
+| /api/admin/contracts/upload-url | POST | dienstvertraege |  |
+| /api/admin/daily-checkin-status | GET | user_profiles, assignment_daily_checkin |  |
+| /api/admin/documents | POST, PATCH, DELETE | documents |  |
+| /api/admin/kpi-feedback | GET, POST | user_profiles, kpi_feedback |  |
+| /api/admin/kpi-praemien/from-kpis | POST | user_profiles, kpi_monthly_sales, kpi_premium_rates, kpi_praemien |  |
+| /api/admin/kpi-praemien/import | POST | user_profiles, kpi_premium_rates, kpi_monthly_sales, kpi_praemien |  |
+| /api/admin/kpi-praemien/latest-summary | GET | user_profiles, kpi_monthly_sales, kpi_praemien |  |
+| /api/admin/kpi-praemien | GET | user_profiles, kpi_praemien |  |
+| /api/admin/maps/config | GET | user_profiles |  |
+| /api/admin/markets/[id]/acceptance-addresses | POST, DELETE | user_profiles, markets, assignments |  |
+| /api/admin/markets/[id]/photos | DELETE | user_profiles, markets, market-photos |  |
+| /api/admin/markets/[id]/photos/upload | POST | user_profiles, markets, market-photos |  |
+| /api/admin/markets/[id] | PATCH, DELETE | user_profiles, markets |  |
+| /api/admin/markets/import | POST | user_profiles, markets |  |
+| /api/admin/markets | GET, POST | user_profiles, markets, market_visits, assignments |  |
+| /api/admin/monthly-kpis | GET, POST | user_profiles, kpi_monthly_sales, kpi_praemien |  |
+| /api/admin/premium-rates | GET, PUT | user_profiles, kpi_premium_rates |  |
+| /api/admin/privacy-requests/[id]/export | GET | privacy_requests, user_profiles, promotor_profiles, documents, dienstvertrag_files, access_credentials, assignment_participants, assignment_daily_checkin, special_status_requests, active_special_status, onboarding_steps, kpi_feedback, kpi_praemien, todo_history, chat_messages, chat_participants, chat_message_reactions, message_recipients, applications, assignments, assignment_tracking, messages, privacy_request_events |  |
+| /api/admin/privacy-requests | GET, PATCH | privacy_requests, user_profiles, privacy_request_events |  |
+| /api/admin/privacy/legal-holds | GET, POST, DELETE | legal_holds |  |
+| /api/admin/privacy/retention-preview | GET |  | get_retention_preview |
+| /api/admin/promotor-kpi-history/[userId] | GET | user_profiles, kpi_feedback |  |
+| /api/admin/promotors-list | GET | user_profiles |  |
+| /api/admin/promotors/[id]/contracts/signed-url | GET | dienstvertrag_files, dienstvertraege |  |
+| /api/admin/promotors/[id]/freed-assignments | GET | user_profiles, freed_assignments_log, assignments |  |
+| /api/admin/promotors/[id]/kpi | GET | user_profiles, kpi_feedback |  |
+| /api/admin/promotors/[id]/profile-stats | GET | user_profiles, assignment_tracking, freed_assignments_log, assignments_with_buddy_info |  |
+| /api/admin/statistiken/generate-email | POST | kpi_feedback |  |
+| /api/admin/team/access-credentials-import | POST | user_profiles, promotor_profiles, applications, access_credentials |  |
+| /api/admin/team/anmeldestatus | GET, POST | user_profiles, anmeldestatus_entries |  |
+| /api/admin/whats-todo | GET | assignments, assignment_participants, assignment_invitations, special_status_requests, promotor_profiles, dienstvertrag_files, applications, user_profiles |  |
+| /api/ai/eddie-chat | POST | eddie_chat_messages, assignment_participants, assignments, documents, promotor_profiles |  |
+| /api/ai/enhance-message | POST |  |  |
+| /api/ai/recommend-promotors | POST | assignments, markets, user_profiles, promotor_profiles, assignment_participants |  |
+| /api/applications | GET, POST, PATCH, DELETE | applications |  |
+| /api/assignments/[id]/applications/decline | POST | assignment_invitations |  |
+| /api/assignments/[id]/applications | GET | assignment_invitations, user_profiles |  |
+| /api/assignments/[id]/invites/accept | POST | assignment_invitations |  |
+| /api/assignments/[id]/invites/acknowledge | POST | assignment_invitations |  |
+| /api/assignments/[id]/invites/respond | POST | assignment_invitations |  |
+| /api/assignments/[id]/invites/status | GET | assignment_invitations |  |
+| /api/assignments/[id]/match-market | POST | assignments, markets |  |
+| /api/assignments/[id]/participants/choose | POST, DELETE | assignment_participants, assignments |  |
+| /api/assignments/[id] | PATCH, DELETE | assignments, markets |  |
+| /api/assignments/[id]/tracking | GET | assignments_with_buddy_info, assignment_tracking, assignment_daily_checkin, assignment_outside_breaks |  |
+| /api/assignments/auto-match | POST | user_profiles, markets, assignments |  |
+| /api/assignments/buddy-tags | GET | assignment_invitations, assignments, assignment_participants, user_profiles |  |
+| /api/assignments/bulk-invite | POST | assignment_invitations, invitation_history |  |
+| /api/assignments/import | POST | user_profiles, assignments, assignment_participants, markets |  |
+| /api/assignments/invitation-history | GET | invitation_history, assignments, user_profiles |  |
+| /api/assignments/invites/acknowledge-all | POST | assignment_invitations |  |
+| /api/assignments/invites/counts | GET | assignment_invitations |  |
+| /api/assignments/invites/details | GET | assignment_invitations, user_profiles |  |
+| /api/assignments/invites/process-state | GET | assignment_invitations |  |
+| /api/assignments/invites | GET | assignment_invitations, assignments, assignment_participants, user_profiles |  |
+| /api/assignments/invites/unacknowledged-accepted | GET | assignment_invitations, assignment_acknowledgments, assignments |  |
+| /api/assignments/invites/unacknowledged-rejected | GET | assignment_invitations, assignment_acknowledgments, assignments |  |
+| /api/assignments/process | GET, POST, DELETE | assignment_processes |  |
+| /api/assignments/promotor-notes/mark-read | POST | einsatznotiz_promotor |  |
+| /api/assignments/promotor-notes | POST, GET | einsatznotiz_promotor, assignment_participants |  |
+| /api/assignments/release-multiple | POST | user_profiles, assignment_participants, assignments, freed_assignments_log |  |
+| /api/assignments | GET, POST | assignment_participants, assignment_invitations, assignments_with_buddy_info, assignments, assignment_tracking, markets |  |
+| /api/assignments/sync-import-promotors | POST | user_profiles, assignments, assignment_participants |  |
+| /api/assignments/today | GET, PATCH | markets, user_profiles, todays_assignments, assignments, assignment_participants, assignment_tracking | check_and_update_tracking_status |
+| /api/auth/create-promotor | POST | user_profiles, applications, promotor_profiles, onboarding_steps |  |
+| /api/chat/admins | GET | user_profiles |  |
+| /api/chat/attachments | GET | chat_participants |  |
+| /api/chat/conversations/[conversationId]/clear-for-me | POST | chat_participants |  |
+| /api/chat/conversations/[conversationId]/mark-read | POST | chat_participants |  |
+| /api/chat/conversations/[conversationId]/mark-unread | POST | chat_participants |  |
+| /api/chat/conversations/[conversationId]/picture | PATCH | user_profiles, chat_conversations |  |
+| /api/chat/conversations/[conversationId]/pin | POST | chat_participants, chat_conversations |  |
+| /api/chat/conversations/[conversationId] | GET | chat_conversations, chat_participants, promotor_profiles |  |
+| /api/chat/conversations/[conversationId]/unpin | POST | chat_participants, chat_conversations |  |
+| /api/chat/conversations | GET, POST | user_profiles, chat_participants, chat_conversations, promotor_profiles, chat_messages |  |
+| /api/chat/messages/[conversationId] | GET | chat_participants, chat_messages, chat_message_hidden, user_profiles, chat_message_reactions, chat_polls, chat_poll_options, chat_poll_votes |  |
+| /api/chat/messages/delete | POST | chat_participants, chat_messages, user_profiles, chat-attachments, chat_message_hidden |  |
+| /api/chat/messages/edit/[messageId] | PUT | chat_messages, user_profiles, chat_message_reactions |  |
+| /api/chat/messages/send | POST | chat_participants, chat_messages, chat_conversations |  |
+| /api/chat/participants/add | POST | chat_conversations, user_profiles, chat_participants, chat_messages |  |
+| /api/chat/participants/remove | POST | chat_conversations, user_profiles, chat_messages, chat_participants |  |
+| /api/chat/polls/[pollId]/vote | POST, DELETE | chat_polls, chat_participants, chat_poll_votes |  |
+| /api/chat/polls/[pollId]/votes | GET | chat_polls, chat_participants, chat_poll_options, chat_poll_votes |  |
+| /api/chat/polls | POST | user_profiles, chat_participants, chat_polls, chat_poll_options, chat_messages, chat_conversations |  |
+| /api/chat/promotors | GET | user_profiles, promotor_profiles |  |
+| /api/chat/reactions/[messageId] | POST, DELETE | chat_messages, chat_participants, chat_message_reactions |  |
+| /api/chat/reactions/[messageId]/users | GET | chat_messages, chat_participants, chat_message_reactions, user_profiles |  |
+| /api/debug-auth | GET |  |  |
+| /api/diagnostics/auth | GET |  |  |
+| /api/me/assignment-tracking | GET | todays_assignments |  |
+| /api/me/calendar-assignments | GET | assignment_participants, assignments_with_buddy_info, assignment_tracking |  |
+| /api/me/documents | GET | promotor_profiles, applications, documents |  |
+| /api/me/einsatz-photos/upload | POST, PATCH | assignment_participants, assignment_tracking |  |
+| /api/me/kpi-feedback-history | GET | kpi_feedback |  |
+| /api/me/kpi-feedback | GET, PATCH | kpi_feedback |  |
+| /api/me/kpi-praemien/average | GET | kpi_praemien |  |
+| /api/me/kpi-praemien/best | GET | kpi_praemien |  |
+| /api/me/kpi-praemien | GET | kpi_praemien |  |
+| /api/me/kpi-praemien/total | GET | kpi_praemien |  |
+| /api/me/leaderboard | GET | kpi_feedback |  |
+| /api/me/markets/resolve | POST | markets |  |
+| /api/me/messages/[id] | PATCH | message_recipients |  |
+| /api/me/messages/[id]/upload | POST, PATCH | message_recipients, message-responses, message_responses |  |
+| /api/me/messages | GET | message_recipients, messages |  |
+| /api/me/monthly-kpis | GET | kpi_monthly_sales |  |
+| /api/me/next-assignment | GET | assignment_participants, assignments |  |
+| /api/me/privacy-requests | GET, POST | privacy_requests, privacy_request_events |  |
+| /api/me/profile-stats | GET | assignment_tracking, freed_assignments_log, assignments_with_buddy_info |  |
+| /api/me | GET | user_profiles |  |
+| /api/me/todos/complete | POST | todo_history |  |
+| /api/me/todos/history | GET | todo_history |  |
+| /api/me/work-status | GET | promotor_profiles, assignment_participants |  |
+| /api/messages/[id] | DELETE | messages |  |
+| /api/messages | POST, GET | messages, message_recipients, messages_with_recipients |  |
+| /api/promotors/[id]/access-credentials | GET, PATCH | access_credentials |  |
+| /api/promotors/[id]/contracts/confirm | POST | contracts |  |
+| /api/promotors/[id]/contracts | GET | dienstvertrag_files, promotor_profiles |  |
+| /api/promotors/[id]/contracts/signed-url | GET | dienstvertrag_files, dienstvertraege |  |
+| /api/promotors/[id]/contracts/upload-url | POST | contracts |  |
+| /api/promotors/[id]/documents/confirm | POST | documents |  |
+| /api/promotors/[id]/documents | GET | documents |  |
+| /api/promotors/[id]/documents/signed-url | GET | documents |  |
+| /api/promotors/[id]/documents/upload-url | POST | documents |  |
+| /api/promotors/[id]/notes | GET, POST | promotor_notes |  |
+| /api/promotors/[id]/onboarding | GET, PATCH | onboarding_steps |  |
+| /api/promotors/[id] | GET, PATCH, DELETE | promotor_profiles, applications, user_profiles |  |
+| /api/promotors/[id]/upcoming-assignments | GET | user_profiles, assignment_participants, assignments_with_buddy_info |  |
+| /api/promotors/assignment-history | POST | assignment_participants |  |
+| /api/promotors/assignments/daily-checkin/pending | GET | assignment_participants, assignment_daily_checkin |  |
+| /api/promotors/assignments/daily-checkin | POST | assignment_participants, assignment_daily_checkin |  |
+| /api/promotors/assignments/notes/unread | GET | einsatznotiz_promotor, assignments_with_buddy_info |  |
+| /api/promotors/assignments/outside-break | POST, GET | assignment_outside_breaks |  |
+| /api/promotors/list | GET | user_profiles |  |
+| /api/promotors | GET | user_profiles, promotor_profiles, applications |  |
+| /api/special-status/active | GET, DELETE | active_special_status, assignment_participants, assignments |  |
+| /api/special-status/apply-daily | GET | active_special_status, assignment_participants, assignments |  |
+| /api/special-status/requests/[id] | PATCH | user_profiles, special_status_requests, active_special_status, assignment_participants, assignments |  |
+| /api/special-status/requests | POST, GET | special_status_requests, user_profiles |  |
 
 ## Complete release file catalog
 
