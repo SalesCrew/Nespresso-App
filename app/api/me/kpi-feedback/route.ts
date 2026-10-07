@@ -1,69 +1,49 @@
-import { NextResponse } from 'next/server'
-import { createSupabaseServerClientAsync } from '@/lib/supabase/server'
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { requireUser } from '@/lib/auth/routeGuards';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 
 export async function GET() {
   try {
-    const server = await createSupabaseServerClientAsync()
-    const { data: { user } } = await server.auth.getUser()
-    
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const auth = await requireUser();
+    if (!auth.ok) return auth.response;
+    if (auth.role !== 'promotor') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const server = await createSupabaseServerClientAsync();
+    // Keep text feedback and KPI-only notifications independent: neither hides the other.
+    const [messages, kpis] = await Promise.all([
+      server.from('kpi_feedback').select('*').eq('user_id', auth.user.id).eq('read', false)
+        .neq('feedback_text', '').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      server.from('kpi_feedback').select('*').eq('user_id', auth.user.id).eq('read', false)
+        .eq('feedback_text', '').order('created_at', { ascending: false }),
+    ]);
+    if (messages.error || kpis.error) {
+      return NextResponse.json({ error: 'KPIs konnten nicht geladen werden.' }, { status: 500 });
     }
-
-    // Fetch unread KPI feedback for this promotor
-    const { data: feedback, error } = await server
-      .from('kpi_feedback')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('read', false)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (error) {
-      console.error('Error fetching KPI feedback:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ feedback: feedback || null })
-  } catch (e: any) {
-    console.error('Server error:', e)
-    return NextResponse.json({ error: e?.message || 'Server error' }, { status: 500 })
+    return NextResponse.json({ feedback: messages.data || null, kpis: kpis.data || [] }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (e) {
+    console.error('Error fetching KPI notifications:', e);
+    return NextResponse.json({ error: 'KPIs konnten nicht geladen werden.' }, { status: 500 });
   }
 }
 
 export async function PATCH(req: Request) {
   try {
-    const server = await createSupabaseServerClientAsync()
-    const { data: { user } } = await server.auth.getUser()
-    
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const body = await req.json()
-    const { feedback_id } = body
-
-    if (!feedback_id) {
-      return NextResponse.json({ error: 'feedback_id required' }, { status: 400 })
-    }
-
-    // Update the feedback to mark as read
-    const { error } = await server
-      .from('kpi_feedback')
-      .update({ read: true })
-      .eq('id', feedback_id)
-      .eq('user_id', user.id) // Ensure promotor can only update their own
-
-    if (error) {
-      console.error('Error updating KPI feedback:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ success: true })
-  } catch (e: any) {
-    console.error('Server error:', e)
-    return NextResponse.json({ error: e?.message || 'Server error' }, { status: 500 })
+    const auth = await requireUser();
+    if (!auth.ok) return auth.response;
+    if (auth.role !== 'promotor') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    let body: unknown;
+    try { body = await req.json(); }
+    catch { return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 }); }
+    const parsed = z.object({ feedback_id: z.string().uuid() }).safeParse(body);
+    if (!parsed.success) return NextResponse.json({ error: 'feedback_id required' }, { status: 400 });
+    const server = await createSupabaseServerClientAsync();
+    const { data, error } = await server.from('kpi_feedback').update({ read: true })
+      .eq('id', parsed.data.feedback_id).eq('user_id', auth.user.id).select('id').maybeSingle();
+    if (error) return NextResponse.json({ error: 'Lesestatus konnte nicht gespeichert werden.' }, { status: 500 });
+    if (!data) return NextResponse.json({ error: 'KPIs nicht gefunden.' }, { status: 404 });
+    return NextResponse.json({ success: true }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (e) {
+    console.error('Error marking KPI notification as read:', e);
+    return NextResponse.json({ error: 'Lesestatus konnte nicht gespeichert werden.' }, { status: 500 });
   }
 }
-

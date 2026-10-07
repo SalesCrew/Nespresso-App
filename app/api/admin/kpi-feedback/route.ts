@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
+import { requireAdmin } from '@/lib/auth/routeGuards';
+import { kpiDeliverySchema, toKpiFeedbackRecords } from '@/lib/statistics/kpiFeedback';
 
 export async function GET() {
   try {
@@ -78,62 +80,35 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const server = await createSupabaseServerClientAsync();
-    const { data: { user } } = await server.auth.getUser();
+    const auth = await requireAdmin();
+    if (!auth.ok) return auth.response;
 
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Check if user is admin
-    const { data: profile } = await server
-      .from('user_profiles')
-      .select('role')
-      .eq('user_id', user.id)
-      .single();
-
-    if (!profile || !['admin_staff', 'admin_of_admins'].includes(profile.role)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
-    const body = await req.json();
-    const { feedbackItems } = body;
-
-    if (!feedbackItems || !Array.isArray(feedbackItems)) {
-      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    let body: unknown;
+    try { body = await req.json(); }
+    catch { return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 }); }
+    const parsed = kpiDeliverySchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Bitte prüfe Promotor, KPI-Werte und die Nachricht.', issues: parsed.error.issues }, { status: 400 });
     }
 
     const svc = createSupabaseServiceClient();
-
-    // Insert all feedback items
-    const feedbackRecords = feedbackItems.map((item: any) => ({
-      user_id: item.user_id,
-      mc_et: parseFloat(item.mc_et),
-      vl_value: parseFloat(item.vl_value),
-      tma: parseFloat(item.tma),
-      feedback_text: item.feedback_text,
-      magic_touch: item.magic_touch || null,
-      read: false
-    }));
-
-    const { data, error } = await svc
-      .from('kpi_feedback')
-      .insert(feedbackRecords)
-      .select();
-
-    if (error) {
-      console.error('Error inserting KPI feedback:', error);
-      return NextResponse.json({ error: 'Failed to save feedback' }, { status: 500 });
+    const recipientIds = [...new Set(parsed.data.feedbackItems.map(item => item.user_id))];
+    const { data: recipients, error: recipientError } = await svc
+      .from('user_profiles').select('user_id, role, deleted').in('user_id', recipientIds);
+    if (recipientError) return NextResponse.json({ error: 'Promotor-Zuordnung konnte nicht geprüft werden.' }, { status: 500 });
+    if (recipients?.length !== recipientIds.length || recipients.some(recipient => recipient.role !== 'promotor' || recipient.deleted === true)) {
+      return NextResponse.json({ error: 'Bitte ordne jede Karte einem aktiven Promotor zu.' }, { status: 400 });
     }
 
-    return NextResponse.json({
-      success: true,
-      count: data?.length || 0,
-      feedback: data
-    });
-  } catch (e: any) {
-    console.error('Error in kpi-feedback:', e);
-    return NextResponse.json({ error: e?.message || 'Server error' }, { status: 500 });
+    const { data, error } = await svc.from('kpi_feedback')
+      .insert(toKpiFeedbackRecords(parsed.data)).select();
+    if (error) {
+      console.error('Error inserting KPI feedback:', error);
+      return NextResponse.json({ error: 'KPIs konnten nicht gespeichert werden.' }, { status: 500 });
+    }
+    return NextResponse.json({ success: true, count: data?.length || 0, feedback: data });
+  } catch (e) {
+    console.error('Error in kpi-feedback POST:', e);
+    return NextResponse.json({ error: 'KPIs konnten nicht gespeichert werden.' }, { status: 500 });
   }
 }
-

@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { ArrowRight, ArrowLeft, ChevronDown, ChevronUp, X, BarChart2, History, Info, Eye, Trophy, User } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import MonthlyMetricsPromotor from "@/components/statistiken/MonthlyMetricsPromotor"
+import KpiDeliveryNotifications from "@/components/statistiken/KpiDeliveryNotifications"
 
 export default function StatistikenPage() {
   // Add navigation state for CA KPIs vs Mystery Shop
@@ -104,9 +105,9 @@ export default function StatistikenPage() {
             // Map to expected format
             const mappedHistory = sortedFeedback.map((item: any) => ({
               date: new Date(item.created_at),
-              mcet: item.mc_et,
-              tma: item.tma,
-              vl: item.vl_value,
+              mcet: Number(item.mc_et),
+              tma: Number(item.tma),
+              vl: Number(item.vl_value),
               feedback_text: item.feedback_text
             }))
             
@@ -964,6 +965,7 @@ Mario`
         </div>
       </div>
       <MonthlyMetricsPromotor />
+      <KpiDeliveryNotifications />
 
       {/* New Feedback Notification Card */}
       {showNewFeedback && (
@@ -1391,7 +1393,16 @@ Mario`
                     !historyExpanded && index > 4 ? 
                       (index === 4 ? 'opacity-50' : 'hidden') : ''
                   }`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${entry.feedback_text?.trim() ? 'Feedback' : 'KPIs ohne Nachricht'} vom ${entry.date.toLocaleDateString('de-AT')}`}
                   onClick={() => setSelectedHistoryEntry(historyPage * entriesPerPage + index)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setSelectedHistoryEntry(historyPage * entriesPerPage + index);
+                    }
+                  }}
                 >
                   <div className="flex-shrink-0 w-24">
                     <div className="flex items-center">
@@ -1511,7 +1522,14 @@ Mario`
               <CardContent className="p-4">
                 <ScrollArea className="h-[280px] pr-4">
                   <div className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed whitespace-pre-line">
-                    {verlaufData[selectedHistoryEntry]?.feedback_text || 'Feedback text wird geladen...'}
+                    {verlaufData[selectedHistoryEntry]?.feedback_text?.trim() || (
+                      <div className="space-y-3">
+                        <p>KPIs ohne Nachricht</p>
+                        <p>MC/ET: {verlaufData[selectedHistoryEntry]?.mcet}</p>
+                        <p>TMA: {verlaufData[selectedHistoryEntry]?.tma}%</p>
+                        <p>VL Share: {verlaufData[selectedHistoryEntry]?.vl}%</p>
+                      </div>
+                    )}
                   </div>
                 </ScrollArea>
               </CardContent>

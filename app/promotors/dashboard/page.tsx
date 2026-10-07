@@ -36,6 +36,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 
+import KpiDeliveryNotifications from "@/components/statistiken/KpiDeliveryNotifications";
+
 // TypeScript interfaces for todo items
 type TodoFilterRange = "heute" | "7tage" | "30tage"
 
@@ -1412,6 +1414,8 @@ export default function DashboardPage() {
         </div>
       )}
 
+
+      <KpiDeliveryNotifications />
 
         {/* Bitte Lesen Cards - Show all normal messages */}
         {messages.filter(msg => msg.message_type === 'normal' && !msg.read_at).map((message) => (

@@ -14,6 +14,7 @@ import AdminNavigation from "@/components/AdminNavigation";
 import AdminEddieAssistant from "@/components/AdminEddieAssistant";
 import MonthlyMetricsAdmin from "@/components/statistiken/MonthlyMetricsAdmin";
 import { parseSalesWorkbook, salesMetrics } from "@/lib/statistics/monthlyKpi";
+import { kpiDeliverySchema, type KpiDeliveryMode } from "@/lib/statistics/kpiFeedback";
 
 interface CardData {
   id: string;
@@ -119,6 +120,9 @@ export default function StatistikenPage() {
   const [validationStates, setValidationStates] = useState<Record<string, boolean>>({});
   const [historyCards, setHistoryCards] = useState<HistoryCardData[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [sendingMode, setSendingMode] = useState<KpiDeliveryMode | null>(null);
+  const sendingRef = useRef(false);
+  const [sendError, setSendError] = useState("");
   const [pendingHistoryDelete, setPendingHistoryDelete] = useState<Record<string, boolean>>({});
   const [selectedPromoterFilter, setSelectedPromoterFilter] = useState("all");
   const [showPromoterFilterDropdown, setShowPromoterFilterDropdown] = useState(false);
@@ -379,9 +383,9 @@ export default function StatistikenPage() {
               id: item.id,
               name: item.promotor_name || 'Unbekannt',
               email: item.promotor_email || '',
-              mcet: item.mc_et,
-              tma: item.tma,
-              vlShare: item.vl_value,
+              mcet: Number(item.mc_et),
+              tma: Number(item.tma),
+              vlShare: Number(item.vl_value),
               magicTouchCategory: item.magic_touch,
               matchedPromoter: item.promotor_name,
               generatedText: item.feedback_text,
@@ -694,62 +698,62 @@ export default function StatistikenPage() {
     setValidationStates(prev => ({ ...prev, [cardId]: !prev[cardId] }));
   };
 
-  const handleSendToHistory = async () => {
-    // Get all validated cards with their complete state
-    const validatedCards = cardData.filter(card =>
-      validationStates[card.id] && generatedStates[card.id] && matchedPromoterIds[card.id]
-    ).map(card => ({
-      ...card,
-      magicTouchCategory: magicTouchCategories[card.id],
-      matchedPromoter: matchedPromoters[card.id],
-      matchedPromoterId: matchedPromoterIds[card.id],
-      generatedText: editedTexts[card.id] || getGeneratedEmailText(),
-      sentAt: new Date()
-    }));
+  const validatedCards = cardData.filter(card => validationStates[card.id]);
+  const canSendKpis = validatedCards.length > 0 && validatedCards.every(card => matchedPromoterIds[card.id]);
+  const canSendFeedback = canSendKpis && validatedCards.every(card => generatedStates[card.id] && editedTexts[card.id]?.trim());
 
-    if (validatedCards.length === 0) {
-      alert('Keine validierten Karten mit zugewiesenem Promotor gefunden.');
+  const handleSendToHistory = async (deliveryMode: KpiDeliveryMode) => {
+    if (sendingRef.current) return;
+    const cardsToSend = cardData.filter(card => validationStates[card.id]);
+    const feedbackItems = cardsToSend.map(card => ({
+      user_id: matchedPromoterIds[card.id],
+      mc_et: card.mcet,
+      vl_value: card.vlShare,
+      tma: card.tma,
+      feedback_text: deliveryMode === "kpis-only" ? "" : editedTexts[card.id],
+      magic_touch: deliveryMode === "kpis-only" ? null : magicTouchCategories[card.id] || null,
+    }));
+    const parsed = kpiDeliverySchema.safeParse({ deliveryMode, feedbackItems });
+    if (!parsed.success) {
+      setSendError("Bitte prüfe die KPI-Werte und die Promotor-Zuordnung jeder validierten Karte. Für Senden ist zusätzlich eine Nachricht erforderlich.");
       return;
     }
-
+    sendingRef.current = true;
+    setSendingMode(deliveryMode);
+    setSendError("");
     try {
-
-      // Prepare feedback items for database
-      const feedbackItems = validatedCards.map(card => {
-        return {
-          user_id: card.matchedPromoterId,
-          mc_et: card.mcet,
-          vl_value: card.vlShare,
-          tma: card.tma,
-          feedback_text: card.generatedText,
-          magic_touch: card.magicTouchCategory || null
-        };
-      });
-
-
-      // Save to database
-      const res = await fetch('/api/admin/kpi-feedback', {
+      const response = await fetch('/api/admin/kpi-feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ feedbackItems })
+        body: JSON.stringify(parsed.data),
       });
-
-      if (!res.ok) {
-        throw new Error('Failed to save feedback');
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'KPIs konnten nicht gespeichert werden.');
+      if (!result.success || result.count !== cardsToSend.length || result.feedback?.length !== cardsToSend.length) {
+        throw new Error('Die Speicherung konnte nicht bestätigt werden. Bitte prüfe die History.');
       }
-
-      const result = await res.json();
-
-      // Add to history UI
-    setHistoryCards(prev => [...prev, ...validatedCards]);
-
-    // Remove from current cards
-    const validatedCardIds = validatedCards.map(card => card.id);
-    setCardData(prev => prev.filter(card => !validatedCardIds.includes(card.id)));
-    removeKpiDraftStateByIds(validatedCardIds);
-    } catch (e) {
-      console.error('Error saving feedback to database:', e);
-      alert('Fehler beim Speichern der Feedback-Daten. Bitte versuchen Sie es erneut.');
+      const savedCards: HistoryCardData[] = result.feedback.map((item: any, index: number) => ({
+        ...cardsToSend[index],
+        id: item.id,
+        mcet: Number(item.mc_et),
+        tma: Number(item.tma),
+        vlShare: Number(item.vl_value),
+        name: matchedPromoters[cardsToSend[index].id] || cardsToSend[index].name,
+        matchedPromoter: matchedPromoters[cardsToSend[index].id],
+        generatedText: item.feedback_text,
+        magicTouchCategory: item.magic_touch,
+        sentAt: new Date(item.created_at),
+        read: item.read,
+      }));
+      setHistoryCards(previous => [...savedCards, ...previous]);
+      const sentIds = cardsToSend.map(card => card.id);
+      setCardData(previous => previous.filter(card => !sentIds.includes(card.id)));
+      removeKpiDraftStateByIds(sentIds);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'KPIs konnten nicht gespeichert werden. Bitte versuche es erneut.');
+    } finally {
+      sendingRef.current = false;
+      setSendingMode(null);
     }
   };
 
@@ -2144,35 +2148,43 @@ Liebe Grüße, dein Nespresso Team`;
                       )}
                     </div>
 
-                    {/* Validation Button - Only show when text is generated */}
-                    {generatedStates[card.id] && (
-                      <div className="-mb-3">
-                        <button
-                          onClick={() => handleValidateText(card.id)}
-                          className={`w-full flex items-center justify-center space-x-2 px-3 py-1 mt-1 text-xs text-white rounded-lg transition-all duration-200 ${validationStates[card.id] ? 'opacity-85' : 'opacity-40'}`}
-                          style={{background: 'linear-gradient(135deg, #22C55E, #105F2D)'}}
-                        >
-                          {validationStates[card.id] && <Check className="h-3.5 w-3.5" />}
-                          <span>Validiert</span>
-                        </button>
-                      </div>
-                    )}
+                    <div className="-mb-3">
+                      <button
+                        onClick={() => handleValidateText(card.id)}
+                        disabled={sendingMode !== null}
+                        aria-pressed={!!validationStates[card.id]}
+                        className={`w-full flex items-center justify-center space-x-2 px-3 py-1 mt-1 text-xs text-white rounded-lg transition-all duration-200 disabled:cursor-wait ${validationStates[card.id] ? 'opacity-85' : 'opacity-40'}`}
+                        style={{background: 'linear-gradient(135deg, #22C55E, #105F2D)'}}
+                      >
+                        {validationStates[card.id] && <Check className="h-3.5 w-3.5" />}
+                        <span>{validationStates[card.id] ? 'Validiert' : 'KPIs validieren'}</span>
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
 
-              {/* Send & Save to History Button - Only show when there are validated cards */}
-              {Object.values(validationStates).some(isValidated => isValidated) && (
-                <div className="mt-6 flex justify-center">
-                  <button
-                    onClick={handleSendToHistory}
-                    className="flex items-center justify-center space-x-2 px-6 py-3 text-sm text-white rounded-lg transition-all duration-200 opacity-85"
-                    style={{background: 'linear-gradient(135deg, #22C55E, #105F2D)'}}
-                  >
-                    <span>Send & Save to History</span>
-                  </button>
+              {validatedCards.length > 0 && (
+                <div className="mt-6 space-y-3">
+                  <div className="flex flex-wrap justify-center gap-3">
+                    <button
+                      onClick={() => void handleSendToHistory("feedback")}
+                      disabled={!canSendFeedback || sendingMode !== null}
+                      className="px-6 py-3 text-sm text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                      style={{background: 'linear-gradient(135deg, #22C55E, #105F2D)'}}
+                    >{sendingMode === "feedback" ? "Wird gesendet…" : "Senden"}</button>
+                    <button
+                      onClick={() => void handleSendToHistory("kpis-only")}
+                      disabled={!canSendKpis || sendingMode !== null}
+                      className="px-6 py-3 text-sm text-green-700 border border-green-600 rounded-lg hover:bg-green-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >{sendingMode === "kpis-only" ? "Wird gesendet…" : "Senden ohne Nachricht"}</button>
+                  </div>
+                  {!canSendKpis && <p className="text-center text-sm text-gray-600">Bitte ordne jede validierte Karte einem Promotor zu.</p>}
+                  {canSendKpis && !canSendFeedback && <p className="text-center text-sm text-gray-600">Ohne Nachricht kannst du direkt senden. Für Senden benötigt jede validierte Karte eine Nachricht.</p>}
                 </div>
               )}
+              {sendError && <p role="alert" className="mt-3 text-center text-sm text-red-600">{sendError}</p>}
+
             </>
           )}
 
@@ -2823,7 +2835,7 @@ Liebe Grüße, dein Nespresso Team`;
 
                             <div className="bg-gray-100 border border-dashed rounded-lg overflow-hidden max-h-96 p-4 border-gray-300">
                               <div className="text-xs text-gray-600 leading-relaxed h-72 overflow-y-auto scrollbar-hide w-full">
-                                <pre className="whitespace-pre-wrap font-sans">{card.generatedText || 'Generated email text'}</pre>
+                                <pre className="whitespace-pre-wrap font-sans">{card.generatedText?.trim() || 'KPIs ohne Nachricht gesendet.'}</pre>
                               </div>
                             </div>
                           </div>
