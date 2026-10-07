@@ -6,7 +6,7 @@ Last updated: 7 October 2026. Owner of this change: KPI delivery without a messa
 
 The repository is SalesCrew/Nespresso-App. The primary Mac checkout is a preserved migration checkpoint at `7d64ea7d59c2d0b71455283069532a167583b0aa`, with 41 modified tracked files and 32 restored source files, plus the local startup note. It must retain that work. The fetched `origin/master` is `5b41f2135db647b62062351be6a791b192c2bb84` and is the feature release baseline.
 
-Vercel project `nespresso-app` (`prj_NPl8DvBxlpufBCp7acMYYdeMe175`) belongs to team `team_1jxKZGLAXPKrEyvgqajh8OQc`. Its latest READY production deployment inspected on 7 October references `78f9041e6ee6382191d70760cafec677677bdad6`. The stable public alias is `nespresso-app-three.vercel.app`. Git and deployed source currently differ by the later monthly KPI/premium commit; production acceptance must include that existing source change.
+Vercel project `nespresso-app` (`prj_NPl8DvBxlpufBCp7acMYYdeMe175`) belongs to team `team_1jxKZGLAXPKrEyvgqajh8OQc`. The verified KPI feature production deployment on 7 October is `dpl_ENqUec87YnqpjXvgro2TbqkBrUZF`, source `14594a04585a182e0f08d243b677a2e47a091abd`, state READY. Its stable public alias is `nespresso-app-three.vercel.app`. This release includes the existing monthly KPI/premium commit from the release baseline. The prior production source was `78f9041e6ee6382191d70760cafec677677bdad6`.
 
 The configured and connected Supabase project is **Nespresso App**, ref `mgrnbobprevtxpxyxjqc`, in eu-central-1. This match was checked against the local configuration without printing credentials. Other connected projects are outside this task. Local configuration lives in `.env.local`, ignored by Git with mode 600. The existing migration startup note and reports remain dated evidence; their original source hashes must remain intact.
 
@@ -83,9 +83,9 @@ Requirements: validate imported KPI cards without generating a message; add **Se
 - [x] Implement dashboard KPI-only card and consistent statistics/history handling.
 - [x] Verify normal feedback and KPI-only flows, failures, refresh persistence and authorization.
 - [x] Review changed React code, run applicable type/build/diff checks and inspect browser rendering.
-- [ ] Push the reviewed commit and verify the intended production deployment/alias.
+- [x] Push the reviewed commit and verify the intended production deployment/alias.
 
-The initial index preceded feature implementation. Feature code is now implemented in the managed `codex/kpi-without-message` worktree, based on the fetched release tip; production data and deployments are unchanged at this checkpoint. Update these boxes only with inspected evidence. Production deployment is explicitly authorized by the current user objective. Verification must use isolated fixtures and avoid sending fabricated KPIs to real promotors.
+The initial index preceded feature implementation. Feature code was implemented and reviewed in the managed `codex/kpi-without-message` worktree, based on the fetched release tip, then pushed to master and deployed with the user's explicit production authorization. All acceptance boxes have inspected evidence. Verification used isolated fixtures; no fabricated KPI data or test credentials were sent to production.
 
 ### Current delivery representation
 
@@ -103,7 +103,7 @@ Ten scenarios pass: validation without text; failed save retains drafts; KPI-onl
 
 The optimized Next 15.5.24 build passes using isolated configuration. Existing project settings skip type/lint checks during builds; a separate compiler-host comparison of the same generated build types finds 196 baseline diagnostics and 196 current diagnostics, with none introduced and none in changed source (the pre-build comparison was 104/104). Existing Supabase Edge Runtime warnings remain. Lockfiles are unchanged. Git diff whitespace checks and every JS/TS AST parse pass. All 415 source hashes and the ignored, mode-600 configuration in the preserved migration checkout still match their restoration evidence.
 
-Local evidence and reproducible fixture scripts are in project-context `salescrew-app/verification-20261007`; the final source index and type comparison are in `app-index-20261007`. The feature requires no database migration or Railway release. Deployment completion must be confirmed separately against the exact pushed source and production alias.
+Local evidence and reproducible fixture scripts are in project-context `salescrew-app/verification-20261007`; the final source index and type comparison are in `app-index-20261007`. The feature requires no database migration or Railway release. The exact pushed feature source and production alias have been confirmed in Vercel. Public HTTP checks pass for the landing page and both login pages (200), unauthenticated admin/promotor redirects (307), and both KPI API access barriers (401). Vercel reports no alias error. The deploy URL retains Vercel SSO protection; the public production alias is the end-user URL. A final documentation commit records this verified feature release.
 
 ## Known limits and operations
 
