@@ -1,4 +1,4 @@
-import { asNumber, calculatePremium, type PremiumRates } from '@/lib/statistics/monthlyKpi';
+import { asCount, asNumber, calculatePremium, type PremiumRates } from '@/lib/statistics/monthlyKpi';
 
 const RATE_KEYS: Array<keyof PremiumRates> = ['vl', 'vl_up', 'tma', 'gs', 'aeroccino'];
 
@@ -29,6 +29,17 @@ export function premiumAmount(row: Record<string, any>): number | null {
     vertuo: Number(row.vertuo || 0), vertuo_pop: Number(row.vertuo_pop || 0),
     aeroccino: Number(row.aeroccino || 0), rates,
   });
+}
+
+export function premiumStatementUpdate(row: Record<string, unknown>, values: unknown) {
+  const rates = parsePremiumRates(values);
+  const total = calculatePremium({
+    tma: asCount(row.tma, 'TMA'), gutscheine: asCount(row.gutscheine, 'GS'),
+    vertuo: asCount(row.vertuo, 'VL'), vertuo_pop: asCount(row.vertuo_pop, 'VL Up'),
+    aeroccino: asCount(row.aeroccino, 'Aeroccino'), rates,
+  });
+  if (total > 9_999_999_999.99) throw new Error('Der Prämienbetrag ist zu groß.');
+  return { rate_snapshot: rates, total_amount: total };
 }
 
 export function premiumBreakdown(row: Record<string, any>) {

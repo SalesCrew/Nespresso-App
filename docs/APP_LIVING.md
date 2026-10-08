@@ -1,12 +1,12 @@
 # SalesCrew / Nespresso app — living engineering reference
 
-Last updated: 7 October 2026. Owner of this change: KPI delivery without a message.
+Last updated: 8 October 2026. Latest change: targeted correction of an existing monthly premium statement.
 
 ## Read this first
 
-The repository is SalesCrew/Nespresso-App. The primary Mac checkout is a preserved migration checkpoint at `7d64ea7d59c2d0b71455283069532a167583b0aa`, with 41 modified tracked files and 32 restored source files, plus the local startup note. It must retain that work. The fetched `origin/master` is `5b41f2135db647b62062351be6a791b192c2bb84` and is the feature release baseline.
+The repository is SalesCrew/Nespresso-App. The primary Mac checkout is a preserved migration checkpoint at `7d64ea7d59c2d0b71455283069532a167583b0aa`, with 41 modified tracked files and 32 restored source files, plus the local startup note. It must retain that work. The original KPI-delivery baseline was `5b41f2135db647b62062351be6a791b192c2bb84`. The 8 October premium correction starts from fetched `origin/master` at `f76443b47d769b8ffdf40eb12f5051c80d6cd620`.
 
-Vercel project `nespresso-app` (`prj_NPl8DvBxlpufBCp7acMYYdeMe175`) belongs to team `team_1jxKZGLAXPKrEyvgqajh8OQc`. The verified KPI feature production deployment on 7 October is `dpl_ENqUec87YnqpjXvgro2TbqkBrUZF`, source `14594a04585a182e0f08d243b677a2e47a091abd`, state READY. Its stable public alias is `nespresso-app-three.vercel.app`. This release includes the existing monthly KPI/premium commit from the release baseline. The prior production source was `78f9041e6ee6382191d70760cafec677677bdad6`.
+Vercel project `nespresso-app` (`prj_NPl8DvBxlpufBCp7acMYYdeMe175`) belongs to team `team_1jxKZGLAXPKrEyvgqajh8OQc`. Its stable public alias is `nespresso-app-three.vercel.app`. Immediately before the 8 October premium correction, production was READY at `dpl_J8EqVZ2v3Kw5JNbyiu6V9wJ4MMs4`, source `f76443b47d769b8ffdf40eb12f5051c80d6cd620`, including KPI delivery without a message. The exact commit, deployment and alias checks for the premium release are recorded in the Mac project-context `verification-20261008/release-evidence.json`; confirm current Vercel metadata before subsequent releases.
 
 The configured and connected Supabase project is **Nespresso App**, ref `mgrnbobprevtxpxyxjqc`, in eu-central-1. This match was checked against the local configuration without printing credentials. Other connected projects are outside this task. Local configuration lives in `.env.local`, ignored by Git with mode 600. The existing migration startup note and reports remain dated evidence; their original source hashes must remain intact.
 
@@ -14,7 +14,7 @@ The configured and connected Supabase project is **Nespresso App**, ref `mgrnbob
 
 The inventory includes every Git-tracked and restored untracked project entry, and every tracked entry at the fetched release tip. The scanner read all file bytes; decoded text records include imports, exported API methods, database/storage references, RPCs, environment-variable names, mutation operations, symbols and line anchors. Every JavaScript/TypeScript file was parsed as an AST; there were no syntax parse diagnostics. Binary assets and lockfiles are inventoried and fingerprinted. Focused source review follows the cross-module app flows and fully traces the KPI delivery/read workflow. Secrets and generated dependencies/build output are excluded from documentation.
 
-The machine index and source inventories are retained under the Mac project-context folder `app-index-20261007`. The initial snapshots cover 416 preserved-checkout entries and 421 release entries. The final feature snapshot covers 425 entries and 143 API routes. This document contains the portable architecture map and the complete release file/API catalogs below. Keep the behavior sections, feature status and acceptance evidence current when a workflow changes; regenerate the catalogs after adding routes or modules. Current source and inspected live metadata take precedence over historical setup instructions.
+The machine index and source inventories are retained under the Mac project-context folder `app-index-20261007`. The initial snapshots cover 416 preserved-checkout entries and 421 release entries. The 7 October snapshot covers 425 entries and 143 API routes. The 8 October premium snapshot in `app-index-20261008` covers 426 entries and the same 143 API routes, including the added PATCH method on the existing premium endpoint. This document contains the portable architecture map and the complete release file/API catalogs below. Keep the behavior sections, feature status and acceptance evidence current when a workflow changes; regenerate the catalogs after adding routes or modules. Current source and inspected live metadata take precedence over historical setup instructions.
 
 ## Runtime, entry points and layouts
 
@@ -61,7 +61,23 @@ The Next frontend/API deploys to Vercel. `server.js` runs the separate Socket.IO
 
 Contracts, identity/employment documents, profile pictures, assignment photos, market photos, chat attachments/group pictures and message responses use separate bucket/workflow paths. Signed upload/confirm and signed download/proxy routes are distinct. Release storage helpers authorize access and translate legacy paths. Existing DSGVO migrations move sensitive content behind ownership/member/admin restrictions and include audit/privacy structures. Preserve those restrictions when adding UI or APIs.
 
-## KPI flow before this change
+## Existing premium correction — 8 October 2026
+
+The reported behavior came from two separate stores: `kpi_premium_rates` saves month-specific default and employee rates, while `kpi_praemien` saves each statement's quantities, rate snapshot and amount. Saving rates intentionally does not rewrite existing accounting records. The monthly `from-kpis` endpoint rejects an existing month's records with 409. Its broad `replace` option is unsuitable for correcting one person's rate because it recalculates the entire month from monthly KPI data.
+
+The admin now chooses the month and employee under **Prämien**, saves the **Sonderrate**, clicks **Abrechnung aktualisieren**, reviews the old and new amount, and confirms with **Änderung speichern**. The employee stays selected after saving. Unsaved individual rates disable the update action. Existing statements disable the whole-month calculation button and direct the user to the individual correction. Changing the month, person or rate input clears a pending confirmation.
+
+`PATCH /api/admin/kpi-praemien` uses the shared database-backed admin/deleted-user guard and validates the target UUID/month. It requires an existing statement and active promotor, selects the saved employee rate before the month's default, and calculates from the statement's stored quantities. Preview is read-only. Confirmation supplies the returned timestamp and rate snapshot; changed versions/rates return 409. An atomic conditional UPDATE filters by statement ID, employee, month and timestamp and changes only `rate_snapshot` and `total_amount`. Stored quantities, statement identity, creation time, other employees and other months remain intact. Failed writes preserve the UI confirmation for retry; conflicts request a fresh preview. Promotor totals and breakdowns already consume the saved snapshot and amount, so they reflect the correction after reload.
+
+No database migration, Railway release, paid generation or automatic adjustment of existing live premiums is required. This feature edits the calculation rates of a statement; quantity corrections continue to use the existing import workflow. There is no paid/locked statement status in the inspected schema.
+
+### Verification evidence
+
+Five checked-in calculation/validation regression tests pass via `npm run test:premium`; the existing six KPI tests also pass. Ten end-to-end scenarios use the actual Next UI and APIs against isolated PostgreSQL loaded with the checked-in premium schemas, trigger and RLS: unsaved rates are blocked; saving rates leaves statements untouched; preview/cancel make no statement writes; a failed save can retry; exactly one correction persists across admin reload; the mobile promotor amount and breakdown persist across reload; anonymous, wrong-role, deleted, malformed and missing-target requests are rejected; changed rates invalidate preview; stale and racing statement edits are rejected; client-supplied amounts/counts are ignored and the existing monthly overwrite guard remains active. Synthetic data covers 254.92 → 442.64 EUR, another employee and a previous month. There are no browser page exceptions. Desktop admin and 390px promotor screenshots were visually inspected.
+
+The optimized production build passes with isolated configuration. Strict TypeScript comparison against the release baseline with the same generated build types finds 196 baseline diagnostics and 196 current diagnostics, with none introduced and none in changed source. The project build intentionally skips its type/lint gates; existing unrelated diagnostics remain. Source, configuration preservation and release evidence are retained under Mac project-context `verification-20261008`; the whole-app AST/file index is under `app-index-20261008`. No synthetic credentials or payroll data are sent to production. Public production checks cover login/landing pages, authenticated-page redirects and the GET/PATCH premium access barriers; the release record confirms the exact master commit, READY deployment and stable alias.
+
+## KPI flow before the 7 October delivery feature
 
 1. Admin statistics imports CA rows and matches each card to an actual promotor. Draft cards, matches, generated/edited text and validation state survive navigation using bounded sessionStorage state.
 2. The validation button is currently shown only after text generation. `handleSendToHistory` filters for validated, generated and matched cards, attaches generated/fallback text, POSTs feedbackItems, then moves successful cards to local history and removes their draft state.
@@ -71,7 +87,7 @@ Contracts, identity/employment documents, profile pictures, assignment photos, m
 
 Live schema inspection confirms feedback_text is NOT NULL but has no non-empty constraint; metric fields are numeric, recipient has an auth-users foreign key, and read defaults to false. Live RLS permits admins and restricts promotor reads/updates to their own recipient rows. The current API PATCH checks ownership but does not verify that a row was actually updated; improve this feature path so failed or foreign acknowledgments do not appear successful. The live policy allows own-row updates broadly; avoid introducing direct browser KPI mutations.
 
-## Requested feature and implementation/acceptance status
+## KPI delivery feature and implementation/acceptance status — 7 October
 
 Requirements: validate imported KPI cards without generating a message; add **Senden ohne Nachricht** next to the existing send action; persist values and move successful cards to admin history; display a dedicated KPI-only notification on the promotor dashboard in the existing feedback-card visual style; persist a read acknowledgment; preserve the ordinary message-send flow and metric history/aggregations; verify and push to production.
 
@@ -129,7 +145,7 @@ The table lists actual exported methods and literal database/storage/RPC referen
 | /api/admin/kpi-praemien/from-kpis | POST | user_profiles, kpi_monthly_sales, kpi_premium_rates, kpi_praemien |  |
 | /api/admin/kpi-praemien/import | POST | user_profiles, kpi_premium_rates, kpi_monthly_sales, kpi_praemien |  |
 | /api/admin/kpi-praemien/latest-summary | GET | user_profiles, kpi_monthly_sales, kpi_praemien |  |
-| /api/admin/kpi-praemien | GET | user_profiles, kpi_praemien |  |
+| /api/admin/kpi-praemien | GET, PATCH | user_profiles, kpi_praemien, kpi_premium_rates |  |
 | /api/admin/maps/config | GET | user_profiles |  |
 | /api/admin/markets/[id]/acceptance-addresses | POST, DELETE | user_profiles, markets, assignments |  |
 | /api/admin/markets/[id]/photos | DELETE | user_profiles, markets, market-photos |  |
@@ -263,7 +279,7 @@ The table lists actual exported methods and literal database/storage/RPC referen
 
 ## Complete release file catalog
 
-Generated dependencies, build artifacts and credential files are excluded. Entries were byte-read and fingerprinted in the final feature index. This living file is updated after each index checkpoint.
+Catalog counts and sizes reflect the 8 October source snapshot before this documentation refresh. The reference itself changes with this catalog.
 
 - `.cursor/rules/backendrules.mdc` — text, 7 lines, 168 bytes.
 - `.gitignore` — text, 30 lines, 373 bytes.
@@ -296,7 +312,7 @@ Generated dependencies, build artifacts and credential files are excluded. Entri
 - `app/api/admin/kpi-praemien/from-kpis/route.ts` — text, 57 lines, 3456 bytes.
 - `app/api/admin/kpi-praemien/import/route.ts` — text, 121 lines, 6047 bytes.
 - `app/api/admin/kpi-praemien/latest-summary/route.ts` — text, 44 lines, 2293 bytes.
-- `app/api/admin/kpi-praemien/route.ts` — text, 45 lines, 2386 bytes.
+- `app/api/admin/kpi-praemien/route.ts` — text, 106 lines, 6621 bytes.
 - `app/api/admin/maps/config/route.ts` — text, 29 lines, 1112 bytes.
 - `app/api/admin/markets/[id]/acceptance-addresses/route.ts` — text, 144 lines, 6025 bytes.
 - `app/api/admin/markets/[id]/photos/route.ts` — text, 101 lines, 3359 bytes.
@@ -474,7 +490,7 @@ Generated dependencies, build artifacts and credential files are excluded. Entri
 - `components/notifications/PromotorToastListener.tsx` — text, 15 lines, 329 bytes.
 - `components/promotors/PromotorUnreadBridge.tsx` — text, 30 lines, 909 bytes.
 - `components/statistiken/KpiDeliveryNotifications.tsx` — text, 118 lines, 6113 bytes.
-- `components/statistiken/MonthlyMetricsAdmin.tsx` — text, 373 lines, 21248 bytes.
+- `components/statistiken/MonthlyMetricsAdmin.tsx` — text, 454 lines, 26206 bytes.
 - `components/statistiken/MonthlyMetricsPromotor.tsx` — text, 111 lines, 6186 bytes.
 - `components/theme-provider.tsx` — text, 12 lines, 292 bytes.
 - `components/ui/accordion.tsx` — text, 59 lines, 1991 bytes.
@@ -530,7 +546,7 @@ Generated dependencies, build artifacts and credential files are excluded. Entri
 - `components/ui/use-mobile.tsx` — text, 20 lines, 565 bytes.
 - `components/ui/use-toast.ts` — text, 195 lines, 3948 bytes.
 - `components/ux/AdminTooltipAuto.tsx` — text, 115 lines, 3699 bytes.
-- `docs/APP_LIVING.md` — text, 679 lines, 61326 bytes.
+- `docs/APP_LIVING.md` — text, 709 lines, 67994 bytes.
 - `docs/CHAT_FINAL_STATUS.md` — text, 272 lines, 9692 bytes.
 - `docs/CHAT_IMPLEMENTATION_STATUS.md` — text, 274 lines, 11840 bytes.
 - `docs/CHAT_INTEGRATION_GUIDE.md` — text, 419 lines, 13491 bytes.
@@ -647,7 +663,7 @@ Generated dependencies, build artifacts and credential files are excluded. Entri
 - `lib/socket/SocketContext.tsx` — text, 140 lines, 4271 bytes.
 - `lib/statistics/kpiFeedback.ts` — text, 54 lines, 1826 bytes.
 - `lib/statistics/monthlyKpi.ts` — text, 224 lines, 9445 bytes.
-- `lib/statistics/premium.ts` — text, 46 lines, 2327 bytes.
+- `lib/statistics/premium.ts` — text, 57 lines, 2873 bytes.
 - `lib/statistics/resolvePromotors.ts` — text, 59 lines, 2542 bytes.
 - `lib/storage/chatAttachments.ts` — text, 30 lines, 965 bytes.
 - `lib/storage/einsatzPhotos.ts` — text, 64 lines, 1945 bytes.
@@ -660,7 +676,7 @@ Generated dependencies, build artifacts and credential files are excluded. Entri
 - `middleware.ts` — text, 115 lines, 4260 bytes.
 - `next.config.mjs` — text, 15 lines, 228 bytes.
 - `package-lock.json` — text, 5738 lines, 208567 bytes.
-- `package.json` — text, 87 lines, 2788 bytes.
+- `package.json` — text, 88 lines, 2857 bytes.
 - `pnpm-lock.yaml` — text, 4133 lines, 160601 bytes.
 - `postcss.config.mjs` — text, 9 lines, 135 bytes.
 - `public/contracts/README.md` — text, 20 lines, 765 bytes.
@@ -688,5 +704,6 @@ Generated dependencies, build artifacts and credential files are excluded. Entri
 - `supabase/migrations/20260925112649_monthly_kpis_and_premium_rates.sql` — text, 87 lines, 3382 bytes.
 - `tailwind.config.ts` — text, 80 lines, 2221 bytes.
 - `tests/kpi-feedback.test.cjs` — text, 56 lines, 3530 bytes.
+- `tests/premium-correction.test.cjs` — text, 55 lines, 2921 bytes.
 - `tsconfig.json` — text, 28 lines, 595 bytes.
 - `vercel.json` — text, 16 lines, 201 bytes.

@@ -24,6 +24,10 @@ type Draft = {
   defaultRates?: PremiumRates;
   preview: Preview;
 };
+type CorrectionPreview = {
+  userId: string; waveMonth: string; oldAmount: number | null; newAmount: number;
+  rateSnapshot: PremiumRates; updatedAt: string;
+};
 
 const emptyRates: PremiumRates = { vl: 0, vl_up: 0, tma: 0, gs: 0, aeroccino: 0 };
 const rateFields: Array<{ key: keyof PremiumRates; label: string }> = [
@@ -39,17 +43,26 @@ export default function MonthlyMetricsAdmin() {
   const [sales, setSales] = useState<any[]>([]);
   const [premiums, setPremiums] = useState<any[]>([]);
   const [rates, setRates] = useState<PremiumRates>(emptyRates);
+  const [savedDefaultRates, setSavedDefaultRates] = useState<PremiumRates>(emptyRates);
   const [overrides, setOverrides] = useState<any[]>([]);
   const [selectedUser, setSelectedUser] = useState('');
   const [overrideRates, setOverrideRates] = useState<PremiumRates>(emptyRates);
   const [promotors, setPromotors] = useState<Array<{ user_id: string; name: string }>>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
+  const [monthLoading, setMonthLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [calculation, setCalculation] = useState<{ count: number; total: number } | null>(null);
   const [expandedPremiumId, setExpandedPremiumId] = useState<string | null>(null);
+  const [correction, setCorrection] = useState<CorrectionPreview | null>(null);
+  const correctionPending = useRef(false);
+  const loadVersion = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const locked = busy || monthLoading;
+  const savedPersonRates = overrides.find(row => row.user_id === selectedUser) || savedDefaultRates;
+  const hasUnsavedRates = rateFields.some(field => Number(savedPersonRates[field.key]) !== overrideRates[field.key]);
+  const selectedStatement = premiums.find(row => row.user_id === selectedUser);
 
   useEffect(() => {
     fetch('/api/admin/kpi-praemien/latest-summary', { cache: 'no-store' })
@@ -59,32 +72,42 @@ export default function MonthlyMetricsAdmin() {
   }, []);
 
   const loadMonth = async (waveMonth: string) => {
-    const [salesResponse, premiumResponse, ratesResponse] = await Promise.all([
-      fetch(`/api/admin/monthly-kpis?waveMonth=${waveMonth}`, { cache: 'no-store' }),
-      fetch(`/api/admin/kpi-praemien?waveMonth=${waveMonth}`, { cache: 'no-store' }),
-      fetch(`/api/admin/premium-rates?waveMonth=${waveMonth}`, { cache: 'no-store' }),
-    ]);
-    const [salesData, premiumData, rateData] = await Promise.all([
-      salesResponse.json(), premiumResponse.json(), ratesResponse.json(),
-    ]);
-    if (!salesResponse.ok || !premiumResponse.ok || !ratesResponse.ok) {
-      throw new Error(salesData.error || premiumData.error || rateData.error || 'Monatsdaten konnten nicht geladen werden.');
+    const version = ++loadVersion.current;
+    setMonthLoading(true);
+    try {
+      const [salesResponse, premiumResponse, ratesResponse] = await Promise.all([
+        fetch(`/api/admin/monthly-kpis?waveMonth=${waveMonth}`, { cache: 'no-store' }),
+        fetch(`/api/admin/kpi-praemien?waveMonth=${waveMonth}`, { cache: 'no-store' }),
+        fetch(`/api/admin/premium-rates?waveMonth=${waveMonth}`, { cache: 'no-store' }),
+      ]);
+      const [salesData, premiumData, rateData] = await Promise.all([
+        salesResponse.json(), premiumResponse.json(), ratesResponse.json(),
+      ]);
+      if (!salesResponse.ok || !premiumResponse.ok || !ratesResponse.ok) {
+        throw new Error(salesData.error || premiumData.error || rateData.error || 'Monatsdaten konnten nicht geladen werden.');
+      }
+      if (version !== loadVersion.current) return;
+      setSales(salesData.items || []);
+      setPremiums(premiumData.items || []);
+      const nextRates = rateData.defaultRates
+        ? Object.fromEntries(rateFields.map(field => [field.key, Number(rateData.defaultRates[field.key])])) as PremiumRates
+        : emptyRates;
+      setRates(nextRates);
+      setSavedDefaultRates(nextRates);
+      setOverrideRates(nextRates);
+      setOverrides(rateData.overrides || []);
+      setPromotors(rateData.promotors || []);
+      setSelectedUser('');
+    } finally {
+      if (version === loadVersion.current) setMonthLoading(false);
     }
-    setSales(salesData.items || []);
-    setPremiums(premiumData.items || []);
-    const nextRates = rateData.defaultRates
-      ? Object.fromEntries(rateFields.map(field => [field.key, Number(rateData.defaultRates[field.key])])) as PremiumRates
-      : emptyRates;
-    setRates(nextRates);
-    setOverrideRates(nextRates);
-    setOverrides(rateData.overrides || []);
-    setPromotors(rateData.promotors || []);
-    setSelectedUser('');
   };
 
   useEffect(() => {
     loadMonth(month).catch(err => setError(err.message));
   }, [month]);
+
+  useEffect(() => { setCorrection(null); }, [month, selectedUser, overrideRates]);
 
   const previewRows = async (kind: Tab, waveMonth: string, rows: Array<SalesInput | PremiumInput>, defaultRates?: PremiumRates) => {
     const url = kind === 'kpi' ? '/api/admin/monthly-kpis' : '/api/admin/kpi-praemien/import';
@@ -161,6 +184,9 @@ export default function MonthlyMetricsAdmin() {
   const saveRates = async (userId: string | null, values: PremiumRates) => {
     setBusy(true);
     setError('');
+    setMessage('');
+    setCalculation(null);
+    setCorrection(null);
     try {
       const response = await fetch('/api/admin/premium-rates', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -168,11 +194,50 @@ export default function MonthlyMetricsAdmin() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Sätze konnten nicht gespeichert werden.');
-      setMessage('Prämiensätze gespeichert. Bereits importierte Abrechnungen bleiben unverändert.');
       await loadMonth(month);
+      if (userId) {
+        setSelectedUser(userId);
+        setOverrideRates(values);
+        setMessage('Sonderrate gespeichert. Für eine vorhandene Abrechnung jetzt „Abrechnung aktualisieren“ wählen.');
+      } else {
+        setMessage('Standardsätze gespeichert. Vorhandene Abrechnungen können einzeln aktualisiert werden.');
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Sätze konnten nicht gespeichert werden.');
     } finally { setBusy(false); }
+  };
+
+  const updateStatement = async (confirmed: boolean) => {
+    if (correctionPending.current || locked || !selectedUser || hasUnsavedRates) return;
+    if (confirmed && !correction) return;
+    correctionPending.current = true;
+    setBusy(true);
+    setError('');
+    setMessage('');
+    const target = confirmed ? correction! : { userId: selectedUser, waveMonth: month };
+    try {
+      const response = await fetch('/api/admin/kpi-praemien', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: target.userId, waveMonth: target.waveMonth, preview: !confirmed,
+          ...(confirmed ? { expectedUpdatedAt: correction!.updatedAt, expectedRates: correction!.rateSnapshot } : {}) }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        if (response.status === 409) { setCorrection(null); await loadMonth(target.waveMonth); }
+        throw new Error(data.error || 'Abrechnung konnte nicht aktualisiert werden.');
+      }
+      if (!confirmed) setCorrection(data);
+      else {
+        const name = promotors.find(person => person.user_id === target.userId)?.name || 'den Mitarbeiter';
+        setCorrection(null);
+        await loadMonth(target.waveMonth);
+        setSelectedUser(target.userId);
+        setOverrideRates(data.rateSnapshot);
+        setMessage(`Abrechnung für ${name} aktualisiert.`);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Abrechnung konnte nicht aktualisiert werden.');
+    } finally { correctionPending.current = false; setBusy(false); }
   };
 
   const calculateFromKpis = async (preview: boolean) => {
@@ -201,7 +266,7 @@ export default function MonthlyMetricsAdmin() {
       {rateFields.map(field => (
         <label key={field.key} className="block text-xs text-gray-600">
           {field.label} (€)
-          <input type="number" min="0" step="0.01" value={value[field.key]}
+          <input type="number" min="0" step="0.01" value={value[field.key]} disabled={locked}
             onChange={event => setValue({ ...value, [field.key]: Number(event.target.value) })}
             className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900" />
         </label>
@@ -215,11 +280,11 @@ export default function MonthlyMetricsAdmin() {
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Monatszahlen</h2>
           <div className="mt-2 inline-flex rounded border border-gray-200 p-0.5" role="tablist" aria-label="Monatszahlen Ansicht">
-            <button role="tab" aria-selected={tab === 'kpi'} onClick={() => { setTab('kpi'); setDraft(null); }}
+            <button role="tab" aria-selected={tab === 'kpi'} disabled={locked} onClick={() => { setTab('kpi'); setDraft(null); }}
               className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm ${tab === 'kpi' ? 'bg-gray-900 text-white' : 'text-gray-600'}`}>
               <BarChart3 className="h-4 w-4" /> KPIs
             </button>
-            <button role="tab" aria-selected={tab === 'premium'} onClick={() => { setTab('premium'); setDraft(null); }}
+            <button role="tab" aria-selected={tab === 'premium'} disabled={locked} onClick={() => { setTab('premium'); setDraft(null); }}
               className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm ${tab === 'premium' ? 'bg-gray-900 text-white' : 'text-gray-600'}`}>
               <Gift className="h-4 w-4" /> Prämien
             </button>
@@ -227,11 +292,11 @@ export default function MonthlyMetricsAdmin() {
         </div>
         <div className="flex items-end gap-2">
           <label className="text-xs text-gray-600">Monat
-            <input type="month" value={month} onChange={event => { if (event.target.value) setMonth(event.target.value); setDraft(null); setCalculation(null); }}
+            <input type="month" value={month} disabled={locked} onChange={event => { if (event.target.value) setMonth(event.target.value); setDraft(null); setCalculation(null); setCorrection(null); setSelectedUser(''); }}
               className="mt-1 block rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900" />
           </label>
           <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={event => handleFile(event.target.files?.[0])} />
-          <button onClick={() => inputRef.current?.click()} disabled={busy}
+          <button onClick={() => inputRef.current?.click()} disabled={locked}
             className="inline-flex h-9 items-center gap-2 rounded border border-gray-300 px-3 text-sm text-gray-800 hover:bg-gray-50 disabled:opacity-50">
             <Upload className="h-4 w-4" /> {tab === 'kpi' ? 'KPI-Liste importieren' : 'Provisionsliste importieren'}
           </button>
@@ -271,8 +336,8 @@ export default function MonthlyMetricsAdmin() {
             <p key={row.sourceRow} className="text-sm text-red-700">Zeile {row.sourceRow}: {row.name} – andere Mengen bei {row.fields.join(', ')}.</p>
           ))}
           <div className="mt-3 flex items-center gap-2">
-            <button onClick={recheck} disabled={busy} className="rounded border border-gray-300 px-3 py-1.5 text-sm">Zuordnung prüfen</button>
-            <button onClick={saveDraft} disabled={busy || !!draft.preview.unmatched?.length || !!draft.preview.mismatches?.length}
+            <button onClick={recheck} disabled={locked} className="rounded border border-gray-300 px-3 py-1.5 text-sm">Zuordnung prüfen</button>
+            <button onClick={saveDraft} disabled={locked || !!draft.preview.unmatched?.length || !!draft.preview.mismatches?.length}
               className="inline-flex items-center gap-2 rounded bg-gray-900 px-3 py-1.5 text-sm text-white disabled:opacity-40">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Import speichern
             </button>
@@ -305,13 +370,13 @@ export default function MonthlyMetricsAdmin() {
           <div className="mb-5 border-b border-gray-200 pb-5">
             <div className="mb-2 flex items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-gray-900">Prämiensätze für {month}</h3>
-              <button onClick={() => saveRates(null, rates)} disabled={busy}
+              <button onClick={() => saveRates(null, rates)} disabled={locked}
                 className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-1 text-xs disabled:opacity-50"><Save className="h-3.5 w-3.5" /> Sätze speichern</button>
             </div>
             {rateInputs(rates, setRates)}
             <div className="mt-4 flex flex-wrap items-end gap-2">
               <label className="text-xs text-gray-600">Abweichender Satz für
-                <select value={selectedUser} onChange={event => {
+                <select value={selectedUser} disabled={locked} onChange={event => {
                   const id = event.target.value;
                   setSelectedUser(id);
                   const saved = overrides.find(row => row.user_id === id);
@@ -321,21 +386,37 @@ export default function MonthlyMetricsAdmin() {
                   {promotors.map(person => <option key={person.user_id} value={person.user_id}>{person.name}</option>)}
                 </select>
               </label>
-              {selectedUser && <button onClick={() => saveRates(selectedUser, overrideRates)} disabled={busy}
+              {selectedUser && <button onClick={() => saveRates(selectedUser, overrideRates)} disabled={locked}
                 className="rounded border border-gray-300 px-2 py-1.5 text-xs">Sonderrate speichern</button>}
             </div>
             {selectedUser && <div className="mt-2">{rateInputs(overrideRates, setOverrideRates)}</div>}
+            {selectedUser && selectedStatement && <div className="mt-3 space-y-2">
+              <button onClick={() => void updateStatement(false)} disabled={locked || hasUnsavedRates}
+                className="rounded border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-50">Abrechnung aktualisieren</button>
+              {hasUnsavedRates && <p className="text-xs text-gray-600">Bitte zuerst die Sonderrate speichern.</p>}
+              {correction && <div role="region" aria-label="Abrechnung bestätigen" className="rounded border border-gray-200 bg-gray-50 p-3">
+                <p className="text-sm font-medium">{promotors.find(person => person.user_id === correction.userId)?.name} · {correction.waveMonth}</p>
+                <p className="mt-1 text-sm">Bisher: {correction.oldAmount === null ? '—' : euro(correction.oldAmount)} → Neu: {euro(correction.newAmount)}</p>
+                <p className="mt-1 text-xs text-gray-600">Die gespeicherten Verkaufsmengen bleiben erhalten.</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button onClick={() => void updateStatement(true)} disabled={locked}
+                    className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">Änderung speichern</button>
+                  <button onClick={() => setCorrection(null)} disabled={locked} className="px-3 py-1.5 text-sm text-gray-600">Abbrechen</button>
+                </div>
+              </div>}
+            </div>}
             {overrides.length > 0 && <p className="mt-2 text-xs text-gray-500">Sonderraten: {overrides.map(row => row.name).join(', ')}</p>}
             <div className="mt-4 flex items-center gap-2">
-              <button onClick={() => calculateFromKpis(true)} disabled={busy || !sales.length}
+              <button onClick={() => calculateFromKpis(true)} disabled={locked || !sales.length || premiums.length > 0}
                 className="rounded border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-50">Aus KPIs berechnen</button>
               {calculation && <>
                 <span className="text-sm text-gray-600">{calculation.count} Personen · {euro(calculation.total)}</span>
-                <button onClick={() => calculateFromKpis(false)} disabled={busy}
+                <button onClick={() => calculateFromKpis(false)} disabled={locked}
                   className="rounded bg-gray-900 px-3 py-1.5 text-sm text-white">Berechnung speichern</button>
                 <button onClick={() => setCalculation(null)} className="text-sm text-gray-600">Abbrechen</button>
               </>}
             </div>
+            {premiums.length > 0 && <p className="mt-2 text-xs text-gray-600">Abrechnungen sind bereits gespeichert. Wähle einen Mitarbeiter, um seine Abrechnung zu aktualisieren.</p>}
           </div>
           <div className="mb-2 flex justify-between text-sm"><strong>Abrechnung</strong><strong>{euro(premiums.reduce((sum, row) => sum + Number(row.amount || 0), 0))}</strong></div>
           <div className="max-h-[420px] overflow-auto">

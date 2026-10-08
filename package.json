@@ -9,7 +9,8 @@
     "start:socket": "NODE_ENV=production node server.js",
     "dev:socket": "node server.js",
     "lint": "next lint",
-    "test:kpi": "node --test tests/kpi-feedback.test.cjs"
+    "test:kpi": "node --test tests/kpi-feedback.test.cjs",
+    "test:premium": "node --test tests/premium-correction.test.cjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
