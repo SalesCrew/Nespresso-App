@@ -1,6 +1,7 @@
 import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { signEinsatzPhotoFields } from '@/lib/storage/einsatzPhotos';
+import { ASSIGNMENT_LOCATION_TRACKING_ENABLED } from '@/lib/location/config';
 import {
   ASSIGNMENT_LOCATION_RADIUS_METERS,
   calculateDistanceMeters,
@@ -467,7 +468,7 @@ export async function PATCH(request: Request) {
       );
     }
 
-    if (!isAdminUpdate && updateData.actual_start_time) {
+    if (ASSIGNMENT_LOCATION_TRACKING_ENABLED && !isAdminUpdate && updateData.actual_start_time) {
       const capturedLocation = parseAssignmentLocationInput(location);
       if (!capturedLocation) {
         return NextResponse.json(

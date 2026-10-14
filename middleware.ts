@@ -20,6 +20,8 @@ function isAdminOnlyApi(pathname: string, method: string): boolean {
   if (pathname === "/api/messages" || pathname.startsWith("/api/messages/")) return true;
 
   if (pathname === "/api/assignments" && method === "POST") return true;
+  // Shared tracking endpoint; the handler checks assignment ownership/admin access.
+  if (pathname === "/api/assignments/today" && method === "PATCH") return false;
   if (/^\/api\/assignments\/[^/]+$/.test(pathname) && ["PATCH", "DELETE"].includes(method)) return true;
 
   return [

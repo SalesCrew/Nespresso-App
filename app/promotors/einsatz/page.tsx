@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { prepareEinsatzPhoto } from "@/lib/einsatz/preparePhoto"
+import { ASSIGNMENT_LOCATION_TRACKING_ENABLED } from "@/lib/location/config"
 import {
   BrowserLocationError,
   requestCurrentAssignmentLocation,
@@ -1250,7 +1251,9 @@ const loadProcessState = async () => {
     setIsStartingEinsatz(true);
 
     try {
-      const currentLocation = await requestCurrentAssignmentLocation();
+      const currentLocation = ASSIGNMENT_LOCATION_TRACKING_ENABLED
+        ? await requestCurrentAssignmentLocation()
+        : undefined;
       // Get Austrian local time as ISO string WITHOUT timezone conversion
       const now = new Date();
       // Use sv-SE locale which gives YYYY-MM-DD HH:mm:ss format
@@ -1269,7 +1272,7 @@ const loadProcessState = async () => {
         assignment_id: displayedAssignment.id,
         actual_start_time: austrianTimeString,
         status: 'gestartet',
-        location: currentLocation,
+        ...(currentLocation ? { location: currentLocation } : {}),
       };
 
       if (earlyStartReason.trim()) {
@@ -2343,7 +2346,7 @@ const loadProcessState = async () => {
                   {isStartingEinsatz ? (
                     <span className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      Standort wird geprüft...
+                      {ASSIGNMENT_LOCATION_TRACKING_ENABLED ? 'Standort wird geprüft...' : 'Einsatz wird gestartet...'}
                     </span>
                   ) : (
                     <span className={`text-sm font-medium transition-opacity duration-300 ${swipePosition > 20 ? 'opacity-0' : 'opacity-100 text-gray-700 dark:text-gray-300'}`}>
