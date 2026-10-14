@@ -7,6 +7,8 @@ import { ArrowRight, ArrowLeft, ChevronDown, ChevronUp, X, BarChart2, History, I
 import { ScrollArea } from "@/components/ui/scroll-area"
 import MonthlyMetricsPromotor from "@/components/statistiken/MonthlyMetricsPromotor"
 import KpiDeliveryNotifications from "@/components/statistiken/KpiDeliveryNotifications"
+import { rankLeaderboard, type RankingEntry } from '@/lib/statistics/rankings'
+import { reportingMonthLabel } from "@/lib/statistics/kpiPresentation"
 
 export default function StatistikenPage() {
   // Add navigation state for CA KPIs vs Mystery Shop
@@ -46,22 +48,32 @@ export default function StatistikenPage() {
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [leaderboardCategory, setLeaderboardCategory] = useState<"mcet" | "tma" | "vlshare">("mcet")
   
-  // Fetch leaderboard when timeframe changes
+  // Refresh ranks for the selected reporting period and whenever the leaderboard opens
   useEffect(() => {
+    const controller = new AbortController()
     const fetchLeaderboard = async () => {
       try {
-        const res = await fetch(`/api/me/leaderboard?timeframe=${timeFrame}`)
+        const res = await fetch(`/api/me/leaderboard?timeframe=${timeFrame}`, { cache: 'no-store', signal: controller.signal })
         if (res.ok) {
           const data = await res.json()
           setRealLeaderboardData(data.leaderboard || [])
           setCurrentUserData(data.currentUserData || null)
+        } else {
+          setRealLeaderboardData([])
+          setCurrentUserData(null)
         }
       } catch (e) {
-        console.error('Failed to fetch leaderboard:', e)
+        if (!controller.signal.aborted) {
+          setRealLeaderboardData([])
+          setCurrentUserData(null)
+          console.error('Failed to fetch leaderboard:', e)
+        }
       }
     }
     fetchLeaderboard()
-  }, [timeFrame])
+    window.addEventListener('focus', fetchLeaderboard)
+    return () => { controller.abort(); window.removeEventListener('focus', fetchLeaderboard) }
+  }, [timeFrame, showLeaderboard])
 
   // Reset scroll to top when changing leaderboard category
   useEffect(() => {
@@ -74,7 +86,7 @@ export default function StatistikenPage() {
   // State for real KPI history data from database
   const [realHistoryData, setRealHistoryData] = useState<any[]>([])
   const [historyDataLoading, setHistoryDataLoading] = useState(true)
-  const [realLeaderboardData, setRealLeaderboardData] = useState<any[]>([])
+  const [realLeaderboardData, setRealLeaderboardData] = useState<RankingEntry[]>([])
   const [currentUserData, setCurrentUserData] = useState<any>(null)
 
 
@@ -99,12 +111,13 @@ export default function StatistikenPage() {
           if (historyData.feedback && historyData.feedback.length > 0) {
             // Sort by created_at descending (newest first)
             const sortedFeedback = historyData.feedback.sort((a: any, b: any) => 
-              new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+              new Date(b.wave_month || b.created_at).getTime() - new Date(a.wave_month || a.created_at).getTime()
             )
             
             // Map to expected format
             const mappedHistory = sortedFeedback.map((item: any) => ({
-              date: new Date(item.created_at),
+              date: new Date(item.wave_month ? `${item.wave_month.slice(0,7)}-01T12:00:00` : item.created_at),
+              waveMonth: item.wave_month?.slice(0,7),
               mcet: Number(item.mc_et),
               tma: Number(item.tma),
               vl: Number(item.vl_value),
@@ -362,50 +375,10 @@ Liebe Grüße, dein Nespresso Team.`
     setLeaderboardData(leaderData)
   }, [])
 
-  // Get sorted leaderboard for the selected category (using real data)
-  const getSortedLeaderboard = () => {
-    let sortedData = [...realLeaderboardData]
-    
-    // Sort by selected category (highest to lowest)
-    if (leaderboardCategory === "mcet") {
-      sortedData.sort((a, b) => b.mcet - a.mcet)
-    } else if (leaderboardCategory === "tma") {
-      sortedData.sort((a, b) => b.tma - a.tma)
-    } else if (leaderboardCategory === "vlshare") {
-      sortedData.sort((a, b) => b.vlshare - a.vlshare)
-    }
-    
-    // Add rank and name for display
-    return sortedData.map((user, index) => ({
-      ...user,
-      rank: index + 1,
-      name: user.isCurrentUser ? "Ich" : null
-    }))
-  }
+  const getSortedLeaderboard = () => rankLeaderboard(realLeaderboardData, leaderboardCategory)
+    .map(user => ({ ...user, name: user.isCurrentUser ? "Ich" : null }))
 
-  // Get current user's rank for the selected category
-  const getCurrentUserRank = () => {
-    if (!currentUserData) return 0
-    
-    const userValue = leaderboardCategory === "mcet" 
-      ? currentUserData.mcet 
-      : leaderboardCategory === "tma" 
-        ? currentUserData.tma 
-        : currentUserData.vlshare
-    
-    let rank = 1
-    realLeaderboardData.forEach(user => {
-      const compareValue = leaderboardCategory === "mcet" 
-        ? user.mcet 
-        : leaderboardCategory === "tma" 
-          ? user.tma 
-          : user.vlshare
-      
-      if (compareValue > userValue) rank++
-    })
-    
-    return rank
-  }
+  const getCurrentUserRank = () => getSortedLeaderboard().find(user => user.isCurrentUser)?.rank || 0
 
   // Helper functions to get colors based on score values (same as CA KPIs)
   const getScoreColorClass = (category: "mcet" | "tma" | "vlshare", value: number) => {
@@ -993,6 +966,7 @@ Mario`
                   <p className="text-white/90 text-sm mt-1 drop-shadow">
                     Du hast ein neues CA KPI Feedback erhalten
                   </p>
+                  {feedbackData?.wave_month && <p className="mt-1 text-xs text-white/80">{reportingMonthLabel(feedbackData.wave_month)}</p>}
                 </div>
               )}
               
@@ -1001,6 +975,9 @@ Mario`
                 <div className="text-center">
                   {!feedbackRead ? (
                     <>
+                      {feedbackData?.premium_amount != null && <p className="mb-4 text-lg font-semibold text-white">
+                        Prämie: {Number(feedbackData.premium_amount).toLocaleString('de-AT', { style: 'currency', currency: 'EUR' })}
+                      </p>}
                       <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 mb-4 border border-white/20 relative">
                         <div className="absolute inset-0 bg-black/20 rounded-lg"></div>
                         <div className="text-white text-xs leading-relaxed text-left whitespace-pre-line relative">
@@ -1395,7 +1372,7 @@ Mario`
                   }`}
                   role="button"
                   tabIndex={0}
-                  aria-label={`${entry.feedback_text?.trim() ? 'Feedback' : 'KPIs ohne Nachricht'} vom ${entry.date.toLocaleDateString('de-AT')}`}
+                  aria-label={`${entry.feedback_text?.trim() ? 'Feedback' : 'KPIs ohne Nachricht'} ${entry.waveMonth ? `für ${reportingMonthLabel(entry.waveMonth)}` : `vom ${entry.date.toLocaleDateString('de-AT')}`}`}
                   onClick={() => setSelectedHistoryEntry(historyPage * entriesPerPage + index)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
@@ -1407,7 +1384,7 @@ Mario`
                   <div className="flex-shrink-0 w-24">
                     <div className="flex items-center">
                       <span className="text-gray-500 dark:text-gray-400">
-                        {entry.date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        {entry.waveMonth ? reportingMonthLabel(entry.waveMonth) : entry.date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                       </span>
                     </div>
                   </div>
@@ -2206,7 +2183,7 @@ Mario`
                    
                    return (
                    <div 
-                     key={user.rank} 
+                     key={user.user_id}
                      className={`flex items-center justify-between p-3 rounded-lg transition-all duration-200 ${
                        user.isCurrentUser 
                          ? "bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-2 border-blue-200 dark:border-blue-700"

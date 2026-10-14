@@ -50,4 +50,6 @@ export interface KpiFeedbackRecord {
   magic_touch: string | null;
   read: boolean;
   created_at: string;
+  wave_month?: string | null;
+  premium_amount?: number | null;
 }

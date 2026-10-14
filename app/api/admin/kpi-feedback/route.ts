@@ -1,3 +1,5 @@
+import { publishedRows } from '@/lib/statistics/publishedRows';
+import { premiumAmount } from '@/lib/statistics/premium';
 import { NextResponse } from 'next/server';
 import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
@@ -61,13 +63,20 @@ export async function GET() {
       return [p.user_id, p];
     }));
 
+    const { data: premiums, error: premiumError } = await publishedRows(svc, 'kpi_praemien');
+    if (premiumError) throw premiumError;
+    const premiumByMonth = new Map((premiums || []).map(row => [`${row.user_id}:${row.wave_month}`,row]));
+
     // Map to include promotor details at top level
     const feedbackWithDetails = (feedback || []).map((item: any) => {
       const profile = profileMap.get(item.user_id);
+      const premium = premiumByMonth.get(`${item.user_id}:${item.wave_month}`);
       return {
         ...item,
         promotor_name: profile?.display_name || 'Name nicht gefunden',
-        promotor_email: ''
+        promotor_email: '',
+        premium_amount: premium ? premiumAmount(premium) : null,
+        premium_sent_at: premium?.sent_at || null
       };
     });
 

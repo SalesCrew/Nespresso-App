@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { asCount, asNumber, salesMetrics, validMonth, type SalesInput } from '@/lib/statistics/monthlyKpi';
+import { missingDeliverySchema } from '@/lib/statistics/monthlyDelivery';
 import { resolvePromotors } from '@/lib/statistics/resolvePromotors';
 
 async function requireAdmin() {
@@ -29,8 +30,10 @@ export async function GET(req: NextRequest) {
       waveMonth = latest?.wave_month?.slice(0, 7) || null;
     }
     if (!waveMonth) return NextResponse.json({ waveMonth: null, items: [] });
-    const { data: rows, error } = await svc.from('kpi_monthly_sales').select('*')
+    let { data: rows, error } = await svc.from('kpi_monthly_sales').select('*,sent_at')
       .eq('wave_month', `${waveMonth}-01`).order('mc', { ascending: false });
+    const workflowReady = !missingDeliverySchema(error);
+    if (!workflowReady) ({ data: rows, error } = await svc.from('kpi_monthly_sales').select('*').eq('wave_month', `${waveMonth}-01`).order('mc', { ascending: false }));
     if (error) throw error;
     const ids = (rows || []).map(row => row.user_id);
     const { data: profiles } = ids.length
@@ -38,7 +41,7 @@ export async function GET(req: NextRequest) {
       : { data: [] };
     const names = new Map((profiles || []).map(profile => [profile.user_id, profile.display_name]));
     return NextResponse.json({
-      waveMonth,
+      waveMonth, workflowReady,
       items: (rows || []).map(row => ({ ...row, promotor_name: names.get(row.user_id) || '', ...salesMetrics(row) })),
     });
   } catch (error) {
@@ -101,9 +104,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ...preview, error: 'Bitte Zuordnung und Mengenabweichungen prüfen.' }, { status: 422 });
     }
 
+    const { data: existing, error: statusError } = await svc.from('kpi_monthly_sales').select('*,sent_at').eq('wave_month', `${waveMonth}-01`);
+    if (missingDeliverySchema(statusError)) return NextResponse.json({ error: 'Der neue Import benötigt die vorbereitete Datenbankmigration.' }, { status: 503 });
+    if (statusError) throw statusError;
+    const published = new Map((existing || []).filter(row => row.sent_at !== null).map(row => [row.user_id,row]));
+    const quantityFields = ['einsatztage','mc','tma','gs','vl','vl_up','aeroccino'] as const;
+    if (result.matched.some(row => { const old = published.get(row.user_id); return old && quantityFields.some(key => Number(old[key]) !== row[key]); })) {
+      return NextResponse.json({ error: 'Diese KPI-Werte wurden bereits gesendet. Ein Import darf gesendete Monatswerte nicht ändern.' }, { status: 409 });
+    }
+    const pending = result.matched.filter(row => !published.has(row.user_id));
+    if (!pending.length) return NextResponse.json({ ...preview, imported: 0, warning: 'Alle Zeilen wurden bereits gesendet.' });
     const { data, error } = await svc.from('kpi_monthly_sales').upsert(
-      result.matched.map(row => ({
-        user_id: row.user_id, wave_month: `${waveMonth}-01`, einsatztage: row.einsatztage,
+      pending.map(row => ({
+        user_id: row.user_id, wave_month: `${waveMonth}-01`, sent_at: null, einsatztage: row.einsatztage,
         mc: row.mc, tma: row.tma, gs: row.gs, vl: row.vl, vl_up: row.vl_up,
         aeroccino: row.aeroccino, updated_at: new Date().toISOString(),
       })),
@@ -112,6 +125,6 @@ export async function POST(req: NextRequest) {
     if (error) throw error;
     return NextResponse.json({ ...preview, imported: data?.length || 0 });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'KPI-Import fehlgeschlagen.' }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'KPI-Import fehlgeschlagen.' }, { status: (error as { code?: string }).code === 'PT409' ? 409 : 400 });
   }
 }

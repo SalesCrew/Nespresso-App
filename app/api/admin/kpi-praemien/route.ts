@@ -3,6 +3,7 @@ import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
 import { premiumAmount, premiumBreakdown, parsePremiumRates, premiumStatementUpdate } from '@/lib/statistics/premium';
 import { validMonth } from '@/lib/statistics/monthlyKpi';
+import { missingDeliverySchema } from '@/lib/statistics/monthlyDelivery';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth/routeGuards';
 
@@ -25,7 +26,9 @@ export async function GET(req: NextRequest) {
       waveMonth = latest?.wave_month?.slice(0, 7) || null;
     }
     if (!waveMonth) return NextResponse.json({ waveMonth: null, items: [], totals: { amount: 0 } });
-    const { data: rows, error } = await svc.from('kpi_praemien').select('*').eq('wave_month', `${waveMonth}-01`);
+    let { data: rows, error } = await svc.from('kpi_praemien').select('*,sent_at').eq('wave_month', `${waveMonth}-01`);
+    const workflowReady = !missingDeliverySchema(error);
+    if (!workflowReady) ({ data: rows, error } = await svc.from('kpi_praemien').select('*').eq('wave_month', `${waveMonth}-01`));
     if (error) throw error;
     const ids = (rows || []).map(row => row.user_id);
     const { data: profiles } = ids.length
@@ -37,7 +40,7 @@ export async function GET(req: NextRequest) {
       amount: premiumAmount(row), breakdown: premiumBreakdown(row),
     }));
     const total = Math.round(items.reduce((sum, row) => sum + (row.amount || 0), 0) * 100) / 100;
-    return NextResponse.json({ waveMonth, items, totals: { amount: total } });
+    return NextResponse.json({ waveMonth, workflowReady, items, totals: { amount: total } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Prämien konnten nicht geladen werden.' }, { status: 500 });
   }

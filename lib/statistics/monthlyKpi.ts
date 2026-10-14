@@ -35,10 +35,10 @@ export type PremiumInput = {
 };
 
 const MONTHS: Record<string, number> = {
-  januar: 1, jan: 1, februar: 2, feb: 2, maerz: 3, marz: 3, march: 3,
+  januar: 1, jaenner: 1, janner: 1, jan: 1, februar: 2, feb: 2, maerz: 3, marz: 3, march: 3,
   april: 4, apr: 4, mai: 5, may: 5, juni: 6, jun: 6, juli: 7, jul: 7,
-  august: 8, aug: 8, september: 9, sep: 9, oktober: 10, oct: 10,
-  november: 11, nov: 11, dezember: 12, dec: 12,
+  august: 8, aug: 8, september: 9, sep: 9, sept: 9, oktober: 10, okt: 10, oct: 10,
+  november: 11, nov: 11, dezember: 12, dez: 12, dec: 12,
 };
 
 export function normalizeName(value: unknown): string {
@@ -68,7 +68,7 @@ export function validMonth(value: unknown): string {
   return month;
 }
 
-function monthFromSheet(sheetName: string, cellValue?: unknown): string {
+export function monthFromSheet(sheetName: string, cellValue?: unknown, reportingYear?: number): string {
   if (cellValue instanceof Date && !Number.isNaN(cellValue.getTime())) {
     return `${cellValue.getUTCFullYear()}-${String(cellValue.getUTCMonth() + 1).padStart(2, '0')}`;
   }
@@ -79,6 +79,14 @@ function monthFromSheet(sheetName: string, cellValue?: unknown): string {
   const textDate = String(cellValue || '');
   const iso = textDate.match(/^(\d{4})-(\d{2})/);
   if (iso) return validMonth(`${iso[1]}-${iso[2]}`);
+  const germanDate = textDate.match(/^\d{1,2}\.(\d{1,2})\.(\d{4})$/);
+  if (germanDate) return validMonth(`${germanDate[2]}-${germanDate[1].padStart(2,'0')}`);
+  const normalizedCell = normalizeName(textDate);
+  const named = normalizedCell.match(/^([a-z]+) (\d{4})$/);
+  if (named && MONTHS[named[1]]) return validMonth(`${named[2]}-${String(MONTHS[named[1]]).padStart(2,'0')}`);
+  const year = sheetName.match(/\b(20\d{2})\b/)?.[1] || reportingYear;
+  if (MONTHS[normalizedCell] && year) return validMonth(`${year}-${String(MONTHS[normalizedCell]).padStart(2,'0')}`);
+  if (textDate.trim()) throw new Error(`Ungültiger Berichtsmonat: ${textDate}. Bitte Monat und Jahr prüfen.`);
   const match = normalizeName(sheetName).match(/([a-z]+) (20\d{2})/);
   if (match && MONTHS[match[1]]) return `${match[2]}-${String(MONTHS[match[1]]).padStart(2, '0')}`;
   throw new Error('Monat weder im Blattnamen noch in der Liste erkannt.');
@@ -116,40 +124,56 @@ export function calculatePremium(row: Pick<PremiumInput, 'tma' | 'gutscheine' | 
   return cents / 100;
 }
 
-export function parseSalesWorkbook(workbook: XLSX.WorkBook): { waveMonth: string; rows: SalesInput[] } {
-  const sheet = firstSheet(workbook);
-  const data = rowsOf(sheet);
-  const header = data[0] || [];
-  const indexes = {
-    email: headerIndex(header, 'Emailadresse'), month: headerIndex(header, 'Monat'),
-    et: headerIndex(header, 'ET'), mc: headerIndex(header, 'MC'),
-    tma: headerIndex(header, 'TMA'), gs: headerIndex(header, 'GS'),
-    vl: headerIndex(header, 'VL'), vlUp: headerIndex(header, 'VL Up'),
-    aeroccino: headerIndex(header, 'Aeroccino'),
+export type SalesColumn = 'name' | 'firstName' | 'lastName' | 'email' | 'month' | 'et' | 'mc' | 'tma' | 'gs' | 'vl' | 'vlUp' | 'aeroccino';
+export type SalesColumnMap = Record<SalesColumn, number>;
+export const salesColumnLabels: Record<SalesColumn, string> = {
+  name: 'Coffee Advisor / vollständiger Name', firstName: 'Vorname', lastName: 'Nachname', email: 'Emailadresse',
+  month: 'Monat', et: 'ET', mc: 'MC', tma: 'TMA', gs: 'GS', vl: 'VL', vlUp: 'VL Up / VL Pop+/UP', aeroccino: 'Aeroccino',
+};
+export function salesWorkbookColumns(workbook: XLSX.WorkBook): { headers: string[]; mapping: SalesColumnMap } {
+  const header = rowsOf(firstSheet(workbook))[0] || [];
+  const aliases: Record<SalesColumn, string[]> = {
+    name: ['Coffee Advisor', 'Promotor', 'Name'], firstName: ['Vorname'], lastName: ['Nachname'],
+    email: ['Emailadresse', 'E-Mail', 'Email'], month: ['Monat', 'Berichtsmonat'], et: ['ET', 'Einsatztage'],
+    mc: ['MC'], tma: ['TMA', 'TAP'], gs: ['GS'], vl: ['VL'], vlUp: ['VL Up', 'VL Pop+/UP'], aeroccino: ['Aeroccino'],
   };
-  headerIndex(header, 'MC/ET');
-  headerIndex(header, 'Anteil TMA');
-  headerIndex(header, 'VL Share');
-  const waveMonth = monthFromSheet(workbook.SheetNames[0], data[1]?.[indexes.month]);
+  const mapping = Object.fromEntries(Object.entries(aliases).map(([key, names]) =>
+    [key, header.findIndex(value => names.some(name => normalizeName(value) === normalizeName(name)))])) as SalesColumnMap;
+  return { headers: header.map((value, index) => String(value || `Spalte ${XLSX.utils.encode_col(index)}`)), mapping };
+}
+export function salesWorkbookMonths(workbook: XLSX.WorkBook, mapping: SalesColumnMap, reportingYear?: number): string[] {
+  if (mapping.month < 0) throw new Error('Spalte "Monat" fehlt. Bitte zuordnen.');
+  const months = rowsOf(firstSheet(workbook)).slice(1).filter(row => row.some(value => value != null && value !== ''))
+    .filter(row => normalizeName(row[mapping.name >= 0 ? mapping.name : mapping.firstName]) !== 'summe')
+    .map(row => monthFromSheet(workbook.SheetNames[0], row[mapping.month], reportingYear));
+  return [...new Set(months)].sort();
+}
+export function parseSalesWorkbook(workbook: XLSX.WorkBook, reportingYear?: number,
+  options: { mapping?: SalesColumnMap; month?: string } = {}): { waveMonth: string; rows: SalesInput[] } {
+  const data = rowsOf(firstSheet(workbook));
+  const indexes = options.mapping || salesWorkbookColumns(workbook).mapping;
+  for (const field of ['email', 'month', 'et', 'mc', 'tma', 'gs', 'vl', 'vlUp', 'aeroccino'] as SalesColumn[]) {
+    if (indexes[field] < 0 || indexes[field] >= (data[0] || []).length) throw new Error(`Spalte "${salesColumnLabels[field]}" fehlt.`);
+  }
+  const months = salesWorkbookMonths(workbook, indexes, reportingYear);
+  const waveMonth = options.month ? validMonth(options.month) : months[0];
+  if (!waveMonth || !months.includes(waveMonth)) throw new Error('Keine KPI-Zeilen für diesen Berichtsmonat gefunden.');
+  if (!options.month && months.length > 1) throw new Error(`Liste: anderer Monat (${months.join(', ')}). Bitte einen Berichtsmonat auswählen.`);
   const rows: SalesInput[] = [];
   for (let i = 1; i < data.length; i++) {
     const row = data[i] || [];
-    if (!row[0] && !row[1]) continue;
-    if (normalizeName(row[0]) === 'summe') continue;
-    const month = monthFromSheet(workbook.SheetNames[0], row[indexes.month]);
-    if (month !== waveMonth) throw new Error(`Zeile ${i + 1}: anderer Monat (${month}).`);
+    const name = indexes.name >= 0 ? String(row[indexes.name] || '').trim()
+      : [row[indexes.firstName], row[indexes.lastName]].filter(Boolean).join(' ').trim();
+    const email = String(row[indexes.email] || '').trim();
+    if ((!name && !email) || normalizeName(name) === 'summe') continue;
+    const month = monthFromSheet(workbook.SheetNames[0], row[indexes.month], reportingYear);
+    if (month !== waveMonth) continue;
     const einsatztage = asNumber(row[indexes.et], `Zeile ${i + 1} ET`);
     if (einsatztage < 0) throw new Error(`Zeile ${i + 1}: ET darf nicht negativ sein.`);
-    rows.push({
-      name: [row[0], row[1]].filter(Boolean).join(' ').trim(),
-      email: String(row[indexes.email] || '').trim(),
-      einsatztage,
-      mc: asCount(row[indexes.mc], `Zeile ${i + 1} MC`),
-      tma: asCount(row[indexes.tma], `Zeile ${i + 1} TMA`),
-      gs: asCount(row[indexes.gs], `Zeile ${i + 1} GS`),
-      vl: asCount(row[indexes.vl], `Zeile ${i + 1} VL`),
-      vl_up: asCount(row[indexes.vlUp], `Zeile ${i + 1} VL Up`),
-      aeroccino: asCount(row[indexes.aeroccino], `Zeile ${i + 1} Aeroccino`),
+    rows.push({ name, email, einsatztage,
+      mc: asCount(row[indexes.mc], `Zeile ${i + 1} MC`), tma: asCount(row[indexes.tma], `Zeile ${i + 1} TMA`),
+      gs: asCount(row[indexes.gs], `Zeile ${i + 1} GS`), vl: asCount(row[indexes.vl], `Zeile ${i + 1} VL`),
+      vl_up: asCount(row[indexes.vlUp], `Zeile ${i + 1} VL Up`), aeroccino: asCount(row[indexes.aeroccino], `Zeile ${i + 1} Aeroccino`),
       sourceRow: i + 1,
     });
   }
@@ -168,7 +192,7 @@ function rateFromHeader(value: unknown): number {
   return match ? asNumber(match[0], 'Prämiensatz') : 0;
 }
 
-export function parsePremiumWorkbook(workbook: XLSX.WorkBook): { waveMonth: string; defaultRates: PremiumRates; rows: PremiumInput[] } {
+export function parsePremiumWorkbook(workbook: XLSX.WorkBook, reportingYear?: number): { waveMonth: string; defaultRates: PremiumRates; rows: PremiumInput[] } {
   const sheet = firstSheet(workbook);
   const data = rowsOf(sheet);
   const header = data[0] || [];
@@ -177,7 +201,8 @@ export function parsePremiumWorkbook(workbook: XLSX.WorkBook): { waveMonth: stri
     tma: headerIndex(header, 'TMA'), gs: headerIndex(header, 'GS'),
     aeroccino: headerIndex(header, 'Aeroccino'), total: headerIndex(header, 'Summe'),
   };
-  const waveMonth = monthFromSheet(workbook.SheetNames[0]);
+  const monthColumn = header.findIndex(value => normalizeName(value) === 'monat');
+  const waveMonth = monthFromSheet(workbook.SheetNames[0], monthColumn >= 0 ? data[1]?.[monthColumn] : undefined, reportingYear);
   const defaultRates: PremiumRates = {
     vl: rateFromHeader(header[columns.vl + 1]),
     vl_up: rateFromHeader(header[columns.vlUp + 1]),
@@ -190,6 +215,7 @@ export function parsePremiumWorkbook(workbook: XLSX.WorkBook): { waveMonth: stri
     const row = data[i] || [];
     if (!row[0] && !row[1]) continue;
     if (normalizeName(row[0]) === 'summe') continue;
+    if (monthColumn >= 0 && monthFromSheet(workbook.SheetNames[0], row[monthColumn], reportingYear) !== waveMonth) throw new Error(`Zeile ${i + 1}: anderer Berichtsmonat.`);
     const rowNumber = i + 1;
     const base = {
       name: [row[0], row[1]].filter(Boolean).join(' ').trim(),

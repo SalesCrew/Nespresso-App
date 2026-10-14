@@ -1,3 +1,5 @@
+import { publishedRows } from '@/lib/statistics/publishedRows';
+import { premiumAmount } from '@/lib/statistics/premium';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireUser } from '@/lib/auth/routeGuards';
@@ -19,7 +21,11 @@ export async function GET() {
     if (messages.error || kpis.error) {
       return NextResponse.json({ error: 'KPIs konnten nicht geladen werden.' }, { status: 500 });
     }
-    return NextResponse.json({ feedback: messages.data || null, kpis: kpis.data || [] }, { headers: { 'Cache-Control': 'no-store' } });
+    const { data: premiums, error: premiumError } = await publishedRows(server, 'kpi_praemien', { userId: auth.user.id });
+    if (premiumError) return NextResponse.json({ error: 'Prämien konnten nicht geladen werden.' }, { status: 500 });
+    const amounts = new Map((premiums || []).map(row => [row.wave_month,premiumAmount(row)]));
+    const withPremium = (item: Record<string, any>) => ({ ...item,premium_amount: amounts.get(item.wave_month) ?? null });
+    return NextResponse.json({ feedback: messages.data ? withPremium(messages.data) : null, kpis: (kpis.data || []).map(withPremium) }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e) {
     console.error('Error fetching KPI notifications:', e);
     return NextResponse.json({ error: 'KPIs konnten nicht geladen werden.' }, { status: 500 });

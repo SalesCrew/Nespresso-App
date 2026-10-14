@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
+import { kpiColor, kpiColorStyle } from '@/lib/statistics/kpiPresentation';
 import { BarChart3, Gift } from 'lucide-react';
 
 type SalesRow = {
@@ -81,9 +82,9 @@ export default function MonthlyMetricsPromotor() {
             {salesRow ? (
               <>
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
-                  <div><dt className="text-gray-500">MC/ET</dt><dd className="font-semibold">{Number(salesRow.mc_et).toFixed(1)}</dd></div>
-                  <div><dt className="text-gray-500">TMA/TAP-Quote</dt><dd className="font-semibold">{Number(salesRow.tap_quote).toFixed(1)} %</dd></div>
-                  <div><dt className="text-gray-500">VL Share</dt><dd className="font-semibold">{Number(salesRow.vl_share).toFixed(1)} %</dd></div>
+                  <div><dt className="text-gray-500">MC/ET</dt><dd className={`font-semibold ${kpiColor('mcet',salesRow.mc_et)}`} style={kpiColorStyle(kpiColor('mcet',salesRow.mc_et))}>{Number(salesRow.mc_et).toFixed(1)}</dd></div>
+                  <div><dt className="text-gray-500">TMA/TAP-Quote</dt><dd className={`font-semibold ${kpiColor('tma',salesRow.tap_quote)}`} style={kpiColorStyle(kpiColor('tma',salesRow.tap_quote))}>{Number(salesRow.tap_quote).toFixed(1)} %</dd></div>
+                  <div><dt className="text-gray-500">VL Share</dt><dd className={`font-semibold ${kpiColor('vlshare',salesRow.vl_share)}`} style={kpiColorStyle(kpiColor('vlshare',salesRow.vl_share))}>{Number(salesRow.vl_share).toFixed(1)} %</dd></div>
                   <div><dt className="text-gray-500">VL Up</dt><dd className="font-semibold">{salesRow.vl_up}</dd></div>
                 </dl>
                 <p className="mt-3 text-xs text-gray-500">{salesRow.mc} MC · {Number(salesRow.einsatztage).toLocaleString('de-AT')} ET · {salesRow.tma} TMA/TAP · {salesRow.gs} GS · {salesRow.vl} VL · {salesRow.aeroccino} Aeroccino</p>

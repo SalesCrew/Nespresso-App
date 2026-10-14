@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { reportingMonthLabel } from '@/lib/statistics/kpiPresentation';
 import { BarChart2, Check } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { KpiFeedbackRecord } from "@/lib/statistics/kpiFeedback";
@@ -95,11 +96,14 @@ export default function KpiDeliveryNotifications() {
         <Card className="relative bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 border-0 shadow-xl overflow-hidden">
           <div className="py-4 px-6 text-center text-white">
             <BarChart2 className="h-6 w-6 mx-auto mb-2" />
-            <h3 className="font-bold text-lg">Neue KPIs verfügbar!</h3>
+            <h3 className="font-bold text-lg">{delivery.premium_amount != null ? 'KPIs und Prämie verfügbar!' : 'Neue KPIs verfügbar!'}</h3>
             <p className="text-sm text-white/90 mt-1">Deine neuen CA KPIs sind da.</p>
-            <p className="text-xs text-white/80 mt-1">{new Date(delivery.created_at).toLocaleDateString("de-AT")}</p>
+            <p className="text-xs text-white/80 mt-1">{delivery.wave_month ? reportingMonthLabel(delivery.wave_month) : new Date(delivery.created_at).toLocaleDateString("de-AT")}</p>
           </div>
           <CardContent className="p-4 pt-0 text-center">
+            {delivery.premium_amount != null && <p className="mb-4 text-lg font-semibold text-white">
+              Prämie: {Number(delivery.premium_amount).toLocaleString('de-AT', { style: 'currency', currency: 'EUR' })}
+            </p>}
             <dl className="grid grid-cols-3 gap-2 rounded-lg bg-black/20 p-4 mb-4 text-white border border-white/20">
               <div><dt className="text-xs">MC/ET</dt><dd className="text-lg font-semibold">{formatMetric(delivery.mc_et)}</dd></div>
               <div><dt className="text-xs">TMA</dt><dd className="text-lg font-semibold">{formatMetric(delivery.tma)}%</dd></div>

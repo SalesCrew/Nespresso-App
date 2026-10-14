@@ -1,3 +1,5 @@
+import { validMonth } from '@/lib/statistics/monthlyKpi';
+import { reportingMonthLabel } from '@/lib/statistics/kpiPresentation';
 import { NextResponse } from 'next/server'
 import { recordDataAccess } from '@/lib/audit/dataAccess'
 import { requireAdmin } from '@/lib/auth/routeGuards'
@@ -19,6 +21,7 @@ export async function POST(req: Request) {
     const tmaRaw: string = (body?.tma ?? '').toString()
     const vlShareRaw: string = (body?.vlShare ?? '').toString()
     const category: string = (body?.category ?? 'Neutral').toString()
+    const waveMonth = body?.waveMonth ? validMonth(body.waveMonth) : null
     const mcetRank: number = parseInt((body?.mcetRank ?? '0').toString())
     const vlRank: number = parseInt((body?.vlRank ?? '0').toString())
 
@@ -42,7 +45,7 @@ export async function POST(req: Request) {
     // Get current month name in German
     const currentDate = new Date()
     const monthNames = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
-    const currentMonthName = monthNames[currentDate.getMonth()]
+    const currentMonthName = waveMonth ? reportingMonthLabel(waveMonth) : monthNames[currentDate.getMonth()]
 
     // Extract first name from full name
     const pName = name.split(' ')[0] || 'Promotor'
@@ -61,13 +64,14 @@ export async function POST(req: Request) {
     let historicalContextString = 'Kein numerischer Vergleichskontext.'
     if (userId) {
       const service = createSupabaseServiceClient()
-      const { data: latest } = await service
+      let historyQuery = service
         .from('kpi_feedback')
         .select('mc_et, tma, vl_value, created_at')
         .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
+      historyQuery = waveMonth
+        ? historyQuery.lt('wave_month', `${waveMonth}-01`).order('wave_month', { ascending: false })
+        : historyQuery.order('created_at', { ascending: false })
+      const { data: latest } = await historyQuery.limit(1).maybeSingle()
       if (latest) {
         historicalContextString = `Vorherige KPIs: MC/ET ${String(latest.mc_et ?? '')}, TMA ${String(latest.tma ?? '')}%, VL Share ${String(latest.vl_value ?? '')}%.`
       }

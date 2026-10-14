@@ -1,3 +1,4 @@
+import { missingDeliverySchema } from '@/lib/statistics/monthlyDelivery';
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
@@ -88,9 +89,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ...preview, error: 'Bitte Zuordnung und Mengenabweichungen prüfen.' }, { status: 422 });
     }
 
+    const { data: existing, error: statusError } = await svc.from('kpi_praemien').select('*,sent_at').eq('wave_month', `${waveMonth}-01`);
+    if (missingDeliverySchema(statusError)) return NextResponse.json({ error: 'Der neue Import benötigt die vorbereitete Datenbankmigration.' }, { status: 503 });
+    if (statusError) throw statusError;
+    const published = new Set((existing || []).filter(row => row.sent_at !== null).map(row => row.user_id));
+    const pending = resolved.matched.filter(row => !published.has(row.user_id));
+    if (!pending.length) return NextResponse.json({ ...preview, imported: 0, warning: 'Alle Abrechnungen wurden bereits gesendet. Korrekturen bitte einzeln bestätigen.' });
     const { data, error } = await svc.from('kpi_praemien').upsert(
-      resolved.matched.map(row => ({
-        user_id: row.user_id, wave_month: `${waveMonth}-01`,
+      pending.map(row => ({
+        user_id: row.user_id, wave_month: `${waveMonth}-01`, sent_at: null,
         gutscheine: row.gutscheine, tma: row.tma, vertuo: row.vertuo,
         vertuo_pop: row.vertuo_pop, aeroccino: row.aeroccino,
         vorteilsbox: 0, rate_snapshot: row.rates,
@@ -113,7 +120,7 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ ...preview, imported: data?.length || 0, warning: rateWarning });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Provisionsimport fehlgeschlagen.' }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Provisionsimport fehlgeschlagen.' }, { status: (error as { code?: string }).code === 'PT409' ? 409 : 400 });
   }
 }
 

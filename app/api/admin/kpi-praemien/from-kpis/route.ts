@@ -1,3 +1,4 @@
+import { missingDeliverySchema } from '@/lib/statistics/monthlyDelivery';
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
@@ -16,6 +17,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const month = validMonth(body.waveMonth);
     const svc = createSupabaseServiceClient();
+    const status = await svc.from('kpi_praemien').select('sent_at').limit(1);
+    if (missingDeliverySchema(status.error)) return NextResponse.json({ error: 'Die Berechnung benötigt die vorbereitete Datenbankmigration.' }, { status: 503 });
+    if (status.error) throw status.error;
     const date = `${month}-01`;
     const [{ data: sales, error: salesError }, { data: rates, error: ratesError }, { data: existing, error: existingError }] = await Promise.all([
       svc.from('kpi_monthly_sales').select('user_id, tma, gs, vl, vl_up, aeroccino').eq('wave_month', date),
@@ -39,7 +43,7 @@ export async function POST(req: NextRequest) {
         vertuo_pop: row.vl_up, aeroccino: row.aeroccino,
       };
       return {
-        user_id: row.user_id, wave_month: date, ...counts,
+        user_id: row.user_id, wave_month: date, sent_at: null, ...counts,
         vorteilsbox: 0, rate_snapshot: rateSnapshot,
         total_amount: calculatePremium({ ...counts, rates: rateSnapshot }),
       };
@@ -51,6 +55,6 @@ export async function POST(req: NextRequest) {
     if (error) throw error;
     return NextResponse.json({ waveMonth: month, imported: data?.length || 0, total });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Prämien konnten nicht berechnet werden.' }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Prämien konnten nicht berechnet werden.' }, { status: (error as { code?: string }).code === 'PT409' ? 409 : 500 });
   }
 }

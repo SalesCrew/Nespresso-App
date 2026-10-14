@@ -1,94 +1,37 @@
-import { NextResponse } from 'next/server'
-import { createSupabaseServerClientAsync } from '@/lib/supabase/server'
-import { createSupabaseServiceClient } from '@/lib/supabase/service'
+import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/auth/routeGuards';
+import { createSupabaseServiceClient } from '@/lib/supabase/service';
+import { buildLeaderboard } from '@/lib/statistics/rankings';
 
 export async function GET(req: Request) {
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  if (!auth.isAdmin && auth.role !== 'promotor') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const params = new URL(req.url).searchParams;
+  const month = params.get('waveMonth') || undefined;
+  const timeframe = params.get('timeframe') || '30days';
+  if ((month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) || !['30days', '6months', 'alltime'].includes(timeframe)) {
+    return NextResponse.json({ error: 'Invalid reporting period' }, { status: 400 });
+  }
   try {
-    const server = await createSupabaseServerClientAsync()
-    const { data: { user } } = await server.auth.getUser()
-    
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { searchParams } = new URL(req.url)
-    const timeframe = searchParams.get('timeframe') || '30days'
-
-    const svc = createSupabaseServiceClient()
-
-    // Fetch all KPI feedback
-    const { data: allFeedback, error } = await svc
-      .from('kpi_feedback')
-      .select('user_id, mc_et, tma, vl_value, created_at')
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      console.error('Error fetching KPI feedback for leaderboard:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    if (!allFeedback || allFeedback.length === 0) {
-      return NextResponse.json({ leaderboard: [], currentUserData: null })
-    }
-
-    // Group feedback by user_id
-    const userFeedbackMap = new Map<string, any[]>()
-    allFeedback.forEach((item: any) => {
-      if (!userFeedbackMap.has(item.user_id)) {
-        userFeedbackMap.set(item.user_id, [])
+    const svc = createSupabaseServiceClient();
+    const allRows = async (table: string, columns: string, order = 'id') => {
+      const rows: Record<string, any>[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await svc.from(table).select(columns).order(order).range(offset, offset + 999);
+        if (error) throw error;
+        rows.push(...(data || []));
+        if (!data || data.length < 1000) return rows;
       }
-      userFeedbackMap.get(item.user_id)!.push(item)
-    })
-
-    // Calculate stats for each user based on timeframe
-    const leaderboardData: any[] = []
-    
-    userFeedbackMap.forEach((feedback, userId) => {
-      // Sort by created_at descending (newest first)
-      const sortedFeedback = feedback.sort((a: any, b: any) => 
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      )
-
-      let mcet: number, tma: number, vlshare: number
-
-      if (timeframe === '30days') {
-        // Latest wave only (most recent entry)
-        const latest = sortedFeedback[0]
-        mcet = latest.mc_et
-        tma = latest.tma
-        vlshare = latest.vl_value
-      } else if (timeframe === '6months') {
-        // Average of last 6 waves (or fewer if less than 6 exist)
-        const last6 = sortedFeedback.slice(0, Math.min(6, sortedFeedback.length))
-        mcet = last6.reduce((sum, item) => sum + item.mc_et, 0) / last6.length
-        tma = last6.reduce((sum, item) => sum + item.tma, 0) / last6.length
-        vlshare = last6.reduce((sum, item) => sum + item.vl_value, 0) / last6.length
-      } else {
-        // All time average
-        mcet = sortedFeedback.reduce((sum, item) => sum + item.mc_et, 0) / sortedFeedback.length
-        tma = sortedFeedback.reduce((sum, item) => sum + item.tma, 0) / sortedFeedback.length
-        vlshare = sortedFeedback.reduce((sum, item) => sum + item.vl_value, 0) / sortedFeedback.length
-      }
-
-      leaderboardData.push({
-        user_id: userId,
-        mcet,
-        tma,
-        vlshare,
-        isCurrentUser: userId === user.id
-      })
-    })
-
-    // Find current user's data
-    const currentUserData = leaderboardData.find(u => u.isCurrentUser) || null
-
-    return NextResponse.json({ 
-      leaderboard: leaderboardData,
-      currentUserData 
-    })
-  } catch (e: any) {
-    console.error('Server error:', e)
-    return NextResponse.json({ error: e?.message || 'Server error' }, { status: 500 })
+    };
+    const [sales, feedback, profiles] = await Promise.all([
+      allRows('kpi_monthly_sales', '*'), allRows('kpi_feedback', '*'),
+      allRows('user_profiles', 'user_id,role,deleted,display_name', 'user_id'),
+    ]);
+    return NextResponse.json(buildLeaderboard(sales, feedback, profiles, { userId: auth.user.id, admin: auth.isAdmin, month, timeframe }),
+      { headers: { 'Cache-Control': 'private, no-store' } });
+  } catch (error) {
+    console.error('Leaderboard query failed', error);
+    return NextResponse.json({ error: 'Ranks konnten nicht geladen werden.' }, { status: 500 });
   }
 }
-

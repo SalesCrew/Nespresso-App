@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Settings, Send, FileText, Download, Phone, Crown, Check, Zap, Mail, ChevronDown, Copy, Edit, X, TrendingUp, PieChart, Percent, ChevronUp, Gift, Upload, Table } from "lucide-react";
 import { IoColorWandOutline } from "react-icons/io5";
@@ -13,8 +13,11 @@ import html2canvas from 'html2canvas';
 import AdminNavigation from "@/components/AdminNavigation";
 import AdminEddieAssistant from "@/components/AdminEddieAssistant";
 import MonthlyMetricsAdmin from "@/components/statistiken/MonthlyMetricsAdmin";
+import { AdminStatisticsCombobox, AdminStatisticsSelect } from "@/components/statistiken/AdminStatisticsControls";
+import { kpiColor, kpiColorStyle, reportingMonthLabel } from '@/lib/statistics/kpiPresentation';
+import { rankLeaderboard, type RankingEntry } from '@/lib/statistics/rankings';
+import type { MonthlySalesRow } from '@/lib/statistics/monthlyDelivery';
 import { parseSalesWorkbook, salesMetrics } from "@/lib/statistics/monthlyKpi";
-import { kpiDeliverySchema, type KpiDeliveryMode } from "@/lib/statistics/kpiFeedback";
 
 interface CardData {
   id: string;
@@ -23,6 +26,7 @@ interface CardData {
   mcet: number;
   tma: number;
   vlShare: number;
+  userId?: string; waveMonth?: string; updatedAt?: string;
 }
 
 interface HistoryCardData extends CardData {
@@ -31,6 +35,7 @@ interface HistoryCardData extends CardData {
   generatedText?: string;
   sentAt?: Date;
   read?: boolean;
+  premiumAmount?: number | null;
 }
 
 const KPI_DRAFT_STORAGE_KEY = "admin.statistiken.kpiDraft.v1";
@@ -69,7 +74,7 @@ const pickRecordByCardIds = <T,>(source: Record<string, T>, cardIdSet: Set<strin
 const sanitizeDraftCardData = (value: unknown): CardData[] => {
   if (!Array.isArray(value)) return [];
   return value
-    .map((item) => {
+    .map((item): CardData | null => {
       if (!isRecordObject(item)) return null;
       const id = typeof item.id === "string" ? item.id.trim() : "";
       if (!id) return null;
@@ -80,6 +85,9 @@ const sanitizeDraftCardData = (value: unknown): CardData[] => {
         mcet: Number.isFinite(Number(item.mcet)) ? Number(item.mcet) : 0,
         tma: Number.isFinite(Number(item.tma)) ? Number(item.tma) : 0,
         vlShare: Number.isFinite(Number(item.vlShare)) ? Number(item.vlShare) : 0,
+        userId: typeof item.userId === 'string' ? item.userId : undefined,
+        waveMonth: typeof item.waveMonth === 'string' ? item.waveMonth : undefined,
+        updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : undefined,
       } satisfies CardData;
     })
     .filter((item): item is CardData => Boolean(item));
@@ -102,6 +110,11 @@ export default function StatistikenPage() {
   const shouldStopGenerationRef = useRef(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showExcelFormatInfo, setShowExcelFormatInfo] = useState(false);
+  const [monthlyLocked, setMonthlyLocked] = useState(false);
+  const [feedbackMode, setFeedbackMode] = useState(false);
+  const [importRequest, setImportRequest] = useState(0);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [historyMonth, setHistoryMonth] = useState('all');
   const [cardData, setCardData] = useState<CardData[]>([]);
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [selectedCard, setSelectedCard] = useState<CardData | null>(null);
@@ -110,19 +123,34 @@ export default function StatistikenPage() {
   const [scheduledCalls, setScheduledCalls] = useState<{id: string, name: string, email: string}[]>([]);
   const [callHistory, setCallHistory] = useState<{id: string, name: string, email: string, completedAt: Date}[]>([]);
   const [showRanksModal, setShowRanksModal] = useState(false);
+  const [rankData, setRankData] = useState<RankingEntry[]>([]);
+  const [rankMonth, setRankMonth] = useState('');
+  const [rankRefresh, setRankRefresh] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    const refresh = async () => {
+      try {
+        const response = await fetch(`/api/me/leaderboard${rankMonth ? `?waveMonth=${rankMonth}` : ''}`, { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) throw new Error('Ranks konnten nicht geladen werden.');
+        const data = await response.json();
+        setRankData(data.leaderboard || []);
+      } catch (error) {
+        if (!controller.signal.aborted) { setRankData([]); console.error(error); }
+      }
+    };
+    refresh();
+    window.addEventListener('focus', refresh);
+    return () => { controller.abort(); window.removeEventListener('focus', refresh); };
+  }, [rankMonth, rankRefresh, showRanksModal]);
   const [activeRanksTab, setActiveRanksTab] = useState<"mcet" | "tma" | "vlshare">("mcet");
   const [recentlyScheduled, setRecentlyScheduled] = useState<{[key: string]: boolean}>({});
   const [matchedPromoters, setMatchedPromoters] = useState<{[cardId: string]: string | null}>({});
   const [matchedPromoterIds, setMatchedPromoterIds] = useState<{[cardId: string]: string | null}>({});
   const [availablePromotersData, setAvailablePromotersData] = useState<{name: string, user_id: string}[]>([]);
   const [showPromoterDropdown, setShowPromoterDropdown] = useState<{[cardId: string]: boolean}>({});
-  const [promoterSearch, setPromoterSearch] = useState<{[cardId: string]: string}>({});
   const [validationStates, setValidationStates] = useState<Record<string, boolean>>({});
   const [historyCards, setHistoryCards] = useState<HistoryCardData[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [sendingMode, setSendingMode] = useState<KpiDeliveryMode | null>(null);
-  const sendingRef = useRef(false);
-  const [sendError, setSendError] = useState("");
   const [pendingHistoryDelete, setPendingHistoryDelete] = useState<Record<string, boolean>>({});
   const [selectedPromoterFilter, setSelectedPromoterFilter] = useState("all");
   const [showPromoterFilterDropdown, setShowPromoterFilterDropdown] = useState(false);
@@ -135,6 +163,28 @@ export default function StatistikenPage() {
   const kpiDraftPersistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 
+  const monthlyVersions = useRef(new Map<string,string>());
+  const monthlyDraftCards = useRef(new Map<string,CardData>());
+  const loadMonthlyCards = useCallback((rows: MonthlySalesRow[], month: string) => {
+    setRankMonth(month);
+    setRankRefresh(value => value + 1);
+    const changed = rows.filter(row => monthlyVersions.current.has(row.id) && monthlyVersions.current.get(row.id) !== row.updated_at).map(row => row.id);
+    rows.forEach(row => monthlyVersions.current.set(row.id,row.updated_at));
+    if (changed.length) setValidationStates(previous => ({ ...previous,...Object.fromEntries(changed.map(id => [id,false])) }));
+    const nextCards = rows.map(row => ({ id: row.id, userId: row.user_id, waveMonth: row.wave_month.slice(0,7), updatedAt: row.updated_at,
+      name: row.promotor_name, email: '', mcet: Number(row.mc_et), tma: Number(row.tap_quote), vlShare: Number(row.vl_share) }));
+    const ids = new Set(nextCards.map(card => card.id));
+    for (const [id,card] of monthlyDraftCards.current) {
+      if (card.waveMonth === month && !ids.has(id)) monthlyDraftCards.current.delete(id);
+    }
+    nextCards.forEach(card => monthlyDraftCards.current.set(card.id,card));
+    setCardData(nextCards);
+    setMatchedPromoters(Object.fromEntries(rows.map(row => [row.id,row.promotor_name])));
+    setMatchedPromoterIds(Object.fromEntries(rows.map(row => [row.id,row.user_id])));
+  }, []);
+  const reviewedFeedback = useMemo(() => Object.fromEntries(cardData.filter(card => generatedStates[card.id])
+    .map(card => [card.id,editedTexts[card.id] || ''])), [cardData,generatedStates,editedTexts]);
+
   // Unique promoter names that actually appear in history
   const historyPromoterNames = useMemo(() => {
     const names = historyCards.map(c => c.name).filter(Boolean) as string[];
@@ -143,9 +193,9 @@ export default function StatistikenPage() {
 
   // Apply promoter filter to history cards
   const displayedHistoryCards = useMemo(() => {
-    if (selectedPromoterFilter === "all") return historyCards;
-    return historyCards.filter(c => c.name === selectedPromoterFilter);
-  }, [historyCards, selectedPromoterFilter]);
+    return historyCards.filter(card => (selectedPromoterFilter === 'all' || card.name === selectedPromoterFilter)
+      && (historyMonth === 'all' || (historyMonth === 'legacy' ? !card.waveMonth : card.waveMonth === historyMonth)));
+  }, [historyCards, selectedPromoterFilter, historyMonth]);
 
   const removeKpiDraftStateByIds = (cardIds: string[]) => {
     if (cardIds.length === 0) return;
@@ -167,7 +217,6 @@ export default function StatistikenPage() {
     setMatchedPromoters((prev) => pruneRecord(prev));
     setMatchedPromoterIds((prev) => pruneRecord(prev));
     setShowPromoterDropdown((prev) => pruneRecord(prev));
-    setPromoterSearch((prev) => pruneRecord(prev));
     setCopiedText((prev) => pruneRecord(prev));
     setRecentlyScheduled((prev) => pruneRecord(prev));
     setOpenDropdown((prev) => (prev && toRemove.has(prev) ? null : prev));
@@ -183,7 +232,6 @@ export default function StatistikenPage() {
     setMatchedPromoters({});
     setMatchedPromoterIds({});
     setShowPromoterDropdown({});
-    setPromoterSearch({});
     setCopiedText({});
     setRecentlyScheduled({});
     setOpenDropdown(null);
@@ -203,6 +251,10 @@ export default function StatistikenPage() {
       }
 
       const restoredCardData = sanitizeDraftCardData(parsed.cardData);
+      restoredCardData.forEach(card => {
+        if (card.updatedAt) monthlyVersions.current.set(card.id,card.updatedAt);
+        if (card.userId && card.waveMonth) monthlyDraftCards.current.set(card.id,card);
+      });
       const cardIdSet = new Set(restoredCardData.map((card) => card.id));
       const sanitizeRecord = <T,>(
         source: unknown,
@@ -280,7 +332,8 @@ export default function StatistikenPage() {
     }
 
     kpiDraftPersistTimeoutRef.current = setTimeout(() => {
-      const cardIdSet = new Set(cardData.map((card) => card.id));
+      const draftCards = [...monthlyDraftCards.current.values(), ...cardData.filter(card => !card.userId)];
+      const cardIdSet = new Set(draftCards.map((card) => card.id));
       const pickedEditedTexts = pickRecordByCardIds(editedTexts, cardIdSet);
       const boundedEditedTexts = Object.fromEntries(
         Object.entries(pickedEditedTexts).map(([cardId, text]) => [
@@ -291,7 +344,7 @@ export default function StatistikenPage() {
       const snapshot: KpiDraftSnapshot = {
         version: KPI_DRAFT_STORAGE_VERSION,
         savedAt: Date.now(),
-        cardData,
+        cardData: draftCards,
         matchedPromoters: pickRecordByCardIds(matchedPromoters, cardIdSet),
         matchedPromoterIds: pickRecordByCardIds(matchedPromoterIds, cardIdSet),
         magicTouchCategories: pickRecordByCardIds(magicTouchCategories, cardIdSet),
@@ -389,7 +442,9 @@ export default function StatistikenPage() {
               magicTouchCategory: item.magic_touch,
               matchedPromoter: item.promotor_name,
               generatedText: item.feedback_text,
-              sentAt: new Date(item.created_at),
+              waveMonth: item.wave_month?.slice(0,7),
+              premiumAmount: item.premium_amount,
+              sentAt: new Date(item.wave_month ? `${item.wave_month.slice(0,7)}-01T12:00:00` : item.created_at),
               read: item.read || false
             };
           });
@@ -408,7 +463,7 @@ export default function StatistikenPage() {
 
     fetchPromoters();
     fetchHistory();
-  }, []);
+  }, [historyRefresh]);
 
   const availablePromoters = availablePromotersData.map(p => p.name);
 
@@ -475,31 +530,10 @@ export default function StatistikenPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Color functions for KPI values - same as promoter statistics
-  const getColorForMcEt = (value: number) => {
-    if (value >= 4.5) return "text-green-600 dark:text-green-400"
-    if (value >= 4.0) return "custom-orange"
-    return "text-red-600 dark:text-red-400"
-  }
-
-  const getColorForTma = (value: number) => {
-    if (value >= 75) return "text-green-600 dark:text-green-400"
-    if (value >= 65) return "custom-orange"
-    return "text-red-600 dark:text-red-400"
-  }
-
-  const getColorForVlShare = (value: number) => {
-    if (value >= 10) return "text-green-600 dark:text-green-400"
-    if (value >= 6) return "custom-orange"
-    return "text-red-600 dark:text-red-400"
-  }
-
-  const getStyleForColor = (colorClass: string) => {
-    if (colorClass === "custom-orange") {
-      return { color: "#FD7E14" }
-    }
-    return {}
-  }
+  const getColorForMcEt = (value: number) => kpiColor('mcet',value);
+  const getColorForTma = (value: number) => kpiColor('tma',value);
+  const getColorForVlShare = (value: number) => kpiColor('vlshare',value);
+  const getStyleForColor = kpiColorStyle;
 
   // Handle KPI container click to open stats modal
   const handleKPIClick = async (card: CardData) => {
@@ -627,21 +661,23 @@ export default function StatistikenPage() {
   const handleGenerateEmail = async (cardId: string) => {
     const card = cardData.find(c => c.id === cardId);
     if (!card) return;
+    setValidationStates(prev => ({ ...prev, [cardId]: false }));
     setGeneratingStates(prev => ({ ...prev, [cardId]: true }));
 
     try {
-      // Calculate rankings: sort by MC/ET and VL Share descending
-      const mcetSorted = [...cardData].sort((a, b) => parseFloat(String(b.mcet)) - parseFloat(String(a.mcet)));
-      const vlShareSorted = [...cardData].sort((a, b) => parseFloat(String(b.vlShare)) - parseFloat(String(a.vlShare)));
-
-      const mcetRank = mcetSorted.findIndex(c => c.id === cardId) + 1;
-      const vlRank = vlShareSorted.findIndex(c => c.id === cardId) + 1;
+      const rankResponse = await fetch(`/api/me/leaderboard${card.waveMonth ? `?waveMonth=${card.waveMonth}` : ''}`, { cache: 'no-store' });
+      if (!rankResponse.ok) throw new Error('Ranks konnten nicht geladen werden.');
+      const ranks = (await rankResponse.json()).leaderboard as RankingEntry[];
+      const userId = card.userId || matchedPromoterIds[cardId];
+      const mcetRank = rankLeaderboard(ranks, 'mcet').find(row => row.user_id === userId)?.rank;
+      const vlRank = rankLeaderboard(ranks, 'vlshare').find(row => row.user_id === userId)?.rank;
 
       const res = await fetch('/api/admin/statistiken/generate-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: card.name,
+          waveMonth: card.waveMonth,
           email: card.email,
           userId: matchedPromoterIds[cardId] || null,
           mcet: card.mcet,
@@ -666,7 +702,7 @@ export default function StatistikenPage() {
 
   const handleCopyGeneratedText = async (cardId: string) => {
     try {
-      const textToCopy = editedTexts[cardId] || getGeneratedEmailText();
+      const textToCopy = editedTexts[cardId] || '';
       await navigator.clipboard.writeText(textToCopy);
       setCopiedText(prev => ({ ...prev, [cardId]: true }));
       setTimeout(() => {
@@ -684,13 +720,14 @@ export default function StatistikenPage() {
     } else {
       // Start editing
       if (!editedTexts[cardId]) {
-        setEditedTexts(prev => ({ ...prev, [cardId]: getGeneratedEmailText() }));
+        setEditedTexts(prev => ({ ...prev, [cardId]: '' }));
       }
       setEditingStates(prev => ({ ...prev, [cardId]: true }));
     }
   };
 
   const handleTextChange = (cardId: string, newText: string) => {
+    setValidationStates(prev => ({ ...prev, [cardId]: false }));
     setEditedTexts(prev => ({ ...prev, [cardId]: newText }));
   };
 
@@ -698,96 +735,7 @@ export default function StatistikenPage() {
     setValidationStates(prev => ({ ...prev, [cardId]: !prev[cardId] }));
   };
 
-  const validatedCards = cardData.filter(card => validationStates[card.id]);
-  const canSendKpis = validatedCards.length > 0 && validatedCards.every(card => matchedPromoterIds[card.id]);
-  const canSendFeedback = canSendKpis && validatedCards.every(card => generatedStates[card.id] && editedTexts[card.id]?.trim());
-
-  const handleSendToHistory = async (deliveryMode: KpiDeliveryMode) => {
-    if (sendingRef.current) return;
-    const cardsToSend = cardData.filter(card => validationStates[card.id]);
-    const feedbackItems = cardsToSend.map(card => ({
-      user_id: matchedPromoterIds[card.id],
-      mc_et: card.mcet,
-      vl_value: card.vlShare,
-      tma: card.tma,
-      feedback_text: deliveryMode === "kpis-only" ? "" : editedTexts[card.id],
-      magic_touch: deliveryMode === "kpis-only" ? null : magicTouchCategories[card.id] || null,
-    }));
-    const parsed = kpiDeliverySchema.safeParse({ deliveryMode, feedbackItems });
-    if (!parsed.success) {
-      setSendError("Bitte prüfe die KPI-Werte und die Promotor-Zuordnung jeder validierten Karte. Für Senden ist zusätzlich eine Nachricht erforderlich.");
-      return;
-    }
-    sendingRef.current = true;
-    setSendingMode(deliveryMode);
-    setSendError("");
-    try {
-      const response = await fetch('/api/admin/kpi-feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(parsed.data),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'KPIs konnten nicht gespeichert werden.');
-      if (!result.success || result.count !== cardsToSend.length || result.feedback?.length !== cardsToSend.length) {
-        throw new Error('Die Speicherung konnte nicht bestätigt werden. Bitte prüfe die History.');
-      }
-      const savedCards: HistoryCardData[] = result.feedback.map((item: any, index: number) => ({
-        ...cardsToSend[index],
-        id: item.id,
-        mcet: Number(item.mc_et),
-        tma: Number(item.tma),
-        vlShare: Number(item.vl_value),
-        name: matchedPromoters[cardsToSend[index].id] || cardsToSend[index].name,
-        matchedPromoter: matchedPromoters[cardsToSend[index].id],
-        generatedText: item.feedback_text,
-        magicTouchCategory: item.magic_touch,
-        sentAt: new Date(item.created_at),
-        read: item.read,
-      }));
-      setHistoryCards(previous => [...savedCards, ...previous]);
-      const sentIds = cardsToSend.map(card => card.id);
-      setCardData(previous => previous.filter(card => !sentIds.includes(card.id)));
-      removeKpiDraftStateByIds(sentIds);
-    } catch (error) {
-      setSendError(error instanceof Error ? error.message : 'KPIs konnten nicht gespeichert werden. Bitte versuche es erneut.');
-    } finally {
-      sendingRef.current = false;
-      setSendingMode(null);
-    }
-  };
-
-  const handleRegenerateEmail = (cardId: string) => {
-    // Collapse the card and show generating state like initial generation
-    setGeneratedStates(prev => ({ ...prev, [cardId]: false }));
-    setGeneratingStates(prev => ({ ...prev, [cardId]: true }));
-
-    setTimeout(() => {
-      setGeneratingStates(prev => ({ ...prev, [cardId]: false }));
-      setGeneratedStates(prev => ({ ...prev, [cardId]: true }));
-      setEditedTexts(prev => ({ ...prev, [cardId]: getGeneratedEmailText() }));
-    }, 3000);
-  };
-
-  const getGeneratedEmailText = () => {
-    return `Liebe Ulrike,
-
-ich darf dir heute deine Mai KPIs zukommen lassen.
-
-Trotz der stabilen Marktlage machst du das Beste draus und dafür ein großes Dankeschön unsererseits. 😊
-
-Hier ein Rückblick auf deine Mai-Zahlen:
-
-MC/ET: 7.3 (Platz 1)
-TMA Anteil: 94%
-VL Share: 23% (Platz 2)
-
-Du hast im Mai mit deinem MC/ET den ersten Platz erreicht – eine wirklich beeindruckende Leistung! Deine hohe Verkaufszahl spiegelt dein Engagement wider und zeigt, dass du genau weißt, wie man Kunden begeistert. Auch dein VL Share ist mit Platz 2 bemerkenswert und zeigt, dass du einen hervorragenden Job machst. Beim TMA-Anteil gehörst du zu den Besten, was zeigt, wie effektiv du die Kundenbindung vor Ort gestaltest.
-
-Mach weiter so, deine Arbeit ist inspirierend!
-
-Liebe Grüße, dein Nespresso Team`;
-  };
+  const handleRegenerateEmail = (cardId: string) => { void handleGenerateEmail(cardId); };
 
   const handleGenerateAllEmails = async () => {
     // If currently generating, stop the process
@@ -830,11 +778,8 @@ Liebe Grüße, dein Nespresso Team`;
     { name: 'Verschlechterung', color: '#ffe3e3', bgColor: '#ffe3e3', borderColor: '#fecaca', icon: <FiTrendingDown className="h-3 w-3" /> }
   ];
 
-  const handleMagicTouchClick = (cardId: string) => {
-    setOpenDropdown(openDropdown === cardId ? null : cardId);
-  };
-
   const handleCategorySelect = (cardId: string, category: string) => {
+    setValidationStates(prev => ({ ...prev, [cardId]: false }));
     setMagicTouchCategories(prev => ({ ...prev, [cardId]: category }));
     setOpenDropdown(null);
   };
@@ -863,33 +808,6 @@ Liebe Grüße, dein Nespresso Team`;
       boxShadow: `0 1px 3px 0 ${category.borderColor}40, 0 1px 2px 0 ${category.borderColor}60`
     };
   };
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-
-      // Close magic touch dropdown
-      if (!target.closest('.magic-touch-dropdown')) {
-        setOpenDropdown(null);
-      }
-
-      // Close promoter dropdown
-      if (!target.closest('[data-promoter-dropdown]')) {
-        setShowPromoterDropdown({});
-      }
-
-      // Close promoter filter dropdown in stats modal
-      if (!target.closest('.promoter-filter-dropdown')) {
-        setShowPromoterFilterDropdown(false);
-      }
-    };
-
-    if (openDropdown || Object.values(showPromoterDropdown).some(Boolean) || showPromoterFilterDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [openDropdown, showPromoterDropdown, showPromoterFilterDropdown]);
 
   const handleScheduleCall = (card: CardData) => {
     // Check if already scheduled
@@ -951,11 +869,6 @@ Liebe Grüße, dein Nespresso Team`;
   };
 
   // Handle promoter matching functionality
-  const handlePromoterContainerClick = (cardId: string) => {
-    // Toggle dropdown regardless of whether a promoter is matched
-    setShowPromoterDropdown(prev => ({ ...prev, [cardId]: !prev[cardId] }));
-  };
-
   const handlePromoterSelect = (cardId: string, promoterName: string) => {
     setMatchedPromoters(prev => ({ ...prev, [cardId]: promoterName }));
     // Find and store the user_id
@@ -964,7 +877,6 @@ Liebe Grüße, dein Nespresso Team`;
       setMatchedPromoterIds(prev => ({ ...prev, [cardId]: promotorData.user_id }));
     }
     setShowPromoterDropdown(prev => ({ ...prev, [cardId]: false }));
-    setPromoterSearch(prev => ({ ...prev, [cardId]: '' }));
   };
 
   const getPromoterMatchStatus = (cardName: string) => {
@@ -990,19 +902,8 @@ Liebe Grüße, dein Nespresso Team`;
     }
   }, [cardData]);
 
-  const getSortedLeaderboard = (metric: "mcet" | "tma" | "vlshare") => {
-    return [...cardData]
-      .sort((a, b) => {
-        if (metric === "mcet") return b.mcet - a.mcet;
-        if (metric === "tma") return b.tma - a.tma;
-        if (metric === "vlshare") return b.vlShare - a.vlShare;
-        return 0;
-      })
-      .map((card, index) => ({
-        ...card,
-        rank: index + 1
-      }));
-  };
+  const getSortedLeaderboard = (metric: "mcet" | "tma" | "vlshare") =>
+    rankLeaderboard(rankData, metric).map(row => ({ ...row, id: row.user_id, name: row.name || 'Promotor', email: '', vlShare: row.vlshare }));
 
   const getLeaderboardItemStyling = (rank: number, metric: "mcet" | "tma" | "vlshare", value: number) => {
     if (rank === 1) {
@@ -1079,7 +980,7 @@ Liebe Grüße, dein Nespresso Team`;
     const grouped: { [date: string]: HistoryCardData[] } = {};
     sortedCards.forEach(card => {
       if (card.sentAt) {
-        const dateKey = card.sentAt.toLocaleDateString('de-DE');
+        const dateKey = card.waveMonth ? reportingMonthLabel(card.waveMonth) : card.sentAt.toLocaleDateString('de-DE');
         if (!grouped[dateKey]) {
           grouped[dateKey] = [];
         }
@@ -1229,9 +1130,9 @@ Liebe Grüße, dein Nespresso Team`;
     };
 
     // Calculate percentage changes
-    const mcetChange = ((lastAvgs.mcet - secondLastAvgs.mcet) / secondLastAvgs.mcet) * 100;
-    const tmaChange = ((lastAvgs.tma - secondLastAvgs.tma) / secondLastAvgs.tma) * 100;
-    const vlShareChange = ((lastAvgs.vlShare - secondLastAvgs.vlShare) / secondLastAvgs.vlShare) * 100;
+    const mcetChange = calculateKPIChange(lastAvgs.mcet, secondLastAvgs.mcet);
+    const tmaChange = calculateKPIChange(lastAvgs.tma, secondLastAvgs.tma);
+    const vlShareChange = calculateKPIChange(lastAvgs.vlShare, secondLastAvgs.vlShare);
 
     return {
       mcet: mcetChange,
@@ -1385,9 +1286,9 @@ Liebe Grüße, dein Nespresso Team`;
     };
 
     // Calculate percentage changes
-    const mcetChange = ((currentAvgs.mcet - sixWavesAgoAvgs.mcet) / sixWavesAgoAvgs.mcet) * 100;
-    const tmaChange = ((currentAvgs.tma - sixWavesAgoAvgs.tma) / sixWavesAgoAvgs.tma) * 100;
-    const vlShareChange = ((currentAvgs.vlShare - sixWavesAgoAvgs.vlShare) / sixWavesAgoAvgs.vlShare) * 100;
+    const mcetChange = calculateKPIChange(currentAvgs.mcet, sixWavesAgoAvgs.mcet);
+    const tmaChange = calculateKPIChange(currentAvgs.tma, sixWavesAgoAvgs.tma);
+    const vlShareChange = calculateKPIChange(currentAvgs.vlShare, sixWavesAgoAvgs.vlShare);
 
     return {
       mcet: mcetChange,
@@ -1787,15 +1688,15 @@ Liebe Grüße, dein Nespresso Team`;
       {/* Main Content */}
       <div className={`transition-all duration-300 ${sidebarOpen ? 'ml-56' : 'ml-14'}`}>
         {/* Header */}
-        <header className="bg-white border-b border-gray-100 px-8 py-6 relative z-10">
-          <div className="flex items-center justify-between">
-            <div>
+        <header className="bg-white border-b border-gray-100 px-4 py-6 relative z-10 sm:px-8">
+          <div className="flex flex-col items-start justify-between gap-4 xl:flex-row xl:items-center">
+            <div className="shrink-0">
               <h1 className="text-2xl font-semibold text-gray-900">Statistiken</h1>
               <p className="text-gray-500 text-sm">CA KPIs und Mystery Shops Verwaltung</p>
             </div>
 
             {/* Menu Buttons and Action Buttons */}
-            <div className="flex items-center space-x-3">
+            <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto">
               {/* Menu Buttons - Overview and History */}
               <button
                 onClick={() => setSelectedMenu('overview')}
@@ -1823,11 +1724,11 @@ Liebe Grüße, dein Nespresso Team`;
               {/* Vertical Divider */}
               <div className="h-8 w-px bg-gray-300 opacity-60 mx-3"></div>
               <button
-                onClick={() => setShowImportModal(true)}
+                onClick={() => { setSelectedMenu('overview'); setTimeout(() => setImportRequest(value => value + 1),0); }}
                 className="flex items-center space-x-2 px-3 py-2 bg-white text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
               >
                 <Download className="h-4 w-4" />
-                <span>Feedback-Import</span>
+                <span>KPIs importieren</span>
               </button>
               {/* Monatszahlen */}
               <button
@@ -1859,8 +1760,9 @@ Liebe Grüße, dein Nespresso Team`;
                 <Crown className="h-4 w-4" />
                 <span>Ranks</span>
               </button>
-              <button
+              {selectedMenu === 'overview' && feedbackMode && cardData.length > 0 && <button
                 onClick={handleGenerateAllEmails}
+                disabled={monthlyLocked}
                 className="flex items-center space-x-2 px-3 py-2 text-white text-sm rounded-lg hover:opacity-90 transition-all duration-200 opacity-80"
                 style={{
                   background: 'linear-gradient(135deg, #22C55E, #105F2D)',
@@ -1868,8 +1770,8 @@ Liebe Grüße, dein Nespresso Team`;
                 }}
               >
                 <Zap className={`h-4 w-4 ${generatingAll ? 'animate-spin' : ''}`} />
-                <span>Generate All Emails</span>
-              </button>
+                <span>{generatingAll ? 'Generierung stoppen' : 'Alle generieren'}</span>
+              </button>}
               <button className="p-2 bg-white text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
                 <Settings className="h-5 w-5" />
               </button>
@@ -1878,33 +1780,37 @@ Liebe Grüße, dein Nespresso Team`;
         </header>
 
         {/* Page Content */}
-        <main className="p-8">
+        <main className="min-w-0 p-4 sm:p-8">
           {selectedMenu === "overview" && (
             <>
-              <MonthlyMetricsAdmin />
+              <MonthlyMetricsAdmin feedbackMode={feedbackMode} onFeedbackModeChange={setFeedbackMode}
+                validation={validationStates} onValidate={handleValidateText} onRowsChange={loadMonthlyCards}
+                feedback={reviewedFeedback} categories={magicTouchCategories} onSent={() => setHistoryRefresh(value => value + 1)}
+                importRequest={importRequest} feedbackBusy={generatingAll || Object.values(generatingStates).some(Boolean)} onLockedChange={setMonthlyLocked}
+                feedbackContent={<>
               {/* Promoter Cards Grid */}
-              <div className="grid grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
                 {cardData.map((card) => (
-                  <div key={card.id} className="bg-white border border-gray-100 rounded-lg p-4 shadow">
+                  <div key={card.id} role="group" aria-label={`KPI-Feedback für ${card.name}`} className="bg-white border border-gray-100 rounded-lg p-4 shadow">
                     <div className="flex items-center justify-between mb-2">
                       <h3 className="font-medium text-gray-900">{card.name}</h3>
-                      <button
+                      {!card.userId && <button
                         className="text-red-500 hover:text-red-600"
                         onClick={() => handleDeleteCard(card.id)}
                       >
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1} viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6M10 11v6M14 11v6" />
                         </svg>
-                      </button>
+                      </button>}
                     </div>
-                    <div className="flex items-center space-x-2 mb-3 cursor-pointer" onClick={() => handleEmailCopy(card.email)}>
+                    {card.email && <div className="flex items-center space-x-2 mb-3 cursor-pointer" onClick={() => handleEmailCopy(card.email)}>
                       {copiedEmail === card.email ? (
                         <Check className="h-3 w-3 text-green-500 flex-shrink-0" />
                       ) : (
                         <Mail className="h-3 w-3 text-gray-400 flex-shrink-0" />
                       )}
                       <p className="text-sm text-gray-600 truncate">{card.email}</p>
-                    </div>
+                    </div>}
 
                     {/* KPI Metrics */}
                     <div
@@ -1966,6 +1872,8 @@ Liebe Grüße, dein Nespresso Team`;
                         </button>
                         <button
                           className="text-gray-400 hover:text-gray-600"
+                          aria-label="Feedback neu generieren"
+                          disabled={monthlyLocked || generatingAll || !!generatingStates[card.id]}
                           onClick={() => generatedStates[card.id] ? handleRegenerateEmail(card.id) : handleGenerateEmail(card.id)}
                         >
                           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1976,6 +1884,7 @@ Liebe Grüße, dein Nespresso Team`;
                           <>
                             <button
                               className={`${copiedText[card.id] ? 'text-green-500' : 'text-gray-400 hover:text-gray-600'}`}
+                              aria-label="Feedback kopieren"
                               onClick={() => handleCopyGeneratedText(card.id)}
                             >
                               {copiedText[card.id] ? (
@@ -1986,6 +1895,8 @@ Liebe Grüße, dein Nespresso Team`;
                             </button>
                             <button
                               className={`${editingStates[card.id] ? 'text-green-500' : 'text-gray-400 hover:text-gray-600'}`}
+                              aria-label={editingStates[card.id] ? "Feedback übernehmen" : "Feedback bearbeiten"}
+                              disabled={monthlyLocked || generatingAll || !!generatingStates[card.id]}
                               onClick={() => handleEditText(card.id)}
                             >
                               {editingStates[card.id] ? (
@@ -1999,106 +1910,33 @@ Liebe Grüße, dein Nespresso Team`;
                       </div>
                     </div>
 
-                    <div className="relative magic-touch-dropdown">
-                      <div
-                        className="flex items-center justify-between mb-3 px-2 py-1 rounded-md border border-gray-300 shadow-sm text-xs bg-gray-50 text-gray-600 cursor-pointer"
+                    <div className="mb-3 magic-touch-dropdown">
+                      <AdminStatisticsSelect
+                        label={`Magic Touch für ${card.name}`}
+                        disabled={monthlyLocked || generatingAll || !!generatingStates[card.id]}
+                        value={magicTouchCategories[card.id] || 'Neutral'}
+                        onChange={category => handleCategorySelect(card.id, category)}
+                        options={categories.map(category => ({ value: category.name, label: category.name, icon: category.icon, color: category.color }))}
+                        open={openDropdown === card.id}
+                        onOpenChange={open => setOpenDropdown(open ? card.id : null)}
                         style={getMagicTouchStyle(card.id)}
-                        onClick={() => handleMagicTouchClick(card.id)}
-                      >
-                        <div className="flex items-center space-x-1">
-                          <span>
-                            {magicTouchCategories[card.id] ? (
-                              <div className="flex items-center space-x-1">
-                                {categories.find(c => c.name === magicTouchCategories[card.id])?.icon}
-                                <span>{magicTouchCategories[card.id]}</span>
-                              </div>
-                            ) : (
-                              <div className="flex items-center space-x-1">
-                                <FiSliders className="h-3 w-3" />
-                                <span>Neutral</span>
-                              </div>
-                            )}
-                          </span>
-                        </div>
-                        <ChevronDown className="h-3 w-3 text-gray-400" />
-                      </div>
-
-                      {openDropdown === card.id && (
-                        <div className="absolute top-full left-0 w-full bg-white border border-gray-200 rounded-md shadow-lg z-10 mt-1">
-                          {categories.map((category) => (
-                            <div
-                              key={category.name}
-                              className="px-3 py-2 text-xs cursor-pointer transition-colors"
-                              onMouseEnter={(e) => {
-                                (e.currentTarget as HTMLElement).style.backgroundColor = category.color;
-                              }}
-                              onMouseLeave={(e) => {
-                                (e.currentTarget as HTMLElement).style.backgroundColor = '';
-                              }}
-                              onClick={() => handleCategorySelect(card.id, category.name)}
-                            >
-                              <div className="flex items-center space-x-2">
-                                {category.icon}
-                                <span>{category.name}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                        className="h-8 bg-gray-50 text-xs"
+                      />
                     </div>
 
-                    <div
-                      className={`px-2 py-1 rounded-md border text-xs mb-3 mt-2.5 flex items-center space-x-2 relative border-gray-200 bg-gray-100 text-gray-600 cursor-pointer hover:bg-gray-50 ${showPromoterDropdown[card.id] ? 'z-[9999]' : ''}`}
-                      onClick={() => handlePromoterContainerClick(card.id)}
-                      data-promoter-dropdown
-                    >
-                      {/* Status indicator dot */}
-                      <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                        matchedPromoters[card.id]
-                          ? 'bg-green-600 shadow-sm shadow-green-600/50 ring-2 ring-green-600/20 opacity-50'
-                          : 'bg-red-500 shadow-sm shadow-red-500/50 ring-2 ring-red-500/20 opacity-50'
-                      }`}></div>
-
-                      {/* Text content */}
-                      <span className="opacity-50">
-                        {matchedPromoters[card.id] || 'Kein Promotor gefunden'}
-                      </span>
-
-                      {/* Dropdown for all promoters */}
-                      {showPromoterDropdown[card.id] && (
-                        <div className="absolute top-full -left-2 right-0 mt-1 border border-gray-200 rounded-md shadow-lg z-[9999] overflow-hidden" style={{backgroundColor: '#ffffff', opacity: 1}}>
-                          <input
-                            type="text"
-                            placeholder="Suchen..."
-                            className="w-full px-3 py-2 text-xs border-b border-gray-200 outline-none focus:outline-none focus:ring-0"
-                            value={promoterSearch[card.id] || ''}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              setPromoterSearch(prev => ({ ...prev, [card.id]: e.target.value }));
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                          <div className="max-h-32 overflow-y-auto scrollbar-hide">
-                            {availablePromoters
-                              .filter(promoter =>
-                                !promoterSearch[card.id] ||
-                                promoter.toLowerCase().includes(promoterSearch[card.id].toLowerCase())
-                              )
-                              .map((promoter) => (
-                                <button
-                                  key={promoter}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handlePromoterSelect(card.id, promoter);
-                                  }}
-                                  className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
-                                >
-                                  {promoter}
-                                </button>
-                              ))}
-                          </div>
-                        </div>
-                      )}
+                    <div className="mb-3 mt-2.5" data-promoter-dropdown>
+                      <AdminStatisticsCombobox
+                        label={`Promotor für ${card.name}`}
+                        disabled={!!card.userId}
+                        value={matchedPromoters[card.id] || ''}
+                        onChange={promoter => handlePromoterSelect(card.id, promoter)}
+                        options={availablePromoters.map(promoter => ({ value: promoter, label: promoter }))}
+                        placeholder="Kein Promotor gefunden"
+                        open={!!showPromoterDropdown[card.id]}
+                        onOpenChange={open => setShowPromoterDropdown(prev => ({ ...prev, [card.id]: open }))}
+                        marker={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${matchedPromoters[card.id] ? 'bg-green-600' : 'bg-red-500'}`} />}
+                        className="h-8 bg-gray-100 text-xs"
+                      />
                     </div>
 
                     <div className={`bg-gray-100 border border-dashed rounded-lg overflow-hidden ${
@@ -2109,11 +1947,12 @@ Liebe Grüße, dein Nespresso Team`;
                         <div className="flex justify-center items-center h-full">
                           <button
                             onClick={() => handleGenerateEmail(card.id)}
+                            disabled={monthlyLocked || generatingAll}
                             className="flex items-center space-x-1.5 px-2.5 py-1.5 text-xs text-white rounded-lg transition-all duration-200 opacity-85"
                             style={{background: 'linear-gradient(135deg, #22C55E, #105F2D)'}}
                           >
                             <Zap className="h-3.5 w-3.5" />
-                            <span>Generate Email</span>
+                            <span>Feedback generieren</span>
                           </button>
                         </div>
                       )}
@@ -2136,13 +1975,14 @@ Liebe Grüße, dein Nespresso Team`;
                         <div className="text-xs text-gray-600 leading-relaxed h-72 overflow-y-auto scrollbar-hide w-full">
                           {editingStates[card.id] ? (
                             <textarea
-                              className="w-full h-full text-xs text-gray-600 leading-relaxed resize-none bg-transparent border-none outline-none font-sans scrollbar-hide"
-                              value={editedTexts[card.id] || getGeneratedEmailText()}
+                              aria-label={`Feedback für ${card.name}`}
+                              className="w-full h-full text-xs text-gray-600 leading-relaxed resize-none bg-transparent border-none outline-none [font-family:inherit] scrollbar-hide"
+                              value={editedTexts[card.id] || ''}
                               onChange={(e) => handleTextChange(card.id, e.target.value)}
                               style={{scrollbarWidth: 'none', msOverflowStyle: 'none'}}
                             />
                           ) : (
-                            <pre className="whitespace-pre-wrap font-sans">{editedTexts[card.id] || getGeneratedEmailText()}</pre>
+                            <pre className="whitespace-pre-wrap [font-family:inherit]">{editedTexts[card.id] || ''}</pre>
                           )}
                         </div>
                       )}
@@ -2151,39 +1991,21 @@ Liebe Grüße, dein Nespresso Team`;
                     <div className="-mb-3">
                       <button
                         onClick={() => handleValidateText(card.id)}
-                        disabled={sendingMode !== null}
+                        disabled={monthlyLocked || generatingAll || !!generatingStates[card.id]}
                         aria-pressed={!!validationStates[card.id]}
                         className={`w-full flex items-center justify-center space-x-2 px-3 py-1 mt-1 text-xs text-white rounded-lg transition-all duration-200 disabled:cursor-wait ${validationStates[card.id] ? 'opacity-85' : 'opacity-40'}`}
                         style={{background: 'linear-gradient(135deg, #22C55E, #105F2D)'}}
                       >
                         {validationStates[card.id] && <Check className="h-3.5 w-3.5" />}
-                        <span>{validationStates[card.id] ? 'Validiert' : 'KPIs validieren'}</span>
+                        <span>{validationStates[card.id] ? 'Validiert' : 'Validieren'}</span>
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {validatedCards.length > 0 && (
-                <div className="mt-6 space-y-3">
-                  <div className="flex flex-wrap justify-center gap-3">
-                    <button
-                      onClick={() => void handleSendToHistory("feedback")}
-                      disabled={!canSendFeedback || sendingMode !== null}
-                      className="px-6 py-3 text-sm text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
-                      style={{background: 'linear-gradient(135deg, #22C55E, #105F2D)'}}
-                    >{sendingMode === "feedback" ? "Wird gesendet…" : "Senden"}</button>
-                    <button
-                      onClick={() => void handleSendToHistory("kpis-only")}
-                      disabled={!canSendKpis || sendingMode !== null}
-                      className="px-6 py-3 text-sm text-green-700 border border-green-600 rounded-lg hover:bg-green-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >{sendingMode === "kpis-only" ? "Wird gesendet…" : "Senden ohne Nachricht"}</button>
-                  </div>
-                  {!canSendKpis && <p className="text-center text-sm text-gray-600">Bitte ordne jede validierte Karte einem Promotor zu.</p>}
-                  {canSendKpis && !canSendFeedback && <p className="text-center text-sm text-gray-600">Ohne Nachricht kannst du direkt senden. Für Senden benötigt jede validierte Karte eine Nachricht.</p>}
-                </div>
-              )}
-              {sendError && <p role="alert" className="mt-3 text-center text-sm text-red-600">{sendError}</p>}
+                  {cardData.length === 0 && <p className="py-6 text-sm text-gray-500">Keine ungesendeten KPIs für Feedback vorhanden.</p>}
+                </>} />
 
             </>
           )}
@@ -2648,44 +2470,25 @@ Liebe Grüße, dein Nespresso Team`;
 
               {/* Filter Section */}
               <div className="border border-gray-200 rounded-lg p-4 mb-6">
-                <div className="flex items-center justify-center space-x-6">
-                  <div className="flex items-center space-x-3">
+                <div className="flex flex-wrap items-center justify-center gap-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-sm text-gray-600">Monat:</span>
+                    <AdminStatisticsSelect label="History-Monat" value={historyMonth} onChange={setHistoryMonth}
+                      options={[{value:'all',label:'Alle Monate'},...Array.from(new Set(historyCards.map(card => card.waveMonth).filter((month): month is string => !!month)))
+                        .sort().reverse().map(month => ({value:month,label:reportingMonthLabel(month)})),
+                        ...(historyCards.some(card => !card.waveMonth) ? [{value:'legacy',label:'Ohne Monatszuordnung'}] : [])]} className="w-56 max-w-full" />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
                     <span className="text-sm text-gray-600">Filter by Promoter:</span>
-                    <div className="relative promoter-filter-dropdown">
-                      <button
-                        onClick={() => setShowPromoterFilterDropdown(!showPromoterFilterDropdown)}
-                        className="flex items-center space-x-2 px-3 py-1.5 bg-white border border-gray-300 rounded text-sm hover:bg-gray-50 transition-colors"
-                      >
-                        <span>{selectedPromoterFilter === "all" ? "All Promoters" : selectedPromoterFilter}</span>
-                        <ChevronDown className="h-4 w-4 text-gray-400" />
-                      </button>
-
-                      {showPromoterFilterDropdown && (
-                        <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
-                          <div
-                            onClick={() => {
-                              setSelectedPromoterFilter("all");
-                              setShowPromoterFilterDropdown(false);
-                            }}
-                            className="px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer border-b border-gray-100"
-                          >
-                            All Promoters
-                          </div>
-                          {historyPromoterNames.map((promoter) => (
-                            <div
-                              key={promoter}
-                              onClick={() => {
-                                setSelectedPromoterFilter(promoter);
-                                setShowPromoterFilterDropdown(false);
-                              }}
-                              className="px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer"
-                            >
-                              {promoter}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <AdminStatisticsCombobox
+                      label="Promotor filtern"
+                      value={selectedPromoterFilter}
+                      onChange={setSelectedPromoterFilter}
+                      options={[{ value: 'all', label: 'All Promoters' }, ...historyPromoterNames.map(promoter => ({ value: promoter, label: promoter }))]}
+                      open={showPromoterFilterDropdown}
+                      onOpenChange={setShowPromoterFilterDropdown}
+                      className="w-56 max-w-full"
+                    />
                   </div>
                   <span className="text-sm text-gray-400">({displayedHistoryCards.length} entries found)</span>
                 </div>
@@ -2698,7 +2501,7 @@ Liebe Grüße, dein Nespresso Team`;
                   <div>
                     <div className="h-5 w-32 bg-gray-200 rounded mb-4 animate-skeleton-fade"></div>
                     {/* Skeleton cards grid */}
-                    <div className="grid grid-cols-5 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
                       {[...Array(3)].map((_, i) => (
                         <div key={`history-skel-${i}`} className="bg-white border border-gray-100 rounded-lg p-4 shadow">
                           <div className="flex items-center justify-between mb-3">
@@ -2735,7 +2538,7 @@ Liebe Grüße, dein Nespresso Team`;
                       <h2 className="text-lg font-bold text-gray-900 mb-4">{date}</h2>
 
                       {/* Cards Grid for this date */}
-                      <div className="grid grid-cols-5 gap-4">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
                         {cards.map((card) => (
                           <div key={card.id} className="bg-white border border-gray-100 rounded-lg p-4 shadow">
                             <div className="flex items-center justify-between mb-3">
@@ -2833,9 +2636,10 @@ Liebe Grüße, dein Nespresso Team`;
                               </span>
                             </div>
 
+                            {card.premiumAmount != null && <p className="mb-3 text-sm font-semibold text-gray-900">Prämie: {card.premiumAmount.toLocaleString('de-AT',{style:'currency',currency:'EUR'})}</p>}
                             <div className="bg-gray-100 border border-dashed rounded-lg overflow-hidden max-h-96 p-4 border-gray-300">
                               <div className="text-xs text-gray-600 leading-relaxed h-72 overflow-y-auto scrollbar-hide w-full">
-                                <pre className="whitespace-pre-wrap font-sans">{card.generatedText?.trim() || 'KPIs ohne Nachricht gesendet.'}</pre>
+                                <pre className="whitespace-pre-wrap [font-family:inherit]">{card.generatedText?.trim() || 'KPIs ohne Nachricht gesendet.'}</pre>
                               </div>
                             </div>
                           </div>
@@ -2903,6 +2707,10 @@ Liebe Grüße, dein Nespresso Team`;
                       <div className="flex items-start text-xs">
                         <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalte C:</span>
                         <span className="text-gray-600 ml-2">Emailadresse</span>
+                      </div>
+                      <div className="flex items-start text-xs">
+                        <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Monat:</span>
+                        <span className="text-gray-600 ml-2">Berichtsmonat aus der Liste; Datum oder Monatsname mit Jahr. Beim Import frei zuordnen.</span>
                       </div>
                       <div className="flex items-start text-xs">
                         <span className="font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">Spalten F-H:</span>
@@ -3173,7 +2981,7 @@ Liebe Grüße, dein Nespresso Team`;
 
                 {/* Leaderboard Content */}
                 <div className="space-y-2">
-                  {cardData.length > 0 ? (
+                  {rankData.length > 0 ? (
                     getSortedLeaderboard(activeRanksTab).map((entry) => {
                       const currentValue = activeRanksTab === "mcet" ? entry.mcet :
                                          activeRanksTab === "tma" ? entry.tma :
@@ -3368,7 +3176,7 @@ Liebe Grüße, dein Nespresso Team`;
                       <div className="overflow-y-auto scrollbar-hide space-y-2 max-h-52 px-1">
                         {/* Historical KPI Entries as Rows (newest first) */}
                         {kpiHistory.map((entry, index) => {
-                          const entryDate = new Date(entry.created_at);
+                          const entryDate = new Date(entry.wave_month ? `${entry.wave_month.slice(0,7)}-01T12:00:00` : entry.created_at);
                           const monthYear = entryDate.toLocaleDateString('de-DE', { month: 'short', year: 'numeric' });
 
                           return (
