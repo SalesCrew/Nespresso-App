@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
+import { updateMarketWithPhotos } from '@/lib/storage/marketPhotos';
 
 // PATCH - Update market
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const server = createSupabaseServerClient();
+    const marketId = (await params).id;
+    const server = await createSupabaseServerClientAsync();
     const { data: { user } } = await server.auth.getUser();
     
     if (!user) {
@@ -43,16 +45,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (body.promotorNotes !== undefined) updateData.promotor_notes = body.promotorNotes;
     
     // Photo arrays
-    if (body.photosInternal !== undefined) updateData.photos_internal = body.photosInternal;
-    if (body.photosExterior !== undefined) updateData.photos_exterior = body.photosExterior;
-    if (body.photosInterior !== undefined) updateData.photos_interior = body.photosInterior;
-    if (body.photosProducts !== undefined) updateData.photos_products = body.photosProducts;
+    const photoChanges: any = {};
+    if (Array.isArray(body.photosInternal)) photoChanges.photos_internal = body.photosInternal;
+    if (Array.isArray(body.photosExterior)) photoChanges.photos_exterior = body.photosExterior;
+    if (Array.isArray(body.photosInterior)) photoChanges.photos_interior = body.photosInterior;
+    if (Array.isArray(body.photosProducts)) photoChanges.photos_products = body.photosProducts;
     
     // Update market
-    const { data: updatedMarket, error: updateError } = await svc
+    const { data: updatedMarket, error: updateError } = Object.keys(photoChanges).length
+      ? { data: await updateMarketWithPhotos(svc, marketId, updateData, photoChanges), error: null }
+      : await svc
       .from('markets')
       .update(updateData)
-      .eq('id', params.id)
+      .eq('id', marketId)
       .select()
       .single();
     
@@ -72,9 +77,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 // DELETE - Delete market
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const server = createSupabaseServerClient();
+    const marketId = (await params).id;
+    const server = await createSupabaseServerClientAsync();
     const { data: { user } } = await server.auth.getUser();
     
     if (!user) {
@@ -98,7 +104,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     const { error: deleteError } = await svc
       .from('markets')
       .delete()
-      .eq('id', params.id);
+      .eq('id', marketId);
     
     if (deleteError) {
       console.error('Error deleting market:', deleteError);

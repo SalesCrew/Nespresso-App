@@ -1,6 +1,6 @@
 import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
-import { signEinsatzPhotoFields } from '@/lib/storage/einsatzPhotos';
+import { withEinsatzPhotoUrls } from '@/lib/storage/einsatzPhotos';
 import { ASSIGNMENT_LOCATION_TRACKING_ENABLED } from '@/lib/location/config';
 import {
   ASSIGNMENT_LOCATION_RADIUS_METERS,
@@ -238,7 +238,7 @@ export async function GET(request: Request) {
       const assignmentId = String(row?.assignment_id || row?.id || '');
       const rowUserId = String(row?.user_id || row?.lead_user_id || '');
       const tracking = trackingByAssignmentUser.get(`${assignmentId}:${rowUserId}`);
-      return signEinsatzPhotoFields(service, {
+      return withEinsatzPhotoUrls({
         ...row,
         type: String(row?.type || typeByAssignmentId.get(assignmentId) || '').toLowerCase(),
         participant_names: participantNamesByAssignmentId.get(assignmentId) || [],

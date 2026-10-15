@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServiceClient } from '@/lib/supabase/service'
 import { requireAdmin, requireUser } from '@/lib/auth/routeGuards'
-import { signEinsatzPhotoFields } from '@/lib/storage/einsatzPhotos'
+import { withEinsatzPhotoUrls } from '@/lib/storage/einsatzPhotos'
 
 const ASSIGNMENTS_PAGE_SIZE = 1000
 const IN_CLAUSE_CHUNK_SIZE = 500
@@ -125,7 +125,7 @@ export async function GET(req: Request) {
 
     const enriched = await Promise.all(rows.map(async (r: any) => {
       const tracking = trackingMap.get(r.id)
-      return signEinsatzPhotoFields(svc, {
+      return withEinsatzPhotoUrls({
         ...r,
         matched_market_id: r.matched_market_id !== undefined ? r.matched_market_id : (mmMap.get(r.id) ?? null),
         tracking_actual_start_time: tracking?.actual_start_time ?? null,

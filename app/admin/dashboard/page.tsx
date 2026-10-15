@@ -49,6 +49,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import AdminNavigation from "@/components/AdminNavigation";
 import AdminEddieAssistant from "@/components/AdminEddieAssistant";
+import AssignmentPhoto from "@/components/assignment/AssignmentPhoto";
 import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap";
 
  export default function AdminDashboard() {
@@ -4525,7 +4526,7 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
                           )}
                         </div>
                         {selectedAssignmentDetail.foto_maschine_url ? (
-                          <img 
+                          <AssignmentPhoto
                             src={selectedAssignmentDetail.foto_maschine_url} 
                             alt="Foto Maschine" 
                             className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
@@ -4552,7 +4553,7 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
                           )}
                         </div>
                         {selectedAssignmentDetail.foto_kapsellade_url ? (
-                          <img 
+                          <AssignmentPhoto
                             src={selectedAssignmentDetail.foto_kapsellade_url} 
                             alt="Foto Kapsellade" 
                             className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
@@ -4579,7 +4580,7 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
                           )}
                         </div>
                         {selectedAssignmentDetail.foto_pos_gesamt_url ? (
-                          <img 
+                          <AssignmentPhoto
                             src={selectedAssignmentDetail.foto_pos_gesamt_url} 
                             alt="Foto POS gesamt" 
                             className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
@@ -4606,7 +4607,7 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
                           )}
                         </div>
                         {selectedAssignmentDetail.foto_extra_url ? (
-                          <img 
+                          <AssignmentPhoto
                             src={selectedAssignmentDetail.foto_extra_url} 
                             alt="Optionales Foto" 
                             className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
@@ -4663,7 +4664,7 @@ import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap
             >
               <X className="h-6 w-6" />
             </button>
-            <img 
+            <AssignmentPhoto
               src={selectedPhoto.url} 
               alt={selectedPhoto.title}
               className="max-w-full max-h-full object-contain rounded-lg"

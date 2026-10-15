@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
+import { marketImportKey } from '@/lib/storage/marketPhotos';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
-    const server = createSupabaseServerClient();
+    const server = await createSupabaseServerClientAsync();
     const { data: { user } } = await server.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -39,12 +40,27 @@ export async function POST(req: NextRequest) {
     }));
 
     const svc = createSupabaseServiceClient();
-    const { data, error } = await svc.from('markets').insert(mapped).select('id');
+    const existingKeys = new Set<string>();
+    for (let offset = 0; ; offset += 1000) {
+      const { data: existing, error } = await svc.from('markets').select('id,name,address,plz,city').order('id').range(offset, offset + 999);
+      if (error) return NextResponse.json({ error: 'Bestehende Märkte konnten nicht geprüft werden.' }, { status: 503 });
+      for (const market of existing || []) existingKeys.add(marketImportKey(market));
+      if (!existing || existing.length < 1000) break;
+    }
+    // Reimporting an identical market retains its ID, notes and photo links.
+    const newMarkets = mapped.filter(market => {
+      const key = marketImportKey(market);
+      if (existingKeys.has(key)) return false;
+      existingKeys.add(key);
+      return true;
+    });
+    if (!newMarkets.length) return NextResponse.json({ inserted: 0, unchanged: mapped.length });
+    const { data, error } = await svc.from('markets').insert(newMarkets).select('id');
     if (error) {
       console.error('Import markets error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json({ inserted: data?.length ?? 0 });
+    return NextResponse.json({ inserted: data?.length ?? 0, unchanged: mapped.length - newMarkets.length });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || 'Server error' }, { status: 500 });
   }

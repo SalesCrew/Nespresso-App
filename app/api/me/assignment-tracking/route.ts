@@ -1,6 +1,6 @@
 import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
-import { signEinsatzPhotoFields } from '@/lib/storage/einsatzPhotos';
+import { withEinsatzPhotoUrls } from '@/lib/storage/einsatzPhotos';
 import { NextResponse } from 'next/server';
 
 export async function GET() {
@@ -52,7 +52,7 @@ export async function GET() {
       }, { status: 500 });
     }
 
-    const assignments = await Promise.all((tracking || []).map((row: any) => signEinsatzPhotoFields(service, row)));
+    const assignments = await Promise.all((tracking || []).map((row: any) => withEinsatzPhotoUrls(row)));
     return NextResponse.json({ assignments });
   } catch (error) {
     console.error('Unexpected error in /api/me/assignment-tracking:', error);

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
+import { MARKET_PHOTO_FIELDS, updateMarketWithPhotos } from '@/lib/storage/marketPhotos';
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const server = createSupabaseServerClient();
+    const marketId = (await params).id;
+    const server = await createSupabaseServerClientAsync();
     const service = createSupabaseServiceClient();
     
     // Check authentication
@@ -24,11 +26,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const marketId = params.id;
     const formData = await req.formData();
     const file = formData.get('file') as File;
     const photo_type = formData.get('photo_type') as string; // 'internal' | 'exterior' | 'interior' | 'products'
     const comment = formData.get('comment') as string || '';
+    if (!MARKET_PHOTO_FIELDS.includes(`photos_${photo_type}` as any)) {
+      return NextResponse.json({ error: 'Invalid photo type' }, { status: 400 });
+    }
 
     if (!file || !photo_type) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -71,33 +75,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     // Fetch current photos array
     const photoField = `photos_${photo_type}`;
-    const { data: currentMarket } = await service
-      .from('markets')
-      .select(photoField)
-      .eq('id', marketId)
-      .single();
-
-    const currentPhotos = currentMarket?.[photoField] || [];
-    
     // Append new photo to array
     const newPhoto = {
       url: urlData.publicUrl,
       comment: comment,
-      order: currentPhotos.length
+      order: 0
     };
     
-    const updatedPhotos = [...currentPhotos, newPhoto];
-
-    // Update market's photos array
-    const { error: updateError } = await service
-      .from('markets')
-      .update({ [photoField]: updatedPhotos })
-      .eq('id', marketId);
-
-    if (updateError) {
-      console.error('Error updating market photos:', updateError);
-      return NextResponse.json({ error: 'Failed to save photo reference' }, { status: 500 });
-    }
+    const saved = await updateMarketWithPhotos(service, marketId, {}, { [photoField]: [newPhoto] }, true);
+    const updatedPhotos = saved[photoField] || [];
 
     return NextResponse.json({ 
       photo: newPhoto,

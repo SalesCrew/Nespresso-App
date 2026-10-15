@@ -1,5 +1,3 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 export const EINSATZ_PHOTO_BUCKET = "einsatz-photos";
 export const EINSATZ_PHOTO_URL_FIELDS = [
   "foto_maschine_url",
@@ -35,29 +33,22 @@ export function extractEinsatzPhotoPath(reference: unknown): string | null {
   return path;
 }
 
-export async function createEinsatzPhotoSignedUrl(
-  service: SupabaseClient,
-  reference: unknown,
-  expiresInSeconds = 900
-): Promise<string | null> {
-  const path = extractEinsatzPhotoPath(reference);
-  if (!path) return null;
-  const { data, error } = await service.storage
-    .from(EINSATZ_PHOTO_BUCKET)
-    .createSignedUrl(path, expiresInSeconds);
-  return error ? null : data?.signedUrl || null;
+export function einsatzPhotoUrl(assignmentId: string, userId: string, field: string): string {
+  return `/api/einsatz-photos?${new URLSearchParams({ assignment: assignmentId, user: userId, photo: field })}`;
 }
 
-export async function signEinsatzPhotoFields<T extends Record<string, any>>(
-  service: SupabaseClient,
+// Keep a stable authenticated URL in the UI. Storage access is renewed only when
+// an image is actually viewed, rather than signing every photo on every list load.
+export function withEinsatzPhotoUrls<T extends Record<string, any>>(
   row: T,
   fields: readonly string[] = EINSATZ_PHOTO_URL_FIELDS
-): Promise<T> {
-  const signedEntries = await Promise.all(fields.map(async (field) => {
+): T {
+  const assignmentId = String(row.assignment_id || row.id || '');
+  const userId = String(row.user_id || row.lead_user_id || '');
+  const entries = fields.map((field) => {
     const value = row[field];
     if (!value) return [field, value] as const;
-    const signedUrl = await createEinsatzPhotoSignedUrl(service, value);
-    return [field, signedUrl] as const;
-  }));
-  return { ...row, ...Object.fromEntries(signedEntries) };
+    return [field, einsatzPhotoUrl(assignmentId, userId, field.replace(/^tracking_/, ''))] as const;
+  });
+  return { ...row, ...Object.fromEntries(entries) };
 }

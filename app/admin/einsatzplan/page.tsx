@@ -48,6 +48,8 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import AdminNavigation from "@/components/AdminNavigation";
 import AdminEddieAssistant from "@/components/AdminEddieAssistant";
+import AssignmentPhoto from "@/components/assignment/AssignmentPhoto";
+import PhotoArchiveDialog from "@/components/assignment/PhotoArchiveDialog";
 import AssignmentLocationMap from "@/components/assignment/AssignmentLocationMap";
 import { normalizeForMatch } from "@/lib/matchers/marketMatcher";
 
@@ -107,6 +109,7 @@ const INTERN_PREVIEW_ROW_HEIGHT = 28;
 const INTERN_PREVIEW_OVERSCAN = 20;
 
 export default function EinsatzplanPage() {
+  const [showPhotoArchive, setShowPhotoArchive] = useState(false);
   // Custom scrollbar and skeleton styles
   const customScrollbarStyle = `
     .custom-scrollbar::-webkit-scrollbar {
@@ -2923,6 +2926,7 @@ export default function EinsatzplanPage() {
               <p className="text-gray-500 text-sm">{activeView === 'einsatzplan' ? 'Übersicht und Planung aller Einsätze' : 'Markt-Verwaltung und Informationen'}</p>
             </div>
             <div className="flex items-center space-x-3">
+              <Button type="button" variant="outline" onClick={() => setShowPhotoArchive(true)} className="rounded-lg">Fotoarchiv</Button>
               <button
                 onClick={() => setActiveView('einsatzplan')}
                 className={`flex items-center space-x-2 px-3 py-2 text-sm border rounded-lg transition-all duration-200 ${
@@ -2979,6 +2983,7 @@ Import EP
           </div>
         </header>
 
+        <PhotoArchiveDialog open={showPhotoArchive} onOpenChange={setShowPhotoArchive} initialBucket={activeView === 'maerkte' ? 'market-photos' : 'einsatz-photos'} />
         {/* Dashboard Content */}
         <main className="p-8 space-y-6">
           {activeView === 'einsatzplan' ? (
@@ -5810,7 +5815,7 @@ Import EP
                             )}
                           </div>
                           {assignmentTrackingData.foto_maschine_url ? (
-                            <img 
+                            <AssignmentPhoto
                               src={assignmentTrackingData.foto_maschine_url} 
                               alt="Foto Maschine" 
                               className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
@@ -5837,7 +5842,7 @@ Import EP
                             )}
                           </div>
                           {assignmentTrackingData.foto_kapsellade_url ? (
-                            <img 
+                            <AssignmentPhoto
                               src={assignmentTrackingData.foto_kapsellade_url} 
                               alt="Foto Kapsellade" 
                               className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
@@ -5864,7 +5869,7 @@ Import EP
                             )}
                           </div>
                           {assignmentTrackingData.foto_pos_gesamt_url ? (
-                            <img 
+                            <AssignmentPhoto
                               src={assignmentTrackingData.foto_pos_gesamt_url} 
                               alt="Foto POS gesamt" 
                               className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
@@ -5891,7 +5896,7 @@ Import EP
                             )}
                           </div>
                           {assignmentTrackingData.foto_extra_url ? (
-                            <img 
+                            <AssignmentPhoto
                               src={assignmentTrackingData.foto_extra_url} 
                               alt="Optionales Foto" 
                               className="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
@@ -6413,7 +6418,7 @@ Import EP
             >
               <X className="h-6 w-6" />
             </button>
-            <img 
+            <AssignmentPhoto
               src={selectedPhoto.url} 
               alt={selectedPhoto.title}
               className="max-w-full max-h-full object-contain rounded-lg"

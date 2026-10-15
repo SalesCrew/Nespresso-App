@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClientAsync } from '@/lib/supabase/server';
 import { createSupabaseServiceClient } from '@/lib/supabase/service';
-import { createEinsatzPhotoSignedUrl } from '@/lib/storage/einsatzPhotos';
+import { einsatzPhotoUrl } from '@/lib/storage/einsatzPhotos';
 
 const PHOTO_BUCKET = 'einsatz-photos';
 const MAX_PHOTO_SIZE = 5 * 1024 * 1024;
@@ -224,9 +224,8 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const signedUrl = await createEinsatzPhotoSignedUrl(service, path);
     return NextResponse.json({
-      photo_url: signedUrl || path,
+      photo_url: einsatzPhotoUrl(assignmentId, user.id, photoField),
       photo_type: photoType,
     });
   } catch (error) {
